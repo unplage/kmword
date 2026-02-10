@@ -1,0 +1,2538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0f172a">
+    <title>扇贝阅读 - 智能背单词</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-light: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            --radius: 12px;
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            padding-bottom: calc(80px + var(--safe-bottom));
+        }
+
+        /* 加载动画 */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.3s;
+        }
+
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loader {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--surface-light);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 头部导航 */
+        .header {
+            background: linear-gradient(135deg, var(--surface) 0%, var(--bg) 100%);
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-content {
+            max-width: 600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stats-mini {
+            display: flex;
+            gap: 15px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .stat-value {
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        /* 主容器 */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* 标签页导航 */
+        .tab-nav {
+            display: flex;
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 4px;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 80px;
+            z-index: 99;
+            box-shadow: var(--shadow);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+        }
+
+        /* 内容区域 */
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 学习页面 */
+        .study-card {
+            background: linear-gradient(145deg, var(--surface) 0%, #252f47 100%);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .word-main {
+            font-size: 42px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+            color: var(--text);
+            letter-spacing: -0.5px;
+        }
+
+        .phonetic {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .audio-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: var(--surface-light);
+            color: var(--primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .audio-btn:active {
+            transform: scale(0.95);
+            background: var(--primary);
+            color: white;
+        }
+
+        .definition {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 15px;
+            border-radius: 0 12px 12px 0;
+            margin: 20px 0;
+            font-size: 16px;
+            line-height: 1.8;
+        }
+
+        .definition-pos {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-right: 8px;
+            font-weight: bold;
+        }
+
+        .example {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(16, 185, 129, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .example-title {
+            font-size: 12px;
+            color: var(--secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .example-text {
+            color: var(--text-muted);
+            font-style: italic;
+            line-height: 1.6;
+        }
+
+        .difficulty-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .difficulty-easy { background: rgba(16, 185, 129, 0.2); color: var(--secondary); }
+        .difficulty-medium { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .difficulty-hard { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+        /* 控制按钮 */
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: auto;
+            padding-top: 20px;
+        }
+
+        .btn {
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--surface-light);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-success {
+            background: var(--secondary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-full {
+            grid-column: 1 / -1;
+        }
+
+        /* 进度条 */
+        .progress-section {
+            margin-bottom: 20px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--surface);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        /* 词库页面 */
+        .upload-area {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 40px 20px;
+            text-align: center;
+            background: var(--surface);
+            transition: all 0.3s;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .word-list {
+            background: var(--surface);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .word-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .word-item:last-child {
+            border-bottom: none;
+        }
+
+        .word-item:active {
+            background: var(--surface-light);
+        }
+
+        .word-info h3 {
+            font-size: 18px;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .word-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .word-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: var(--surface-light);
+            color: var(--text);
+        }
+
+        .icon-btn.active {
+            color: var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        /* 统计页面 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            padding: 20px;
+            border-radius: var(--radius);
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .chart-container {
+            background: var(--surface);
+            padding: 20px;
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .chart-title {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: var(--text);
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            font-size: 12px;
+            background: var(--bg);
+            color: var(--text-muted);
+        }
+
+        .calendar-day.active {
+            background: var(--primary);
+            color: white;
+            font-weight: bold;
+        }
+
+        .calendar-day.today {
+            border: 2px solid var(--primary);
+        }
+
+        /* 设置页面 */
+        .settings-group {
+            background: var(--surface);
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .settings-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .settings-item:last-child {
+            border-bottom: none;
+        }
+
+        .settings-label {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .settings-title {
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .settings-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* 开关 */
+        .toggle {
+            width: 50px;
+            height: 28px;
+            background: var(--surface-light);
+            border-radius: 14px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle.active {
+            background: var(--primary);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.3s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .toggle.active::after {
+            transform: translateX(22px);
+        }
+
+        /* 输入框 */
+        input[type="number"], input[type="text"], select {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 80px;
+            text-align: center;
+        }
+
+        /* 模态框 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 400px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: modalIn 0.3s;
+        }
+
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .modal-header {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 24px;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s;
+        }
+
+        .close-btn:hover {
+            background: var(--surface-light);
+            color: var(--text);
+        }
+
+        /* 提示消息 */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--surface);
+            color: var(--text);
+            padding: 12px 24px;
+            border-radius: 25px;
+            box-shadow: var(--shadow);
+            z-index: 2000;
+            opacity: 0;
+            transition: all 0.3s;
+            border: 1px solid var(--border);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .toast.success { border-color: var(--secondary); color: var(--secondary); }
+        .toast.error { border-color: var(--danger); color: var(--danger); }
+        .toast.info { border-color: var(--primary); color: var(--primary); }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        /* 筛选标签 */
+        .filter-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            overflow-x: auto;
+            padding-bottom: 5px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .filter-tab {
+            padding: 8px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .filter-tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* 难度指示器 */
+        .difficulty-dots {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--surface-light);
+        }
+
+        .dot.active { background: var(--warning); }
+
+        /* API 状态指示 */
+        .api-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .api-status.online {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--secondary);
+        }
+
+        .api-status.offline {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .api-status::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 480px) {
+            .container { padding: 15px; }
+            .word-main { font-size: 36px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .tab-btn { font-size: 12px; padding: 10px 8px; }
+            .study-card { padding: 20px; min-height: 350px; }
+        }
+
+        /* 动画 */
+        .fade-in { animation: fadeIn 0.3s; }
+        .slide-up { animation: slideUp 0.3s; }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 复习模式特殊样式 */
+        .review-mode {
+            background: linear-gradient(145deg, #1a1f2e 0%, #252f47 100%);
+        }
+
+        .memory-rating {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .rating-btn {
+            padding: 12px 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .rating-btn:active {
+            transform: scale(0.95);
+        }
+
+        .rating-btn.hard { border-color: var(--danger); color: var(--danger); }
+        .rating-btn.good { border-color: var(--primary); color: var(--primary); }
+        .rating-btn.easy { border-color: var(--secondary); color: var(--secondary); }
+        .rating-btn.again { border-color: var(--warning); color: var(--warning); }
+
+        .rating-btn:hover.hard { background: rgba(239, 68, 68, 0.1); }
+        .rating-btn:hover.good { background: rgba(59, 130, 246, 0.1); }
+        .rating-btn:hover.easy { background: rgba(16, 185, 129, 0.1); }
+        .rating-btn:hover.again { background: rgba(245, 158, 11, 0.1); }
+
+        /* 加载骨架屏 */
+        .skeleton {
+            background: linear-gradient(90deg, var(--surface) 25%, var(--surface-light) 50%, var(--surface) 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+            border-radius: 8px;
+        }
+
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* 隐藏类 */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <!-- 加载屏幕 -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loader"></div>
+        <p style="margin-top: 20px; color: var(--text-muted);">初始化数据库...</p>
+    </div>
+
+    <!-- 头部 -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <span>🐚</span>
+                <span>扇贝阅读</span>
+                <span class="api-status online" id="apiStatus">Free Dictionary API</span>
+            </div>
+            <div class="stats-mini">
+                <div class="stat-item">
+                    <span>今日:</span>
+                    <span class="stat-value" id="todayCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span>连续:</span>
+                    <span class="stat-value" id="streakCount">0</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- 标签导航 -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="study">
+                <span>📚</span>
+                <span>学习</span>
+            </button>
+            <button class="tab-btn" data-tab="library">
+                <span>📖</span>
+                <span>词库</span>
+            </button>
+            <button class="tab-btn" data-tab="stats">
+                <span>📊</span>
+                <span>统计</span>
+            </button>
+            <button class="tab-btn" data-tab="settings">
+                <span>⚙️</span>
+                <span>设置</span>
+            </button>
+        </nav>
+
+        <!-- 学习页面 -->
+        <div id="studyTab" class="tab-content active">
+            <div class="progress-section">
+                <div class="progress-header">
+                    <span>今日进度</span>
+                    <span id="progressText">0/20</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div id="studyContainer">
+                <div class="study-card" id="studyCard">
+                    <div class="difficulty-badge difficulty-medium" id="difficultyBadge">中等</div>
+                    
+                    <div class="word-main" id="wordText">Welcome</div>
+                    
+                    <div class="phonetic">
+                        <span id="phoneticText">/ˈwelkəm/</span>
+                        <button class="audio-btn" onclick="app.playAudio()" title="播放发音">
+                            <span>🔊</span>
+                        </button>
+                        <button class="audio-btn" onclick="app.playAudio(true)" title="播放例句" id="exampleAudioBtn" style="display: none;">
+                            <span>🎵</span>
+                        </button>
+                    </div>
+
+                    <div class="definition" id="definitionText">
+                        点击"认识"或"不认识"开始背单词之旅
+                    </div>
+
+                    <div class="example" id="exampleSection" style="display: none;">
+                        <div class="example-title">例句</div>
+                        <div class="example-text" id="exampleText"></div>
+                    </div>
+
+                    <div class="controls" id="studyControls">
+                        <button class="btn btn-secondary" onclick="app.showAnswer()">提示</button>
+                        <button class="btn btn-primary" onclick="app.nextWord()">开始</button>
+                    </div>
+
+                    <div class="memory-rating hidden" id="memoryControls">
+                        <button class="rating-btn again" onclick="app.rateWord(1)">
+                            <span>😣</span>
+                            <span>忘记</span>
+                        </button>
+                        <button class="rating-btn hard" onclick="app.rateWord(2)">
+                            <span>🤔</span>
+                            <span>困难</span>
+                        </button>
+                        <button class="rating-btn good" onclick="app.rateWord(3)">
+                            <span>🙂</span>
+                            <span>良好</span>
+                        </button>
+                        <button class="rating-btn easy" onclick="app.rateWord(4)">
+                            <span>😎</span>
+                            <span>简单</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="empty-state hidden" id="emptyState">
+                <div class="empty-icon">🎉</div>
+                <h3>今日任务已完成！</h3>
+                <p>明天再来继续学习吧</p>
+                <button class="btn btn-primary btn-full" onclick="app.continueStudy()" style="margin-top: 20px;">
+                    继续学习
+                </button>
+            </div>
+        </div>
+
+        <!-- 词库页面 -->
+        <div id="libraryTab" class="tab-content">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📤</div>
+                <h3>上传英文小说</h3>
+                <p style="color: var(--text-muted); margin-top: 8px; font-size: 14px;">
+                    支持 .txt 文件，自动提取生词并获取释义
+                </p>
+                <input type="file" class="file-input" id="fileInput" accept=".txt">
+            </div>
+
+            <div class="filter-tabs">
+                <button class="filter-tab active" data-filter="all">全部</button>
+                <button class="filter-tab" data-filter="new">生词</button>
+                <button class="filter-tab" data-filter="learning">学习中</button>
+                <button class="filter-tab" data-filter="mastered">已掌握</button>
+                <button class="filter-tab" data-filter="hard">困难词</button>
+            </div>
+
+            <div class="word-list" id="wordList">
+                <!-- 动态生成 -->
+            </div>
+        </div>
+
+        <!-- 统计页面 -->
+        <div id="statsTab" class="tab-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalWords">0</div>
+                    <div class="stat-label">总词汇量</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="masteredWords">0</div>
+                    <div class="stat-label">已掌握</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="learningWords">0</div>
+                    <div class="stat-label">学习中</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="todayNew">0</div>
+                    <div class="stat-label">今日新词</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">学习日历</div>
+                <div class="calendar-grid" id="calendarGrid">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">词汇难度分布</div>
+                <div id="difficultyChart" style="height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                    加载中...
+                </div>
+            </div>
+        </div>
+
+        <!-- 设置页面 -->
+        <div id="settingsTab" class="tab-content">
+            <div class="settings-group">
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">每日新词</div>
+                        <div class="settings-desc">每天学习的新单词数量</div>
+                    </div>
+                    <input type="number" id="dailyNewWords" value="20" min="5" max="100">
+                </div>
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">每日复习</div>
+                        <div class="settings-desc">每天复习的单词上限</div>
+                    </div>
+                    <input type="number" id="dailyReviewWords" value="50" min="10" max="200">
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">自动发音</div>
+                        <div class="settings-desc">显示单词时自动播放发音</div>
+                    </div>
+                    <div class="toggle" id="autoPlayToggle"></div>
+                </div>
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">在线词典</div>
+                        <div class="settings-desc">使用 Free Dictionary API 获取释义（需联网）</div>
+                    </div>
+                    <div class="toggle active" id="onlineDictToggle"></div>
+                </div>
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">自动获取释义</div>
+                        <div class="settings-desc">上传小说时自动查询在线词典</div>
+                    </div>
+                    <div class="toggle active" id="autoFetchToggle"></div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">数据管理</div>
+                    </div>
+                </div>
+                <div class="settings-item" style="cursor: pointer;" onclick="app.exportData()">
+                    <div class="settings-label">
+                        <div class="settings-title">📥 导出数据</div>
+                        <div class="settings-desc">备份学习记录到文件</div>
+                    </div>
+                </div>
+                <div class="settings-item" style="cursor: pointer;" onclick="app.importData()">
+                    <div class="settings-label">
+                        <div class="settings-title">📤 导入数据</div>
+                        <div class="settings-desc">从文件恢复学习记录</div>
+                    </div>
+                    <input type="file" id="importFile" class="file-input" accept=".json">
+                </div>
+                <div class="settings-item" style="cursor: pointer; color: var(--danger);" onclick="app.clearData()">
+                    <div class="settings-label">
+                        <div class="settings-title">🗑️ 清空数据</div>
+                        <div class="settings-desc">删除所有学习记录（不可恢复）</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">关于</div>
+                    </div>
+                </div>
+                <div class="settings-item">
+                    <div class="settings-label">
+                        <div class="settings-title">扇贝阅读 v1.0</div>
+                        <div class="settings-desc">基于 Free Dictionary API 的离线背单词工具</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 单词详情模态框 -->
+    <div class="modal" id="wordModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="modalWord">Word</span>
+                <button class="close-btn" onclick="app.closeModal()">&times;</button>
+            </div>
+            <div id="modalContent">
+                <!-- 动态内容 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 提示消息 -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ==================== 数据库管理 ====================
+        class Database {
+            constructor() {
+                this.dbName = 'ShanbayReader';
+                this.dbVersion = 2; // 升级版本以支持新字段
+                this.db = null;
+            }
+
+            async init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, this.dbVersion);
+
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        resolve(this.db);
+                    };
+
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+
+                        // 单词库
+                        if (!db.objectStoreNames.contains('words')) {
+                            const wordStore = db.createObjectStore('words', { keyPath: 'word' });
+                            wordStore.createIndex('difficulty', 'difficulty', { unique: false });
+                            wordStore.createIndex('status', 'status', { unique: false });
+                            wordStore.createIndex('nextReview', 'nextReview', { unique: false });
+                        } else if (event.oldVersion < 2) {
+                            // 升级：添加新索引
+                            const wordStore = request.transaction.objectStore('words');
+                            if (!wordStore.indexNames.contains('source')) {
+                                wordStore.createIndex('source', 'source', { unique: false });
+                            }
+                        }
+
+                        // 学习记录
+                        if (!db.objectStoreNames.contains('records')) {
+                            const recordStore = db.createObjectStore('records', { 
+                                keyPath: 'id', 
+                                autoIncrement: true 
+                            });
+                            recordStore.createIndex('date', 'date', { unique: false });
+                            recordStore.createIndex('word', 'word', { unique: false });
+                        }
+
+                        // 设置
+                        if (!db.objectStoreNames.contains('settings')) {
+                            db.createObjectStore('settings', { keyPath: 'key' });
+                        }
+
+                        // 统计数据
+                        if (!db.objectStoreNames.contains('stats')) {
+                            db.createObjectStore('stats', { keyPath: 'date' });
+                        }
+
+                        // API 缓存
+                        if (!db.objectStoreNames.contains('dictCache')) {
+                            const cacheStore = db.createObjectStore('dictCache', { keyPath: 'word' });
+                            cacheStore.createIndex('timestamp', 'timestamp', { unique: false });
+                        }
+                    };
+                });
+            }
+
+            async getWords(storeName = 'words', query = null) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([storeName], 'readonly');
+                    const store = transaction.objectStore(storeName);
+                    const request = query ? store.getAll(query) : store.getAll();
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getWord(word) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['words'], 'readonly');
+                    const store = transaction.objectStore('words');
+                    const request = store.get(word);
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async saveWord(wordData) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['words'], 'readwrite');
+                    const store = transaction.objectStore('words');
+                    const request = store.put(wordData);
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async deleteWord(word) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['words'], 'readwrite');
+                    const store = transaction.objectStore('words');
+                    const request = store.delete(word);
+
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getSettings() {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['settings'], 'readonly');
+                    const store = transaction.objectStore('settings');
+                    const request = store.getAll();
+
+                    request.onsuccess = () => {
+                        const settings = {};
+                        request.result.forEach(item => {
+                            settings[item.key] = item.value;
+                        });
+                        resolve(settings);
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async saveSetting(key, value) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['settings'], 'readwrite');
+                    const store = transaction.objectStore('settings');
+                    const request = store.put({ key, value });
+
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async addRecord(record) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['records'], 'readwrite');
+                    const store = transaction.objectStore('records');
+                    const request = store.add(record);
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getStats(date) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['stats'], 'readonly');
+                    const store = transaction.objectStore('stats');
+                    const request = store.get(date);
+
+                    request.onsuccess = () => resolve(request.result || { 
+                        date, 
+                        newWords: 0, 
+                        reviewed: 0, 
+                        studied: [] 
+                    });
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async saveStats(stats) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['stats'], 'readwrite');
+                    const store = transaction.objectStore('stats');
+                    const request = store.put(stats);
+
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            // 词典缓存操作
+            async getDictCache(word) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['dictCache'], 'readonly');
+                    const store = transaction.objectStore('dictCache');
+                    const request = store.get(word);
+
+                    request.onsuccess = () => {
+                        const result = request.result;
+                        // 检查缓存是否过期（30天）
+                        if (result && (Date.now() - result.timestamp > 30 * 24 * 60 * 60 * 1000)) {
+                            resolve(null); // 过期
+                        } else {
+                            resolve(result);
+                        }
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async saveDictCache(word, data) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['dictCache'], 'readwrite');
+                    const store = transaction.objectStore('dictCache');
+                    const request = store.put({
+                        word,
+                        data,
+                        timestamp: Date.now()
+                    });
+
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async clearAll() {
+                const stores = ['words', 'records', 'settings', 'stats', 'dictCache'];
+                for (const storeName of stores) {
+                    await new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([storeName], 'readwrite');
+                        const store = transaction.objectStore(storeName);
+                        const request = store.clear();
+                        request.onsuccess = () => resolve();
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+            }
+
+            async export() {
+                const data = {
+                    words: await this.getWords('words'),
+                    records: await this.getWords('records'),
+                    settings: await this.getWords('settings'),
+                    stats: await this.getWords('stats'),
+                    exportDate: new Date().toISOString()
+                };
+                return JSON.stringify(data);
+            }
+
+            async import(jsonData) {
+                const data = JSON.parse(jsonData);
+                await this.clearAll();
+
+                for (const word of data.words || []) {
+                    await this.saveWord(word);
+                }
+                for (const record of data.records || []) {
+                    await this.addRecord(record);
+                }
+                for (const setting of data.settings || []) {
+                    await this.saveSetting(setting.key, setting.value);
+                }
+                for (const stat of data.stats || []) {
+                    await this.saveStats(stat);
+                }
+            }
+        }
+
+        // ==================== Free Dictionary API 服务 ====================
+        class DictionaryService {
+            constructor(db) {
+                this.db = db;
+                this.baseURL = 'https://api.dictionaryapi.dev/api/v2/entries/en';
+                this.isOnline = true;
+            }
+
+            async fetchDefinition(word) {
+                // 先检查缓存
+                const cached = await this.db.getDictCache(word);
+                if (cached) {
+                    return this.parseDefinition(cached.data);
+                }
+
+                if (!this.isOnline) {
+                    return this.getOfflineDefinition(word);
+                }
+
+                try {
+                    const response = await fetch(`${this.baseURL}/${encodeURIComponent(word)}`, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            return this.getOfflineDefinition(word);
+                        }
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    // 保存到缓存
+                    await this.db.saveDictCache(word, data);
+                    
+                    return this.parseDefinition(data);
+                } catch (error) {
+                    console.warn(`词典查询失败 "${word}":`, error);
+                    this.isOnline = false;
+                    return this.getOfflineDefinition(word);
+                }
+            }
+
+            parseDefinition(data) {
+                if (!Array.isArray(data) || data.length === 0) {
+                    return this.getOfflineDefinition('');
+                }
+
+                const entry = data[0];
+                const meanings = [];
+                let example = '';
+                let audio = '';
+
+                // 提取音标
+                let phonetic = '';
+                if (entry.phonetic) {
+                    phonetic = entry.phonetic;
+                } else if (entry.phonetics && entry.phonetics.length > 0) {
+                    const ph = entry.phonetics.find(p => p.text);
+                    if (ph) phonetic = ph.text;
+                }
+
+                // 提取音频
+                if (entry.phonetics) {
+                    const audioObj = entry.phonetics.find(p => p.audio);
+                    if (audioObj) audio = audioObj.audio;
+                }
+
+                // 提取释义和例句
+                if (entry.meanings) {
+                    for (const meaning of entry.meanings.slice(0, 2)) { // 取前2个词性
+                        const pos = meaning.partOfSpeech;
+                        const defs = meaning.definitions.slice(0, 2); // 每个词性取前2个释义
+                        
+                        for (const def of defs) {
+                            meanings.push({
+                                pos,
+                                definition: def.definition
+                            });
+                            
+                            // 保存第一个例句
+                            if (!example && def.example) {
+                                example = def.example;
+                            }
+                        }
+                    }
+                }
+
+                return {
+                    word: entry.word,
+                    phonetic,
+                    meanings,
+                    example,
+                    audio,
+                    source: 'Free Dictionary API'
+                };
+            }
+
+            getOfflineDefinition(word) {
+                return {
+                    word,
+                    phonetic: `/${word}/`,
+                    meanings: [{ pos: 'n.', definition: '（离线模式）暂无详细释义，请联网后重新导入' }],
+                    example: '',
+                    audio: '',
+                    source: 'offline'
+                };
+            }
+
+            async batchFetch(words, onProgress = null) {
+                const results = [];
+                const total = words.length;
+                
+                for (let i = 0; i < words.length; i++) {
+                    const word = words[i];
+                    try {
+                        const def = await this.fetchDefinition(word);
+                        results.push({ word, ...def });
+                        
+                        if (onProgress) {
+                            onProgress(i + 1, total, word);
+                        }
+                        
+                        // 添加延迟避免请求过快
+                        if (i < words.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+                    } catch (e) {
+                        console.error(`获取 ${word} 失败:`, e);
+                        results.push({
+                            word,
+                            ...this.getOfflineDefinition(word)
+                        });
+                    }
+                }
+                
+                return results;
+            }
+        }
+
+        // ==================== 核心应用逻辑 ====================
+        class App {
+            constructor() {
+                this.db = new Database();
+                this.dictService = null;
+                this.currentWord = null;
+                this.studyQueue = [];
+                this.currentIndex = 0;
+                this.settings = {
+                    dailyNew: 20,
+                    dailyReview: 50,
+                    autoPlay: false,
+                    useOnlineDict: true,
+                    autoFetchDict: true
+                };
+                this.todayStats = null;
+                
+                // 基础词汇表（排除常见词）- 扩展版
+                this.basicWords = new Set([
+                    'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
+                    'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so',
+                    'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take', 'people', 'into',
+                    'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use',
+                    'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us', 'is', 'was', 'are', 'were',
+                    'been', 'has', 'had', 'did', 'does', 'doing', 'done', 'being', 'am', 's', 't', 'don', 'didn', 'wasn', 'weren', 'haven', 'hasn', 'hadn', 'won', 'wouldn', 'shouldn',
+                    'couldn', 'mightn', 'mustn', 'needn', 'daren', 'oughtn', 'usedn', 'aren', 'isn', 'let', 'm', 'o', 're', 've', 'd', 'll', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+                    'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december',
+                    'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+                    'mr', 'mrs', 'ms', 'dr', 'prof', 'sir', 'madam', 'lord', 'lady', 'king', 'queen',
+                    'yes', 'no', 'ok', 'okay', 'hi', 'hello', 'bye', 'goodbye', 'thanks', 'thank', 'please',
+                    'very', 'really', 'just', 'still', 'even', 'only', 'also', 'back', 'already', 'yet',
+                    'here', 'there', 'where', 'everywhere', 'somewhere', 'anywhere', 'nowhere',
+                    'today', 'tomorrow', 'yesterday', 'tonight', 'morning', 'afternoon', 'evening', 'night',
+                    'man', 'woman', 'child', 'children', 'boy', 'girl', 'guy', 'friend', 'family', 'father', 'mother', 'parent', 'brother', 'sister', 'son', 'daughter',
+                    'water', 'food', 'eat', 'drink', 'sleep', 'wake', 'run', 'walk', 'talk', 'speak', 'tell', 'say', 'ask', 'answer', 'hear', 'listen', 'look', 'watch', 'see',
+                    'big', 'small', 'large', 'little', 'tiny', 'huge', 'high', 'low', 'tall', 'short', 'long', 'fast', 'slow', 'quick', 'old', 'new', 'young', 'early', 'late',
+                    'happy', 'sad', 'angry', 'afraid', 'scared', 'tired', 'sick', 'fine', 'ok', 'well', 'bad', 'good', 'better', 'best', 'worse', 'worst',
+                    'love', 'like', 'hate', 'enjoy', 'prefer', 'want', 'need', 'hope', 'wish', 'try', 'start', 'stop', 'begin', 'end', 'finish', 'keep', 'hold', 'put', 'set',
+                    'thing', 'something', 'anything', 'nothing', 'everything', 'someone', 'anyone', 'everyone', 'nobody', 'body', 'head', 'hand', 'eye', 'face', 'foot', 'feet',
+                    'house', 'home', 'room', 'door', 'window', 'wall', 'floor', 'ceiling', 'roof', 'kitchen', 'bedroom', 'bathroom', 'place', 'area', 'space', 'world', 'country', 'city', 'town', 'street', 'road', 'way', 'side', 'end', 'top', 'bottom', 'middle', 'center', 'left', 'right', 'front', 'back', 'outside', 'inside', 'upstairs', 'downstairs',
+                    'book', 'paper', 'pen', 'pencil', 'table', 'chair', 'desk', 'bed', 'phone', 'computer', 'tv', 'television', 'car', 'bus', 'train', 'bike', 'plane', 'ship', 'boat',
+                    'money', 'dollar', 'cent', 'price', 'cost', 'pay', 'buy', 'sell', 'shop', 'store', 'market', 'company', 'business', 'job', 'work', 'office', 'school', 'university', 'college', 'hospital', 'bank', 'hotel', 'restaurant', 'park', 'garden', 'tree', 'flower', 'grass', 'plant', 'animal', 'dog', 'cat', 'bird', 'fish', 'horse', 'cow', 'pig', 'chicken', 'duck',
+                    'red', 'green', 'blue', 'yellow', 'white', 'black', 'brown', 'orange', 'pink', 'purple', 'gray', 'grey', 'color', 'light', 'dark', 'bright', 'clear', 'cloudy', 'sunny', 'rainy', 'snowy', 'windy', 'hot', 'cold', 'warm', 'cool', 'dry', 'wet', 'clean', 'dirty',
+                    'number', 'count', 'add', 'plus', 'minus', 'subtract', 'multiply', 'divide', 'equal', 'half', 'quarter', 'part', 'piece', 'bit', 'lot', 'few', 'many', 'much', 'more', 'less', 'least', 'most', 'some', 'any', 'all', 'none', 'both', 'either', 'neither', 'each', 'every', 'another', 'other', 'such', 'same', 'different',
+                    'problem', 'question', 'answer', 'solution', 'idea', 'thought', 'mind', 'brain', 'head', 'heart', 'soul', 'spirit', 'body', 'life', 'death', 'world', 'earth', 'land', 'ground', 'soil', 'sky', 'heaven', 'star', 'moon', 'sun', 'light', 'sound', 'noise', 'voice', 'music', 'song', 'word', 'sentence', 'name'
+                ]);
+
+                // 难度词汇特征
+                this.difficultyPatterns = {
+                    easy: /^[a-z]{2,6}$/,
+                    medium: /^[a-z]{7,10}$/,
+                    hard: /^[a-z]{11,}$|[^a-z]/
+                };
+            }
+
+            async init() {
+                try {
+                    await this.db.init();
+                    this.dictService = new DictionaryService(this.db);
+                    
+                    // 检查网络状态
+                    this.checkOnlineStatus();
+                    
+                    await this.loadSettings();
+                    await this.initTodayStats();
+                    this.setupEventListeners();
+                    this.updateUI();
+                    this.prepareStudyQueue();
+                    
+                    document.getElementById('loadingScreen').classList.add('hidden');
+                } catch (error) {
+                    console.error('初始化失败:', error);
+                    this.showToast('初始化失败，请刷新重试', 'error');
+                }
+            }
+
+            checkOnlineStatus() {
+                const updateStatus = () => {
+                    const isOnline = navigator.onLine;
+                    this.dictService.isOnline = isOnline;
+                    const statusEl = document.getElementById('apiStatus');
+                    statusEl.className = `api-status ${isOnline ? 'online' : 'offline'}`;
+                    statusEl.textContent = isOnline ? 'Free Dictionary API' : '离线模式';
+                };
+
+                window.addEventListener('online', updateStatus);
+                window.addEventListener('offline', updateStatus);
+                updateStatus();
+            }
+
+            async loadSettings() {
+                const saved = await this.db.getSettings();
+                this.settings = { ...this.settings, ...saved };
+                
+                // 应用设置到UI
+                document.getElementById('dailyNewWords').value = this.settings.dailyNew;
+                document.getElementById('dailyReviewWords').value = this.settings.dailyReview;
+                document.getElementById('autoPlayToggle').classList.toggle('active', this.settings.autoPlay);
+                document.getElementById('onlineDictToggle').classList.toggle('active', this.settings.useOnlineDict);
+                document.getElementById('autoFetchToggle').classList.toggle('active', this.settings.autoFetchDict);
+            }
+
+            async initTodayStats() {
+                const today = new Date().toISOString().split('T')[0];
+                this.todayStats = await this.db.getStats(today);
+            }
+
+            setupEventListeners() {
+                // 标签切换
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const tab = btn.dataset.tab;
+                        this.switchTab(tab);
+                    });
+                });
+
+                // 文件上传
+                const uploadArea = document.getElementById('uploadArea');
+                const fileInput = document.getElementById('fileInput');
+
+                uploadArea.addEventListener('click', () => fileInput.click());
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('dragover');
+                });
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('dragover');
+                });
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('dragover');
+                    const files = e.dataTransfer.files;
+                    if (files.length) this.handleFile(files[0]);
+                });
+
+                fileInput.addEventListener('change', (e) => {
+                    if (e.target.files.length) this.handleFile(e.target.files[0]);
+                });
+
+                // 筛选标签
+                document.querySelectorAll('.filter-tab').forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        this.filterWordList(tab.dataset.filter);
+                    });
+                });
+
+                // 设置变更
+                document.getElementById('dailyNewWords').addEventListener('change', (e) => {
+                    this.settings.dailyNew = parseInt(e.target.value);
+                    this.db.saveSetting('dailyNew', this.settings.dailyNew);
+                });
+
+                document.getElementById('dailyReviewWords').addEventListener('change', (e) => {
+                    this.settings.dailyReview = parseInt(e.target.value);
+                    this.db.saveSetting('dailyReview', this.settings.dailyReview);
+                });
+
+                document.getElementById('autoPlayToggle').addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    app.settings.autoPlay = this.classList.contains('active');
+                    app.db.saveSetting('autoPlay', app.settings.autoPlay);
+                });
+
+                document.getElementById('onlineDictToggle').addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    app.settings.useOnlineDict = this.classList.contains('active');
+                    app.dictService.isOnline = app.settings.useOnlineDict && navigator.onLine;
+                    app.db.saveSetting('useOnlineDict', app.settings.useOnlineDict);
+                    
+                    const statusEl = document.getElementById('apiStatus');
+                    statusEl.className = `api-status ${app.dictService.isOnline ? 'online' : 'offline'}`;
+                });
+
+                document.getElementById('autoFetchToggle').addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    app.settings.autoFetchDict = this.classList.contains('active');
+                    app.db.saveSetting('autoFetchDict', app.settings.autoFetchDict);
+                });
+
+                // 导入数据
+                document.getElementById('importFile').addEventListener('change', (e) => {
+                    if (e.target.files.length) this.handleImport(e.target.files[0]);
+                });
+            }
+
+            switchTab(tab) {
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tab);
+                });
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.toggle('active', content.id === tab + 'Tab');
+                });
+
+                if (tab === 'library') this.renderWordList();
+                if (tab === 'stats') this.renderStats();
+            }
+
+            // ==================== 学习功能 ====================
+            async prepareStudyQueue() {
+                const today = new Date().toISOString().split('T')[0];
+                const allWords = await this.db.getWords('words');
+                
+                // 1. 获取今日待复习单词（基于SRS）
+                const reviewWords = allWords.filter(w => {
+                    if (!w.nextReview) return false;
+                    return w.nextReview <= today && w.status !== 'mastered';
+                }).slice(0, this.settings.dailyReview);
+
+                // 2. 获取新词
+                const newWords = allWords
+                    .filter(w => w.status === 'new')
+                    .slice(0, this.settings.dailyNew - this.todayStats.newWords);
+
+                this.studyQueue = [...reviewWords, ...newWords];
+                this.currentIndex = 0;
+                
+                this.updateProgress();
+                
+                if (this.studyQueue.length === 0 && this.todayStats.newWords >= this.settings.dailyNew) {
+                    document.getElementById('studyContainer').classList.add('hidden');
+                    document.getElementById('emptyState').classList.remove('hidden');
+                } else if (this.studyQueue.length > 0) {
+                    this.showCurrentWord();
+                }
+            }
+
+            showCurrentWord() {
+                if (this.currentIndex >= this.studyQueue.length) {
+                    this.prepareStudyQueue();
+                    return;
+                }
+
+                this.currentWord = this.studyQueue[this.currentIndex];
+                const isReview = this.currentWord.status !== 'new';
+                
+                // 更新UI
+                document.getElementById('wordText').textContent = this.currentWord.word;
+                document.getElementById('phoneticText').textContent = this.currentWord.phonetic || '';
+                
+                // 格式化释义显示
+                const defEl = document.getElementById('definitionText');
+                if (isReview) {
+                    defEl.style.filter = 'blur(4px)';
+                    defEl.innerHTML = '点击显示释义';
+                } else {
+                    defEl.style.filter = 'none';
+                    defEl.innerHTML = this.formatDefinition(this.currentWord.definition, this.currentWord.meanings);
+                }
+                
+                // 难度标签
+                const badge = document.getElementById('difficultyBadge');
+                badge.className = 'difficulty-badge difficulty-' + (this.currentWord.difficulty || 'medium');
+                badge.textContent = this.getDifficultyText(this.currentWord.difficulty);
+
+                // 例句
+                const exampleSection = document.getElementById('exampleSection');
+                const exampleAudioBtn = document.getElementById('exampleAudioBtn');
+                
+                if (this.currentWord.example) {
+                    document.getElementById('exampleText').textContent = this.currentWord.example;
+                    exampleSection.style.display = 'block';
+                    exampleAudioBtn.style.display = 'flex';
+                } else {
+                    exampleSection.style.display = 'none';
+                    exampleAudioBtn.style.display = 'none';
+                }
+
+                // 音频链接
+                if (this.currentWord.audio) {
+                    document.querySelector('.audio-btn').onclick = () => this.playAudio(false, true);
+                } else {
+                    document.querySelector('.audio-btn').onclick = () => this.playAudio();
+                }
+
+                // 控制按钮
+                if (isReview) {
+                    document.getElementById('studyControls').classList.add('hidden');
+                    document.getElementById('memoryControls').classList.remove('hidden');
+                    document.getElementById('studyCard').classList.add('review-mode');
+                } else {
+                    document.getElementById('studyControls').classList.remove('hidden');
+                    document.getElementById('memoryControls').classList.add('hidden');
+                    document.getElementById('studyCard').classList.remove('review-mode');
+                    document.querySelector('#studyControls .btn-primary').textContent = '认识';
+                    document.querySelector('#studyControls .btn-secondary').textContent = '不认识';
+                }
+
+                if (this.settings.autoPlay) {
+                    this.playAudio();
+                }
+
+                this.updateProgress();
+            }
+
+            formatDefinition(definition, meanings) {
+                if (meanings && meanings.length > 0) {
+                    return meanings.map(m => `
+                        <div style="margin-bottom: 8px;">
+                            <span class="definition-pos">${m.pos}</span>
+                            ${m.definition}
+                        </div>
+                    `).join('');
+                }
+                return definition || '暂无释义';
+            }
+
+            showAnswer() {
+                if (!this.currentWord) return;
+                
+                const defEl = document.getElementById('definitionText');
+                defEl.style.filter = 'none';
+                defEl.innerHTML = this.formatDefinition(this.currentWord.definition, this.currentWord.meanings);
+                
+                if (this.currentWord.example) {
+                    document.getElementById('exampleSection').style.display = 'block';
+                    document.getElementById('exampleText').textContent = this.currentWord.example;
+                }
+
+                // 切换到评分模式
+                document.getElementById('studyControls').classList.add('hidden');
+                document.getElementById('memoryControls').classList.remove('hidden');
+            }
+
+            async nextWord(known = true) {
+                if (!this.currentWord) {
+                    this.showCurrentWord();
+                    return;
+                }
+
+                if (!known) {
+                    // 不认识 - 加入生词本并显示答案
+                    await this.addToHardWords(this.currentWord.word);
+                    this.showAnswer();
+                    return;
+                }
+
+                // 认识 - 标记为学习中
+                if (this.currentWord.status === 'new') {
+                    this.currentWord.status = 'learning';
+                    this.currentWord.studyCount = 1;
+                    this.currentWord.nextReview = this.calculateNextReview(1);
+                    
+                    this.todayStats.newWords++;
+                    this.todayStats.studied.push(this.currentWord.word);
+                    await this.db.saveStats(this.todayStats);
+                }
+
+                await this.db.saveWord(this.currentWord);
+                await this.addRecord(this.currentWord.word, 'study', known);
+
+                this.currentIndex++;
+                this.showCurrentWord();
+            }
+
+            async rateWord(rating) {
+                if (!this.currentWord) return;
+
+                // SRS算法计算下次复习时间
+                const intervals = [1, 3, 7, 14, 30, 90]; // 复习间隔（天）
+                let level = this.currentWord.level || 0;
+
+                if (rating === 1) { // 忘记
+                    level = 0;
+                    this.currentWord.status = 'hard';
+                } else if (rating === 2) { // 困难
+                    level = Math.max(0, level - 1);
+                } else if (rating === 3) { // 良好
+                    level = Math.min(level + 1, intervals.length - 1);
+                } else if (rating === 4) { // 简单
+                    level = Math.min(level + 2, intervals.length - 1);
+                    if (level >= 3) this.currentWord.status = 'mastered';
+                }
+
+                this.currentWord.level = level;
+                this.currentWord.studyCount = (this.currentWord.studyCount || 0) + 1;
+                
+                const days = intervals[level];
+                const nextDate = new Date();
+                nextDate.setDate(nextDate.getDate() + days);
+                this.currentWord.nextReview = nextDate.toISOString().split('T')[0];
+
+                await this.db.saveWord(this.currentWord);
+                await this.addRecord(this.currentWord.word, 'review', rating >= 3, rating);
+
+                this.currentIndex++;
+                this.showCurrentWord();
+            }
+
+            calculateNextReview(level) {
+                const date = new Date();
+                date.setDate(date.getDate() + (level === 0 ? 1 : 3));
+                return date.toISOString().split('T')[0];
+            }
+
+            async addRecord(word, type, success, rating = null) {
+                await this.db.addRecord({
+                    word,
+                    type,
+                    success,
+                    rating,
+                    timestamp: Date.now(),
+                    date: new Date().toISOString().split('T')[0]
+                });
+            }
+
+            async addToHardWords(word) {
+                const wordData = await this.db.getWord(word);
+                if (wordData) {
+                    wordData.isHard = true;
+                    await this.db.saveWord(wordData);
+                }
+            }
+
+            updateProgress() {
+                const total = Math.min(this.studyQueue.length, this.settings.dailyNew);
+                const current = Math.min(this.currentIndex + 1, total);
+                const percent = total === 0 ? 100 : (current / total) * 100;
+                
+                document.getElementById('progressText').textContent = `${current}/${total}`;
+                document.getElementById('progressFill').style.width = `${percent}%`;
+                document.getElementById('todayCount').textContent = this.todayStats.newWords;
+            }
+
+            continueStudy() {
+                // 继续学习超出每日计划的单词
+                this.settings.dailyNew += 20;
+                this.prepareStudyQueue();
+                document.getElementById('studyContainer').classList.remove('hidden');
+                document.getElementById('emptyState').classList.add('hidden');
+            }
+
+            playAudio(useOnline = false, isExample = false) {
+                if (!this.currentWord) return;
+                
+                // 如果有在线
+                // 如果有在线音频且要求使用在线音频
+                if (useOnline && this.currentWord.audio && !isExample) {
+                    const audio = new Audio(this.currentWord.audio);
+                    audio.play().catch(e => {
+                        console.warn('在线音频播放失败，使用TTS:', e);
+                        this.playTTS(isExample);
+                    });
+                } else {
+                    this.playTTS(isExample);
+                }
+            }
+
+            playTTS(isExample) {
+                const text = isExample ? this.currentWord.example : this.currentWord.word;
+                if (!text) return;
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                utterance.rate = isExample ? 0.9 : 0.8;
+                speechSynthesis.speak(utterance);
+            }
+
+            // ==================== 词库管理 ====================
+            async handleFile(file) {
+                if (!file.name.endsWith('.txt')) {
+                    this.showToast('请上传 .txt 文件', 'error');
+                    return;
+                }
+
+                const text = await file.text();
+                const words = this.extractWords(text);
+                
+                if (words.length === 0) {
+                    this.showToast('未提取到有效单词', 'error');
+                    return;
+                }
+                
+                this.showToast(`提取到 ${words.length} 个生词，正在解析...`, 'success');
+                
+                // 批量处理单词
+                let processed = 0;
+                const failed = [];
+                
+                // 如果启用自动获取词典且在线，批量查询
+                if (this.settings.autoFetchDict && this.dictService.isOnline && words.length > 0) {
+                    // 分批处理，每批10个
+                    const batchSize = 10;
+                    for (let i = 0; i < words.length; i += batchSize) {
+                        const batch = words.slice(i, i + batchSize);
+                        const definitions = await this.dictService.batchFetch(
+                            batch.map(w => w.word),
+                            (current, total, word) => {
+                                if (current % 5 === 0) {
+                                    this.showToast(`正在查询词典: ${current}/${total}`, 'info');
+                                }
+                            }
+                        );
+                        
+                        // 保存到数据库
+                        for (let j = 0; j < batch.length; j++) {
+                            const wordData = batch[j];
+                            const def = definitions[j];
+                            
+                            if (def.source === 'offline') {
+                                failed.push(wordData.word);
+                            }
+                            
+                            await this.saveWordWithDef(wordData, def);
+                            processed++;
+                        }
+                        
+                        // 每批处理后更新UI
+                        this.renderWordList();
+                    }
+                } else {
+                    // 离线模式或禁用自动获取，使用本地解析
+                    for (const wordData of words) {
+                        const def = await this.dictService.fetchDefinition(wordData.word);
+                        await this.saveWordWithDef(wordData, def);
+                        processed++;
+                        
+                        if (processed % 10 === 0) {
+                            this.showToast(`已处理 ${processed}/${words.length}...`, 'success');
+                            this.renderWordList();
+                        }
+                    }
+                }
+
+                const msg = failed.length > 0 
+                    ? `成功导入 ${processed} 个单词，${failed.length} 个未找到释义` 
+                    : `成功导入 ${processed} 个单词！`;
+                this.showToast(msg, 'success');
+                this.renderWordList();
+            }
+
+            extractWords(text) {
+                // 清理文本
+                const cleanText = text.toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .replace(/\s+/g, ' ');
+
+                // 提取单词
+                const words = cleanText.split(' ')
+                    .map(w => w.trim())
+                    .filter(w => w.length >= 3 && w.length <= 20 && /^[a-z]+$/.test(w));
+
+                // 去重并过滤基础词汇
+                const uniqueWords = [...new Set(words)];
+                const filtered = uniqueWords.filter(w => !this.basicWords.has(w));
+
+                // 分析难度并返回
+                return filtered.map(word => ({
+                    word,
+                    difficulty: this.analyzeDifficulty(word),
+                    frequency: this.calculateFrequency(word, text)
+                }));
+            }
+
+            analyzeDifficulty(word) {
+                if (this.difficultyPatterns.hard.test(word)) return 'hard';
+                if (this.difficultyPatterns.medium.test(word)) return 'medium';
+                return 'easy';
+            }
+
+            calculateFrequency(word, text) {
+                const regex = new RegExp(`\\b${word}\\b`, 'gi');
+                const matches = text.match(regex);
+                return matches ? matches.length : 1;
+            }
+
+            async saveWordWithDef(wordData, def) {
+                const existing = await this.db.getWord(wordData.word);
+                if (existing) return; // 已存在则跳过
+
+                await this.db.saveWord({
+                    word: wordData.word,
+                    difficulty: wordData.difficulty,
+                    frequency: wordData.frequency,
+                    definition: def.meanings ? def.meanings.map(m => `${m.pos} ${m.definition}`).join('; ') : def.definition,
+                    meanings: def.meanings || [],
+                    phonetic: def.phonetic,
+                    example: def.example,
+                    audio: def.audio,
+                    status: 'new',
+                    addDate: new Date().toISOString().split('T')[0],
+                    source: def.source
+                });
+            }
+
+            async renderWordList(filter = 'all') {
+                const words = await this.db.getWords('words');
+                const listEl = document.getElementById('wordList');
+                
+                let filtered = words;
+                if (filter === 'new') filtered = words.filter(w => w.status === 'new');
+                else if (filter === 'learning') filtered = words.filter(w => w.status === 'learning');
+                else if (filter === 'mastered') filtered = words.filter(w => w.status === 'mastered');
+                else if (filter === 'hard') filtered = words.filter(w => w.isHard);
+
+                if (filtered.length === 0) {
+                    listEl.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📚</div>
+                            <p>暂无单词</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                listEl.innerHTML = filtered.map(w => `
+                    <div class="word-item" onclick="app.showWordDetail('${w.word}')">
+                        <div class="word-info">
+                            <h3>
+                                ${w.word}
+                                <span style="font-size: 12px; color: var(--text-muted);">${w.phonetic || ''}</span>
+                                ${w.source === 'offline' ? '<span style="font-size: 10px; color: var(--danger);">(离线)</span>' : ''}
+                            </h3>
+                            <div class="word-meta">
+                                <span class="difficulty-badge difficulty-${w.difficulty}" style="position: static; display: inline-block; padding: 2px 8px; font-size: 10px;">
+                                    ${this.getDifficultyText(w.difficulty)}
+                                </span>
+                                <span>${w.definition ? w.definition.substring(0, 30) + '...' : '暂无释义'}</span>
+                            </div>
+                            <div class="difficulty-dots">
+                                ${[1,2,3].map(i => `<div class="dot ${i <= (w.level || 0) ? 'active' : ''}"></div>`).join('')}
+                            </div>
+                        </div>
+                        <div class="word-actions" onclick="event.stopPropagation()">
+                            <button class="icon-btn ${w.isHard ? 'active' : ''}" onclick="app.toggleHard('${w.word}')">
+                                ❤️
+                            </button>
+                            <button class="icon-btn" onclick="app.refreshDefinition('${w.word}')">
+                                🔄
+                            </button>
+                            <button class="icon-btn" onclick="app.deleteWord('${w.word}')">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            filterWordList(filter) {
+                this.renderWordList(filter);
+            }
+
+            async showWordDetail(word) {
+                const data = await this.db.getWord(word);
+                if (!data) return;
+
+                document.getElementById('modalWord').textContent = word;
+                
+                // 构建详细内容
+                let meaningsHtml = '';
+                if (data.meanings && data.meanings.length > 0) {
+                    meaningsHtml = data.meanings.map(m => `
+                        <div style="margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 8px;">
+                            <div style="color: var(--primary); font-weight: bold; margin-bottom: 4px;">${m.pos}</div>
+                            <div>${m.definition}</div>
+                        </div>
+                    `).join('');
+                } else if (data.definition) {
+                    meaningsHtml = `<div style="padding: 10px; background: var(--bg); border-radius: 8px;">${data.definition}</div>`;
+                }
+
+                document.getElementById('modalContent').innerHTML = `
+                    <div style="margin-bottom: 20px;">
+                        <div style="color: var(--text-muted); margin-bottom: 10px;">音标</div>
+                        <div style="font-size: 18px; display: flex; align-items: center; gap: 10px;">
+                            ${data.phonetic || '暂无'}
+                            <button class="audio-btn" onclick="app.playWordAudio('${word}')">
+                                <span>🔊</span>
+                            </button>
+                            ${data.audio ? `
+                            <button class="audio-btn" onclick="app.playWordAudioOnline('${data.audio}')" title="在线发音">
+                                <span>🌐</span>
+                            </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <div style="color: var(--text-muted); margin-bottom: 10px;">释义</div>
+                        ${meaningsHtml}
+                    </div>
+                    ${data.example ? `
+                    <div style="margin-bottom: 20px;">
+                        <div style="color: var(--text-muted); margin-bottom: 10px;">例句</div>
+                        <div style="font-style: italic; color: var(--text-muted); padding: 10px; background: var(--bg); border-radius: 8px;">
+                            "${data.example}"
+                        </div>
+                    </div>
+                    ` : ''}
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px;">
+                        <div style="text-align: center; padding: 10px; background: var(--bg); border-radius: 8px;">
+                            <div style="font-size: 12px; color: var(--text-muted);">状态</div>
+                            <div style="font-weight: bold; margin-top: 5px;">${this.getStatusText(data.status)}</div>
+                        </div>
+                        <div style="text-align: center; padding: 10px; background: var(--bg); border-radius: 8px;">
+                            <div style="font-size: 12px; color: var(--text-muted);">学习次数</div>
+                            <div style="font-weight: bold; margin-top: 5px;">${data.studyCount || 0}</div>
+                        </div>
+                        <div style="text-align: center; padding: 10px; background: var(--bg); border-radius: 8px;">
+                            <div style="font-size: 12px; color: var(--text-muted);">难度</div>
+                            <div style="font-weight: bold; margin-top: 5px; color: var(--${data.difficulty === 'easy' ? 'secondary' : data.difficulty === 'hard' ? 'danger' : 'warning'})">
+                                ${this.getDifficultyText(data.difficulty)}
+                            </div>
+                        </div>
+                        <div style="text-align: center; padding: 10px; background: var(--bg); border-radius: 8px;">
+                            <div style="font-size: 12px; color: var(--text-muted);">词频</div>
+                            <div style="font-weight: bold; margin-top: 5px;">${data.frequency || 1}</div>
+                        </div>
+                    </div>
+                    ${data.nextReview ? `
+                    <div style="margin-top: 15px; text-align: center; padding: 10px; background: var(--bg); border-radius: 8px; font-size: 12px; color: var(--text-muted);">
+                        下次复习: ${data.nextReview}
+                    </div>
+                    ` : ''}
+                `;
+                
+                document.getElementById('wordModal').classList.add('active');
+            }
+
+            closeModal() {
+                document.getElementById('wordModal').classList.remove('active');
+            }
+
+            async refreshDefinition(word) {
+                this.showToast('正在更新释义...', 'info');
+                
+                // 强制重新获取
+                const data = await this.db.getWord(word);
+                if (data) {
+                    // 删除缓存
+                    await this.db.saveDictCache(word, null);
+                    
+                    // 重新获取
+                    const def = await this.dictService.fetchDefinition(word);
+                    
+                    data.definition = def.meanings ? def.meanings.map(m => `${m.pos} ${m.definition}`).join('; ') : def.definition;
+                    data.meanings = def.meanings || [];
+                    data.phonetic = def.phonetic;
+                    data.example = def.example;
+                    data.audio = def.audio;
+                    data.source = def.source;
+                    
+                    await this.db.saveWord(data);
+                    this.showToast('释义已更新', 'success');
+                    this.renderWordList();
+                }
+            }
+
+            playWordAudio(word) {
+                const utterance = new SpeechSynthesisUtterance(word);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.8;
+                speechSynthesis.speak(utterance);
+            }
+
+            playWordAudioOnline(audioUrl) {
+                if (audioUrl) {
+                    const audio = new Audio(audioUrl);
+                    audio.play().catch(e => {
+                        this.showToast('在线音频播放失败', 'error');
+                    });
+                }
+            }
+
+            async toggleHard(word) {
+                const data = await this.db.getWord(word);
+                if (data) {
+                    data.isHard = !data.isHard;
+                    await this.db.saveWord(data);
+                    this.renderWordList();
+                    this.showToast(data.isHard ? '已加入生词本' : '已移出生词本', 'success');
+                }
+            }
+
+            async deleteWord(word) {
+                if (!confirm(`确定删除单词 "${word}" 吗？`)) return;
+                await this.db.deleteWord(word);
+                this.renderWordList();
+                this.showToast('已删除', 'success');
+            }
+
+            // ==================== 统计功能 ====================
+            async renderStats() {
+                const words = await this.db.getWords('words');
+                const today = new Date().toISOString().split('T')[0];
+                
+                // 基础统计
+                document.getElementById('totalWords').textContent = words.length;
+                document.getElementById('masteredWords').textContent = words.filter(w => w.status === 'mastered').length;
+                document.getElementById('learningWords').textContent = words.filter(w => w.status === 'learning').length;
+                document.getElementById('todayNew').textContent = this.todayStats.newWords;
+
+                // 计算连续学习天数
+                const streak = await this.calculateStreak();
+                document.getElementById('streakCount').textContent = streak;
+
+                // 渲染日历
+                this.renderCalendar();
+
+                // 难度分布
+                const difficultyStats = {
+                    easy: words.filter(w => w.difficulty === 'easy').length,
+                    medium: words.filter(w => w.difficulty === 'medium').length,
+                    hard: words.filter(w => w.difficulty === 'hard').length
+                };
+                
+                const total = words.length || 1;
+                const chartEl = document.getElementById('difficultyChart');
+                chartEl.innerHTML = `
+                    <div style="width: 100%;">
+                        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                            <div style="width: 60px; font-size: 12px;">简单</div>
+                            <div style="flex: 1; height: 20px; background: var(--bg); border-radius: 10px; overflow: hidden;">
+                                <div style="width: ${(difficultyStats.easy/total)*100}%; height: 100%; background: var(--secondary);"></div>
+                            </div>
+                            <div style="width: 40px; text-align: right; font-size: 12px;">${difficultyStats.easy}</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                            <div style="width: 60px; font-size: 12px;">中等</div>
+                            <div style="flex: 1; height: 20px; background: var(--bg); border-radius: 10px; overflow: hidden;">
+                                <div style="width: ${(difficultyStats.medium/total)*100}%; height: 100%; background: var(--warning);"></div>
+                            </div>
+                            <div style="width: 40px; text-align: right; font-size: 12px;">${difficultyStats.medium}</div>
+                        </div>
+                        <div style="display: flex; align-items: center;">
+                            <div style="width: 60px; font-size: 12px;">困难</div>
+                            <div style="flex: 1; height: 20px; background: var(--bg); border-radius: 10px; overflow: hidden;">
+                                <div style="width: ${(difficultyStats.hard/total)*100}%; height: 100%; background: var(--danger);"></div>
+                            </div>
+                            <div style="width: 40px; text-align: right; font-size: 12px;">${difficultyStats.hard}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            async calculateStreak() {
+                const records = await this.db.getWords('stats');
+                const dates = records.map(r => r.date).sort().reverse();
+                
+                let streak = 0;
+                const today = new Date().toISOString().split('T')[0];
+                const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                
+                if (dates.includes(today) || dates.includes(yesterday)) {
+                    streak = 1;
+                    for (let i = 0; i < dates.length - 1; i++) {
+                        const curr = new Date(dates[i]);
+                        const next = new Date(dates[i + 1]);
+                        const diff = (curr - next) / (1000 * 60 * 60 * 24);
+                        if (diff === 1) streak++;
+                        else break;
+                    }
+                }
+                
+                return streak;
+            }
+
+            async renderCalendar() {
+                const grid = document.getElementById('calendarGrid');
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = today.getMonth();
+                
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                
+                const stats = await this.db.getWords('stats');
+                const activeDates = new Set(stats.map(s => parseInt(s.date.split('-')[2])));
+                
+                let html = '';
+                // 星期标题
+                const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+                weekDays.forEach(day => {
+                    html += `<div style="font-weight: bold; color: var(--text-muted); font-size: 12px;">${day}</div>`;
+                });
+                
+                // 空白填充
+                for (let i = 0; i < firstDay; i++) {
+                    html += `<div></div>`;
+                }
+                
+                // 日期
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const isToday = day === today.getDate();
+                    const isActive = activeDates.has(day);
+                    html += `
+                        <div class="calendar-day ${isActive ? 'active' : ''} ${isToday ? 'today' : ''}">
+                            ${day}
+                        </div>
+                    `;
+                }
+                
+                grid.innerHTML = html;
+            }
+
+            // ==================== 数据管理 ====================
+            async exportData() {
+                try {
+                    const data = await this.db.export();
+                    const blob = new Blob([data], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `shanbay_backup_${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    this.showToast('数据导出成功', 'success');
+                } catch (e) {
+                    this.showToast('导出失败', 'error');
+                }
+            }
+
+            async importData() {
+                document.getElementById('importFile').click();
+            }
+
+            async handleImport(file) {
+                try {
+                    const text = await file.text();
+                    await this.db.import(text);
+                    this.showToast('数据导入成功', 'success');
+                    this.loadSettings();
+                    this.initTodayStats();
+                    this.updateUI();
+                } catch (e) {
+                    this.showToast('导入失败，请检查文件格式', 'error');
+                }
+            }
+
+            async clearData() {
+                if (!confirm('⚠️ 警告：此操作将删除所有学习记录，且不可恢复！\n\n确定要继续吗？')) return;
+                if (!confirm('再次确认：你真的要清空所有数据吗？')) return;
+                
+                await this.db.clearAll();
+                this.showToast('数据已清空', 'success');
+                location.reload();
+            }
+
+            // ==================== 工具方法 ====================
+            getDifficultyText(difficulty) {
+                const map = { easy: '简单', medium: '中等', hard: '困难' };
+                return map[difficulty] || '中等';
+            }
+
+            getStatusText(status) {
+                const map = { new: '未学习', learning: '学习中', mastered: '已掌握', hard: '困难' };
+                return map[status] || '未学习';
+            }
+
+            showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.className = `toast ${type} show`;
+                
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+
+            updateUI() {
+                // 更新今日统计
+                document.getElementById('todayCount').textContent = this.todayStats.newWords;
+            }
+        }
+
+        // 初始化应用
+        const app = new App();
+        window.addEventListener('DOMContentLoaded', () => app.init());
+
+        // 防止意外关闭
+        window.addEventListener('beforeunload', (e) => {
+            if (app.currentWord && app.studyQueue.length > 0) {
+                e.preventDefault();
+                e.returnValue = '当前学习进度未保存，确定要离开吗？';
+            }
+        });
+    </script>
+</body>
+</html>
