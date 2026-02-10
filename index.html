@@ -402,6 +402,67 @@
             display: none;
         }
 
+        /* 手动添加单词区域 */
+        .add-word-section {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .add-word-title {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .add-word-form {
+            display: flex;
+            gap: 10px;
+        }
+
+        .add-word-input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .add-word-input:focus {
+            border-color: var(--primary);
+        }
+
+        .add-word-btn {
+            padding: 12px 24px;
+            background: var(--secondary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .add-word-btn:active {
+            transform: scale(0.95);
+        }
+
+        .add-word-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .word-list {
             background: var(--surface);
             border-radius: var(--radius);
@@ -806,6 +867,8 @@
             .stats-grid { grid-template-columns: 1fr; }
             .tab-btn { font-size: 12px; padding: 10px 8px; }
             .study-card { padding: 20px; min-height: 350px; }
+            .add-word-form { flex-direction: column; }
+            .add-word-btn { width: 100%; }
         }
 
         /* 动画 */
@@ -1000,6 +1063,24 @@
 
         <!-- 词库页面 -->
         <div id="libraryTab" class="tab-content">
+            <!-- 手动添加单词 -->
+            <div class="add-word-section">
+                <div class="add-word-title">
+                    <span>➕</span>
+                    <span>手动添加生词</span>
+                </div>
+                <div class="add-word-form">
+                    <input type="text" 
+                           class="add-word-input" 
+                           id="newWordInput" 
+                           placeholder="输入英文单词（如：serendipity）" 
+                           maxlength="30">
+                    <button class="add-word-btn" id="addWordBtn" onclick="app.addNewWord()">
+                        添加
+                    </button>
+                </div>
+            </div>
+
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📤</div>
                 <h3>上传英文小说</h3>
@@ -1165,7 +1246,7 @@
         class Database {
             constructor() {
                 this.dbName = 'ShanbayReader';
-                this.dbVersion = 2; // 升级版本以支持新字段
+                this.dbVersion = 2;
                 this.db = null;
             }
 
@@ -1182,21 +1263,13 @@
                     request.onupgradeneeded = (event) => {
                         const db = event.target.result;
 
-                        // 单词库
                         if (!db.objectStoreNames.contains('words')) {
                             const wordStore = db.createObjectStore('words', { keyPath: 'word' });
                             wordStore.createIndex('difficulty', 'difficulty', { unique: false });
                             wordStore.createIndex('status', 'status', { unique: false });
                             wordStore.createIndex('nextReview', 'nextReview', { unique: false });
-                        } else if (event.oldVersion < 2) {
-                            // 升级：添加新索引
-                            const wordStore = request.transaction.objectStore('words');
-                            if (!wordStore.indexNames.contains('source')) {
-                                wordStore.createIndex('source', 'source', { unique: false });
-                            }
                         }
 
-                        // 学习记录
                         if (!db.objectStoreNames.contains('records')) {
                             const recordStore = db.createObjectStore('records', { 
                                 keyPath: 'id', 
@@ -1206,17 +1279,14 @@
                             recordStore.createIndex('word', 'word', { unique: false });
                         }
 
-                        // 设置
                         if (!db.objectStoreNames.contains('settings')) {
                             db.createObjectStore('settings', { keyPath: 'key' });
                         }
 
-                        // 统计数据
                         if (!db.objectStoreNames.contains('stats')) {
                             db.createObjectStore('stats', { keyPath: 'date' });
                         }
 
-                        // API 缓存
                         if (!db.objectStoreNames.contains('dictCache')) {
                             const cacheStore = db.createObjectStore('dictCache', { keyPath: 'word' });
                             cacheStore.createIndex('timestamp', 'timestamp', { unique: false });
@@ -1254,6 +1324,7 @@
                     const request = store.put(wordData);
 
                     request.onsuccess = () => resolve(request.result);
+                    
                     request.onerror = () => reject(request.error);
                 });
             }
@@ -1335,7 +1406,6 @@
                 });
             }
 
-            // 词典缓存操作
             async getDictCache(word) {
                 return new Promise((resolve, reject) => {
                     const transaction = this.db.transaction(['dictCache'], 'readonly');
@@ -1344,9 +1414,8 @@
 
                     request.onsuccess = () => {
                         const result = request.result;
-                        // 检查缓存是否过期（30天）
                         if (result && (Date.now() - result.timestamp > 30 * 24 * 60 * 60 * 1000)) {
-                            resolve(null); // 过期
+                            resolve(null);
                         } else {
                             resolve(result);
                         }
@@ -1419,6 +1488,8 @@
                 this.db = db;
                 this.baseURL = 'https://api.dictionaryapi.dev/api/v2/entries/en';
                 this.isOnline = true;
+                this.requestQueue = [];
+                this.isProcessing = false;
             }
 
             async fetchDefinition(word) {
@@ -1448,10 +1519,7 @@
                     }
 
                     const data = await response.json();
-                    
-                    // 保存到缓存
                     await this.db.saveDictCache(word, data);
-                    
                     return this.parseDefinition(data);
                 } catch (error) {
                     console.warn(`词典查询失败 "${word}":`, error);
@@ -1470,7 +1538,6 @@
                 let example = '';
                 let audio = '';
 
-                // 提取音标
                 let phonetic = '';
                 if (entry.phonetic) {
                     phonetic = entry.phonetic;
@@ -1479,17 +1546,15 @@
                     if (ph) phonetic = ph.text;
                 }
 
-                // 提取音频
                 if (entry.phonetics) {
-                    const audioObj = entry.phonetics.find(p => p.audio);
+                    const audioObj = entry.phonetics.find(p => p.audio && p.audio.length > 0);
                     if (audioObj) audio = audioObj.audio;
                 }
 
-                // 提取释义和例句
                 if (entry.meanings) {
-                    for (const meaning of entry.meanings.slice(0, 2)) { // 取前2个词性
+                    for (const meaning of entry.meanings.slice(0, 2)) {
                         const pos = meaning.partOfSpeech;
-                        const defs = meaning.definitions.slice(0, 2); // 每个词性取前2个释义
+                        const defs = meaning.definitions.slice(0, 2);
                         
                         for (const def of defs) {
                             meanings.push({
@@ -1497,7 +1562,6 @@
                                 definition: def.definition
                             });
                             
-                            // 保存第一个例句
                             if (!example && def.example) {
                                 example = def.example;
                             }
@@ -1526,30 +1590,33 @@
                 };
             }
 
+            // 修复：使用队列和延迟，避免请求过快
             async batchFetch(words, onProgress = null) {
                 const results = [];
                 const total = words.length;
+                const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                 
                 for (let i = 0; i < words.length; i++) {
                     const word = words[i];
                     try {
+                        // 每5个单词延迟1秒，避免触发API限制
+                        if (i > 0 && i % 5 === 0) {
+                            if (onProgress) onProgress(i, total, word, 'waiting');
+                            await delay(1000);
+                        }
+                        
                         const def = await this.fetchDefinition(word);
                         results.push({ word, ...def });
                         
-                        if (onProgress) {
-                            onProgress(i + 1, total, word);
-                        }
+                        if (onProgress) onProgress(i + 1, total, word, 'done');
                         
-                        // 添加延迟避免请求过快
-                        if (i < words.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 100));
-                        }
                     } catch (e) {
                         console.error(`获取 ${word} 失败:`, e);
                         results.push({
                             word,
                             ...this.getOfflineDefinition(word)
                         });
+                        if (onProgress) onProgress(i + 1, total, word, 'error');
                     }
                 }
                 
@@ -1573,8 +1640,8 @@
                     autoFetchDict: true
                 };
                 this.todayStats = null;
+                this.isImporting = false;
                 
-                // 基础词汇表（排除常见词）- 扩展版
                 this.basicWords = new Set([
                     'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
                     'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so',
@@ -1582,29 +1649,9 @@
                     'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use',
                     'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us', 'is', 'was', 'are', 'were',
                     'been', 'has', 'had', 'did', 'does', 'doing', 'done', 'being', 'am', 's', 't', 'don', 'didn', 'wasn', 'weren', 'haven', 'hasn', 'hadn', 'won', 'wouldn', 'shouldn',
-                    'couldn', 'mightn', 'mustn', 'needn', 'daren', 'oughtn', 'usedn', 'aren', 'isn', 'let', 'm', 'o', 're', 've', 'd', 'll', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-                    'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december',
-                    'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-                    'mr', 'mrs', 'ms', 'dr', 'prof', 'sir', 'madam', 'lord', 'lady', 'king', 'queen',
-                    'yes', 'no', 'ok', 'okay', 'hi', 'hello', 'bye', 'goodbye', 'thanks', 'thank', 'please',
-                    'very', 'really', 'just', 'still', 'even', 'only', 'also', 'back', 'already', 'yet',
-                    'here', 'there', 'where', 'everywhere', 'somewhere', 'anywhere', 'nowhere',
-                    'today', 'tomorrow', 'yesterday', 'tonight', 'morning', 'afternoon', 'evening', 'night',
-                    'man', 'woman', 'child', 'children', 'boy', 'girl', 'guy', 'friend', 'family', 'father', 'mother', 'parent', 'brother', 'sister', 'son', 'daughter',
-                    'water', 'food', 'eat', 'drink', 'sleep', 'wake', 'run', 'walk', 'talk', 'speak', 'tell', 'say', 'ask', 'answer', 'hear', 'listen', 'look', 'watch', 'see',
-                    'big', 'small', 'large', 'little', 'tiny', 'huge', 'high', 'low', 'tall', 'short', 'long', 'fast', 'slow', 'quick', 'old', 'new', 'young', 'early', 'late',
-                    'happy', 'sad', 'angry', 'afraid', 'scared', 'tired', 'sick', 'fine', 'ok', 'well', 'bad', 'good', 'better', 'best', 'worse', 'worst',
-                    'love', 'like', 'hate', 'enjoy', 'prefer', 'want', 'need', 'hope', 'wish', 'try', 'start', 'stop', 'begin', 'end', 'finish', 'keep', 'hold', 'put', 'set',
-                    'thing', 'something', 'anything', 'nothing', 'everything', 'someone', 'anyone', 'everyone', 'nobody', 'body', 'head', 'hand', 'eye', 'face', 'foot', 'feet',
-                    'house', 'home', 'room', 'door', 'window', 'wall', 'floor', 'ceiling', 'roof', 'kitchen', 'bedroom', 'bathroom', 'place', 'area', 'space', 'world', 'country', 'city', 'town', 'street', 'road', 'way', 'side', 'end', 'top', 'bottom', 'middle', 'center', 'left', 'right', 'front', 'back', 'outside', 'inside', 'upstairs', 'downstairs',
-                    'book', 'paper', 'pen', 'pencil', 'table', 'chair', 'desk', 'bed', 'phone', 'computer', 'tv', 'television', 'car', 'bus', 'train', 'bike', 'plane', 'ship', 'boat',
-                    'money', 'dollar', 'cent', 'price', 'cost', 'pay', 'buy', 'sell', 'shop', 'store', 'market', 'company', 'business', 'job', 'work', 'office', 'school', 'university', 'college', 'hospital', 'bank', 'hotel', 'restaurant', 'park', 'garden', 'tree', 'flower', 'grass', 'plant', 'animal', 'dog', 'cat', 'bird', 'fish', 'horse', 'cow', 'pig', 'chicken', 'duck',
-                    'red', 'green', 'blue', 'yellow', 'white', 'black', 'brown', 'orange', 'pink', 'purple', 'gray', 'grey', 'color', 'light', 'dark', 'bright', 'clear', 'cloudy', 'sunny', 'rainy', 'snowy', 'windy', 'hot', 'cold', 'warm', 'cool', 'dry', 'wet', 'clean', 'dirty',
-                    'number', 'count', 'add', 'plus', 'minus', 'subtract', 'multiply', 'divide', 'equal', 'half', 'quarter', 'part', 'piece', 'bit', 'lot', 'few', 'many', 'much', 'more', 'less', 'least', 'most', 'some', 'any', 'all', 'none', 'both', 'either', 'neither', 'each', 'every', 'another', 'other', 'such', 'same', 'different',
-                    'problem', 'question', 'answer', 'solution', 'idea', 'thought', 'mind', 'brain', 'head', 'heart', 'soul', 'spirit', 'body', 'life', 'death', 'world', 'earth', 'land', 'ground', 'soil', 'sky', 'heaven', 'star', 'moon', 'sun', 'light', 'sound', 'noise', 'voice', 'music', 'song', 'word', 'sentence', 'name'
+                    'couldn', 'mightn', 'mustn', 'needn', 'daren', 'oughtn', 'usedn', 'aren', 'isn', 'let', 'm', 'o', 're', 've', 'd', 'll'
                 ]);
 
-                // 难度词汇特征
                 this.difficultyPatterns = {
                     easy: /^[a-z]{2,6}$/,
                     medium: /^[a-z]{7,10}$/,
@@ -1617,9 +1664,7 @@
                     await this.db.init();
                     this.dictService = new DictionaryService(this.db);
                     
-                    // 检查网络状态
                     this.checkOnlineStatus();
-                    
                     await this.loadSettings();
                     await this.initTodayStats();
                     this.setupEventListeners();
@@ -1651,7 +1696,6 @@
                 const saved = await this.db.getSettings();
                 this.settings = { ...this.settings, ...saved };
                 
-                // 应用设置到UI
                 document.getElementById('dailyNewWords').value = this.settings.dailyNew;
                 document.getElementById('dailyReviewWords').value = this.settings.dailyReview;
                 document.getElementById('autoPlayToggle').classList.toggle('active', this.settings.autoPlay);
@@ -1694,6 +1738,11 @@
 
                 fileInput.addEventListener('change', (e) => {
                     if (e.target.files.length) this.handleFile(e.target.files[0]);
+                });
+
+                // 手动添加单词回车事件
+                document.getElementById('newWordInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.addNewWord();
                 });
 
                 // 筛选标签
@@ -1756,18 +1805,84 @@
                 if (tab === 'stats') this.renderStats();
             }
 
+            // ==================== 手动添加单词功能 ====================
+            async addNewWord() {
+                const input = document.getElementById('newWordInput');
+                const btn = document.getElementById('addWordBtn');
+                const word = input.value.trim().toLowerCase();
+                
+                if (!word) {
+                    this.showToast('请输入单词', 'error');
+                    return;
+                }
+
+                if (!/^[a-z]+$/.test(word)) {
+                    this.showToast('只能输入英文字母', 'error');
+                    return;
+                }
+
+                if (this.basicWords.has(word)) {
+                    this.showToast('这是基础词汇，无需添加', 'info');
+                    return;
+                }
+
+                // 检查是否已存在
+                const existing = await this.db.getWord(word);
+                if (existing) {
+                    this.showToast(`"${word}" 已在词库中`, 'info');
+                    input.value = '';
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.textContent = '查询中...';
+                
+                try {
+                    // 查询词典
+                    const def = await this.dictService.fetchDefinition(word);
+                    
+                    // 分析难度
+                    const difficulty = this.analyzeDifficulty(word);
+                    
+                    // 保存到数据库
+                    await this.db.saveWord({
+                        word: word,
+                        difficulty: difficulty,
+                        frequency: 1,
+                        definition: def.meanings ? def.meanings.map(m => `${m.pos} ${m.definition}`).join('; ') : def.definition,
+                        meanings: def.meanings || [],
+                        phonetic: def.phonetic,
+                        example: def.example,
+                        audio: def.audio,
+                        status: 'new',
+                        addDate: new Date().toISOString().split('T')[0],
+                        source: def.source,
+                        isHard: true // 手动添加的默认为生词
+                    });
+
+                    this.showToast(`成功添加 "${word}"`, 'success');
+                    input.value = '';
+                    this.renderWordList();
+                    
+                } catch (error) {
+                    console.error('添加单词失败:', error);
+                    this.showToast('添加失败，请检查网络', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '添加';
+                }
+            }
+
             // ==================== 学习功能 ====================
             async prepareStudyQueue() {
                 const today = new Date().toISOString().split('T')[0];
                 const allWords = await this.db.getWords('words');
                 
-                // 1. 获取今日待复习单词（基于SRS）
                 const reviewWords = allWords.filter(w => {
                     if (!w.nextReview) return false;
                     return w.nextReview <= today && w.status !== 'mastered';
                 }).slice(0, this.settings.dailyReview);
 
-                // 2. 获取新词
                 const newWords = allWords
                     .filter(w => w.status === 'new')
                     .slice(0, this.settings.dailyNew - this.todayStats.newWords);
@@ -1794,11 +1909,9 @@
                 this.currentWord = this.studyQueue[this.currentIndex];
                 const isReview = this.currentWord.status !== 'new';
                 
-                // 更新UI
                 document.getElementById('wordText').textContent = this.currentWord.word;
                 document.getElementById('phoneticText').textContent = this.currentWord.phonetic || '';
                 
-                // 格式化释义显示
                 const defEl = document.getElementById('definitionText');
                 if (isReview) {
                     defEl.style.filter = 'blur(4px)';
@@ -1808,12 +1921,10 @@
                     defEl.innerHTML = this.formatDefinition(this.currentWord.definition, this.currentWord.meanings);
                 }
                 
-                // 难度标签
                 const badge = document.getElementById('difficultyBadge');
                 badge.className = 'difficulty-badge difficulty-' + (this.currentWord.difficulty || 'medium');
                 badge.textContent = this.getDifficultyText(this.currentWord.difficulty);
 
-                // 例句
                 const exampleSection = document.getElementById('exampleSection');
                 const exampleAudioBtn = document.getElementById('exampleAudioBtn');
                 
@@ -1826,14 +1937,12 @@
                     exampleAudioBtn.style.display = 'none';
                 }
 
-                // 音频链接
                 if (this.currentWord.audio) {
                     document.querySelector('.audio-btn').onclick = () => this.playAudio(false, true);
                 } else {
                     document.querySelector('.audio-btn').onclick = () => this.playAudio();
                 }
 
-                // 控制按钮
                 if (isReview) {
                     document.getElementById('studyControls').classList.add('hidden');
                     document.getElementById('memoryControls').classList.remove('hidden');
@@ -1877,7 +1986,6 @@
                     document.getElementById('exampleText').textContent = this.currentWord.example;
                 }
 
-                // 切换到评分模式
                 document.getElementById('studyControls').classList.add('hidden');
                 document.getElementById('memoryControls').classList.remove('hidden');
             }
@@ -1889,13 +1997,11 @@
                 }
 
                 if (!known) {
-                    // 不认识 - 加入生词本并显示答案
                     await this.addToHardWords(this.currentWord.word);
                     this.showAnswer();
                     return;
                 }
 
-                // 认识 - 标记为学习中
                 if (this.currentWord.status === 'new') {
                     this.currentWord.status = 'learning';
                     this.currentWord.studyCount = 1;
@@ -1916,18 +2022,17 @@
             async rateWord(rating) {
                 if (!this.currentWord) return;
 
-                // SRS算法计算下次复习时间
-                const intervals = [1, 3, 7, 14, 30, 90]; // 复习间隔（天）
+                const intervals = [1, 3, 7, 14, 30, 90];
                 let level = this.currentWord.level || 0;
 
-                if (rating === 1) { // 忘记
+                if (rating === 1) {
                     level = 0;
                     this.currentWord.status = 'hard';
-                } else if (rating === 2) { // 困难
+                } else if (rating === 2) {
                     level = Math.max(0, level - 1);
-                } else if (rating === 3) { // 良好
+                } else if (rating === 3) {
                     level = Math.min(level + 1, intervals.length - 1);
-                } else if (rating === 4) { // 简单
+                } else if (rating === 4) {
                     level = Math.min(level + 2, intervals.length - 1);
                     if (level >= 3) this.currentWord.status = 'mastered';
                 }
@@ -1983,7 +2088,6 @@
             }
 
             continueStudy() {
-                // 继续学习超出每日计划的单词
                 this.settings.dailyNew += 20;
                 this.prepareStudyQueue();
                 document.getElementById('studyContainer').classList.remove('hidden');
@@ -1993,8 +2097,6 @@
             playAudio(useOnline = false, isExample = false) {
                 if (!this.currentWord) return;
                 
-                // 如果有在线
-                // 如果有在线音频且要求使用在线音频
                 if (useOnline && this.currentWord.audio && !isExample) {
                     const audio = new Audio(this.currentWord.audio);
                     audio.play().catch(e => {
@@ -2016,95 +2118,110 @@
                 speechSynthesis.speak(utterance);
             }
 
-            // ==================== 词库管理 ====================
+            // ==================== 词库管理（修复导入提示问题） ====================
             async handleFile(file) {
+                if (this.isImporting) {
+                    this.showToast('正在处理中，请稍候...', 'info');
+                    return;
+                }
+
                 if (!file.name.endsWith('.txt')) {
                     this.showToast('请上传 .txt 文件', 'error');
                     return;
                 }
 
-                const text = await file.text();
-                const words = this.extractWords(text);
-                
-                if (words.length === 0) {
-                    this.showToast('未提取到有效单词', 'error');
-                    return;
-                }
-                
-                this.showToast(`提取到 ${words.length} 个生词，正在解析...`, 'success');
-                
-                // 批量处理单词
-                let processed = 0;
-                const failed = [];
-                
-                // 如果启用自动获取词典且在线，批量查询
-                if (this.settings.autoFetchDict && this.dictService.isOnline && words.length > 0) {
-                    // 分批处理，每批10个
-                    const batchSize = 10;
-                    for (let i = 0; i < words.length; i += batchSize) {
-                        const batch = words.slice(i, i + batchSize);
-                        const definitions = await this.dictService.batchFetch(
-                            batch.map(w => w.word),
-                            (current, total, word) => {
-                                if (current % 5 === 0) {
-                                    this.showToast(`正在查询词典: ${current}/${total}`, 'info');
-                                }
-                            }
-                        );
-                        
-                        // 保存到数据库
-                        for (let j = 0; j < batch.length; j++) {
-                            const wordData = batch[j];
-                            const def = definitions[j];
-                            
-                            if (def.source === 'offline') {
-                                failed.push(wordData.word);
-                            }
-                            
-                            await this.saveWordWithDef(wordData, def);
-                            processed++;
-                        }
-                        
-                        // 每批处理后更新UI
-                        this.renderWordList();
+                this.isImporting = true;
+                const uploadArea = document.getElementById('uploadArea');
+                uploadArea.style.opacity = '0.6';
+                uploadArea.style.pointerEvents = 'none';
+
+                try {
+                    const text = await file.text();
+                    const words = this.extractWords(text);
+                    
+                    if (words.length === 0) {
+                        this.showToast('未提取到有效单词', 'error');
+                        return;
                     }
-                } else {
-                    // 离线模式或禁用自动获取，使用本地解析
-                    for (const wordData of words) {
-                        const def = await this.dictService.fetchDefinition(wordData.word);
+                    
+                    this.showToast(`提取到 ${words.length} 个生词，开始导入...`, 'success');
+                    
+                    let processed = 0;
+                    let failed = 0;
+                    let skipped = 0;
+
+                    // 检查已存在的单词
+                    for (let i = 0; i < words.length; i++) {
+                        const wordData = words[i];
+                        const existing = await this.db.getWord(wordData.word);
+                        
+                        if (existing) {
+                            skipped++;
+                            continue;
+                        }
+
+                        // 获取释义
+                        let def;
+                        if (this.settings.autoFetchDict && this.dictService.isOnline) {
+                            try {
+                                // 每5个单词延迟1秒
+                                if (processed > 0 && processed % 5 === 0) {
+                                    this.showToast(`正在查询词典... (${processed}/${words.length})`, 'info');
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                }
+                                
+                                def = await this.dictService.fetchDefinition(wordData.word);
+                                if (def.source === 'offline') failed++;
+                            } catch (e) {
+                                console.error(`获取 ${wordData.word} 失败:`, e);
+                                def = this.dictService.getOfflineDefinition(wordData.word);
+                                failed++;
+                            }
+                        } else {
+                            def = this.dictService.getOfflineDefinition(wordData.word);
+                        }
+
                         await this.saveWordWithDef(wordData, def);
                         processed++;
                         
+                        // 每10个更新一次列表
                         if (processed % 10 === 0) {
-                            this.showToast(`已处理 ${processed}/${words.length}...`, 'success');
                             this.renderWordList();
                         }
                     }
-                }
 
-                const msg = failed.length > 0 
-                    ? `成功导入 ${processed} 个单词，${failed.length} 个未找到释义` 
-                    : `成功导入 ${processed} 个单词！`;
-                this.showToast(msg, 'success');
-                this.renderWordList();
+                    // 最终更新
+                    this.renderWordList();
+                    
+                    let msg = `导入完成！成功: ${processed}`;
+                    if (skipped > 0) msg += `, 跳过: ${skipped}`;
+                    if (failed > 0) msg += `, 失败: ${failed}`;
+                    
+                    this.showToast(msg, 'success');
+                    
+                } catch (error) {
+                    console.error('导入失败:', error);
+                    this.showToast('导入失败，请重试', 'error');
+                } finally {
+                    this.isImporting = false;
+                    uploadArea.style.opacity = '1';
+                    uploadArea.style.pointerEvents = 'auto';
+                    document.getElementById('fileInput').value = '';
+                }
             }
 
             extractWords(text) {
-                // 清理文本
                 const cleanText = text.toLowerCase()
                     .replace(/[^\w\s]/g, ' ')
                     .replace(/\s+/g, ' ');
 
-                // 提取单词
                 const words = cleanText.split(' ')
                     .map(w => w.trim())
                     .filter(w => w.length >= 3 && w.length <= 20 && /^[a-z]+$/.test(w));
 
-                // 去重并过滤基础词汇
                 const uniqueWords = [...new Set(words)];
                 const filtered = uniqueWords.filter(w => !this.basicWords.has(w));
 
-                // 分析难度并返回
                 return filtered.map(word => ({
                     word,
                     difficulty: this.analyzeDifficulty(word),
@@ -2125,9 +2242,6 @@
             }
 
             async saveWordWithDef(wordData, def) {
-                const existing = await this.db.getWord(wordData.word);
-                if (existing) return; // 已存在则跳过
-
                 await this.db.saveWord({
                     word: wordData.word,
                     difficulty: wordData.difficulty,
@@ -2170,6 +2284,7 @@
                                 ${w.word}
                                 <span style="font-size: 12px; color: var(--text-muted);">${w.phonetic || ''}</span>
                                 ${w.source === 'offline' ? '<span style="font-size: 10px; color: var(--danger);">(离线)</span>' : ''}
+                                ${w.isHard ? '<span style="font-size: 10px; color: var(--danger);">❤️</span>' : ''}
                             </h3>
                             <div class="word-meta">
                                 <span class="difficulty-badge difficulty-${w.difficulty}" style="position: static; display: inline-block; padding: 2px 8px; font-size: 10px;">
@@ -2182,13 +2297,13 @@
                             </div>
                         </div>
                         <div class="word-actions" onclick="event.stopPropagation()">
-                            <button class="icon-btn ${w.isHard ? 'active' : ''}" onclick="app.toggleHard('${w.word}')">
+                            <button class="icon-btn ${w.isHard ? 'active' : ''}" onclick="app.toggleHard('${w.word}')" title="生词本">
                                 ❤️
                             </button>
-                            <button class="icon-btn" onclick="app.refreshDefinition('${w.word}')">
+                            <button class="icon-btn" onclick="app.refreshDefinition('${w.word}')" title="刷新释义">
                                 🔄
                             </button>
-                            <button class="icon-btn" onclick="app.deleteWord('${w.word}')">
+                            <button class="icon-btn" onclick="app.deleteWord('${w.word}')" title="删除">
                                 🗑️
                             </button>
                         </div>
@@ -2206,7 +2321,6 @@
 
                 document.getElementById('modalWord').textContent = word;
                 
-                // 构建详细内容
                 let meaningsHtml = '';
                 if (data.meanings && data.meanings.length > 0) {
                     meaningsHtml = data.meanings.map(m => `
@@ -2266,6 +2380,11 @@
                             <div style="font-weight: bold; margin-top: 5px;">${data.frequency || 1}</div>
                         </div>
                     </div>
+                    ${data.isHard ? `
+                    <div style="margin-top: 15px; text-align: center; padding: 10px; background: rgba(239, 68, 68, 0.1); border-radius: 8px; font-size: 14px; color: var(--danger);">
+                        ❤️ 已加入生词本
+                    </div>
+                    ` : ''}
                     ${data.nextReview ? `
                     <div style="margin-top: 15px; text-align: center; padding: 10px; background: var(--bg); border-radius: 8px; font-size: 12px; color: var(--text-muted);">
                         下次复习: ${data.nextReview}
@@ -2283,13 +2402,10 @@
             async refreshDefinition(word) {
                 this.showToast('正在更新释义...', 'info');
                 
-                // 强制重新获取
                 const data = await this.db.getWord(word);
                 if (data) {
-                    // 删除缓存
                     await this.db.saveDictCache(word, null);
                     
-                    // 重新获取
                     const def = await this.dictService.fetchDefinition(word);
                     
                     data.definition = def.meanings ? def.meanings.map(m => `${m.pos} ${m.definition}`).join('; ') : def.definition;
@@ -2343,20 +2459,16 @@
                 const words = await this.db.getWords('words');
                 const today = new Date().toISOString().split('T')[0];
                 
-                // 基础统计
                 document.getElementById('totalWords').textContent = words.length;
                 document.getElementById('masteredWords').textContent = words.filter(w => w.status === 'mastered').length;
                 document.getElementById('learningWords').textContent = words.filter(w => w.status === 'learning').length;
                 document.getElementById('todayNew').textContent = this.todayStats.newWords;
 
-                // 计算连续学习天数
                 const streak = await this.calculateStreak();
                 document.getElementById('streakCount').textContent = streak;
 
-                // 渲染日历
                 this.renderCalendar();
 
-                // 难度分布
                 const difficultyStats = {
                     easy: words.filter(w => w.difficulty === 'easy').length,
                     medium: words.filter(w => w.difficulty === 'medium').length,
@@ -2427,18 +2539,15 @@
                 const activeDates = new Set(stats.map(s => parseInt(s.date.split('-')[2])));
                 
                 let html = '';
-                // 星期标题
                 const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
                 weekDays.forEach(day => {
                     html += `<div style="font-weight: bold; color: var(--text-muted); font-size: 12px;">${day}</div>`;
                 });
                 
-                // 空白填充
                 for (let i = 0; i < firstDay; i++) {
                     html += `<div></div>`;
                 }
                 
-                // 日期
                 for (let day = 1; day <= daysInMonth; day++) {
                     const isToday = day === today.getDate();
                     const isActive = activeDates.has(day);
@@ -2517,7 +2626,6 @@
             }
 
             updateUI() {
-                // 更新今日统计
                 document.getElementById('todayCount').textContent = this.todayStats.newWords;
             }
         }
