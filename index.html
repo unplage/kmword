@@ -1324,7 +1324,7 @@
                     const request = store.put(wordData);
 
                     request.onsuccess = () => resolve(request.result);
-                    
+                    request.onerror
                     request.onerror = () => reject(request.error);
                 });
             }
