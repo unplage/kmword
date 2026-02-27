@@ -3,3 +3,4 @@
 导入英文语料定制单词库；
 单词发声；
 纯英文解释；
+https://unplage.github.io/kmword/
