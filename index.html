@@ -2457,13 +2457,14 @@
 
                 async addWord(wordData) {
                     await this.ready();
-                    
-                    // 检查是否已存在（同一单词库内）
-                    const existing = await this.getWordInList(wordData.word, wordData.listId);
-                    if (existing) {
-                        console.log(`单词 "${wordData.word}" 已在该单词库中存在，跳过`);
-                        return existing.id;
-                    }
+                    const normalizedWord = wordData.word.toLowerCase().trim();
+    				const targetListId = wordData.listId ? parseInt(wordData.listId) : null;
+				    // 关键：只在同一单词库内检查重复
+				    const existing = await this.getWordInList(normalizedWord, targetListId);
+				    if (existing) {
+				        console.log(`单词 "${normalizedWord}" 已在单词库 ${targetListId || '未分类'} 中存在，跳过`);
+				        return null; // 返回 null 表示重复
+				    }
                     
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.WORDS], 'readwrite');
@@ -2501,11 +2502,34 @@
                     });
                 }
 
-                async getWordInList(word, listId) {
-                    await this.ready();
-                    const allWords = await this.getAllWords({ listId });
-                    return allWords.find(w => w.word === word.toLowerCase().trim());
-                }
+				async getWordInList(word, listId) {
+				    await this.ready();
+				    const normalizedWord = word.toLowerCase().trim();
+				    const targetListId = listId ? parseInt(listId) : null;
+				    
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.WORDS], 'readonly');
+				        const store = transaction.objectStore(STORES.WORDS);
+				        const index = store.index('word');
+				        
+				        // 获取所有同名单词
+				        const request = index.getAll(normalizedWord);
+				        
+				        request.onsuccess = () => {
+				            const words = request.result || [];
+				            
+				            // 在同一单词库内查找
+				            const existing = words.find(w => {
+				                const wListId = w.listId ? parseInt(w.listId) : null;
+				                return wListId === targetListId;  // 严格比较同一库
+				            });
+				            
+				            resolve(existing);
+				        };
+				        
+				        request.onerror = () => reject(request.error);
+				    });
+				}
 
                 async getWordsByList(listId, filter = {}) {
                     await this.ready();
