@@ -3604,6 +3604,7 @@
                     this.voices = [];
                     this.searchDebounceTimer = null;
                     this.isProcessing = false;
+					this.isStudyingNewWords = false;  // 新增标志
                     
                     this.dictionaryAPI = {
                         baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
@@ -4191,7 +4192,21 @@
                 async startLearningSession() {
                     try {
                         this.showLoader('正在准备学习内容...');
-                        
+                        // 关键修复：如果正在学习生词，跳过默认加载
+			            if (this.isStudyingNewWords) {
+			                console.log('继续学习生词本，跳过默认加载');
+			                this.isStudyingNewWords = false;  // 重置标志
+			                
+			                const learnedCount = document.getElementById('learnedCount');
+			                const totalToLearn = document.getElementById('totalToLearn');
+			                
+			                if (learnedCount) learnedCount.textContent = '1';
+			                if (totalToLearn) totalToLearn.textContent = this.learningWords.length;
+			                
+			                await this.displayCurrentWord();
+			                this.hideLoader();
+			                return;
+			            }
                         this.learningWords = await this.db.getTodayWords();
                         this.currentWordIndex = 0;
                         this.showingDetails = false;
@@ -5253,26 +5268,30 @@
                     }
                 }
 
-                async studyNewWords() {
-                    try {
-                        const newWords = await this.db.getNewWords();
-                        
-                        if (newWords.length === 0) {
-                            this.showNotification('生词本为空', 'info');
-                            return;
-                        }
-                        
-                        this.learningWords = newWords;
-                        this.currentWordIndex = 0;
-                        this.showingDetails = false;
-                        
-                        this.switchPage('learn');
-                        
-                    } catch (error) {
-                        console.error('开始学习生词失败:', error);
-                        this.showNotification('开始学习失败', 'error');
-                    }
-                }
+			    async studyNewWords() {
+			        try {
+			            const newWords = await this.db.getNewWords();
+			            
+			            if (newWords.length === 0) {
+			                this.showNotification('生词本为空', 'info');
+			                return;
+			            }
+			            
+			            // 设置标志
+			            this.isStudyingNewWords = true;
+			            this.learningWords = newWords;
+			            this.currentWordIndex = 0;
+			            this.showingDetails = false;
+			            
+			            this.switchPage('learn');
+			            
+			        } catch (error) {
+			            console.error('开始学习生词失败:', error);
+			            this.showNotification('开始学习失败', 'error');
+			            this.isStudyingNewWords = false;
+			        }
+			    }
+
 
                 async clearNewWords() {
                     if (!confirm('确定要清空生词本吗？此操作不可恢复。')) {
