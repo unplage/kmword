@@ -2,11 +2,22 @@
 <html lang="zh-CN">
 <head>
 	<script>
-	// 每次更新改这个时间戳
-	const VERSION = '20260316-1307';
-	if (localStorage.getItem('app_version') !== VERSION) {
+	const VERSION = '20260316-1310';
+	const lastVersion = localStorage.getItem('app_version');
+	
+	if (lastVersion !== VERSION) {
+	    // 清除所有缓存存储
+	    localStorage.clear();
+	    sessionStorage.clear();
+	    
+	    // 尝试清除 Service Worker
+	    if ('serviceWorker' in navigator) {
+	        navigator.serviceWorker.getRegistrations().then(regs => {
+	            regs.forEach(reg => reg.unregister());
+	        });
+	    }
+	    
 	    localStorage.setItem('app_version', VERSION);
-	    // 强制刷新，跳过缓存
 	    location.reload(true);
 	}
 	</script>
