@@ -2163,7 +2163,7 @@
         // ==========================================
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 4;  // 升级到版本4，支持单词库管理以及生词本、优化导入速度；
+            const DB_VERSION = 5;  // 升级到版本4，支持单词库管理以及生词本、优化导入速度；
 
             const STORES = {
                 WORDS: 'words',
@@ -2231,6 +2231,17 @@
                             if (oldVersion < 3) {
                                 this.migrateToVersion3(db);
                             }
+							if (oldVersion < 5) {
+							    console.log('迁移到版本 5：创建复合唯一索引 [word, listId]');
+							    const transaction = event.target.transaction;
+							    const wordsStore = transaction.objectStore(STORES.WORDS);
+							    // 删除旧的 word 索引
+							    if (wordsStore.indexNames.contains('word')) {
+							        wordsStore.deleteIndex('word');
+							    }
+							    // 创建新的复合唯一索引
+							    wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
+							}							
                         };
                         
                         request.onblocked = () => {
@@ -2246,8 +2257,13 @@
                     console.log('创建初始表结构');
                     
                     if (!db.objectStoreNames.contains(STORES.WORDS)) {
-                        const wordsStore = db.createObjectStore(STORES.WORDS, { keyPath: 'id', autoIncrement: true });
-                        wordsStore.createIndex('word', 'word', { unique: true });
+						const wordsStore = db.createObjectStore(STORES.WORDS, { keyPath: 'id', autoIncrement: true });
+						// 复合唯一索引：同一单词库内不允许重复
+						wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
+						// 其他辅助索引保持不变
+						wordsStore.createIndex('difficulty', 'difficulty');
+						wordsStore.createIndex('source', 'source');
+						wordsStore.createIndex('lastReviewed', 'lastReviewed');
                         wordsStore.createIndex('difficulty', 'difficulty');
                         wordsStore.createIndex('source', 'source');
                         wordsStore.createIndex('lastReviewed', 'lastReviewed');
@@ -2510,23 +2526,12 @@
 				    return new Promise((resolve, reject) => {
 				        const transaction = this.db.transaction([STORES.WORDS], 'readonly');
 				        const store = transaction.objectStore(STORES.WORDS);
-				        const index = store.index('word');
+				        const index = store.index('word_list');  // 使用新索引
+				        // 精确匹配 [word, listId]
+				        const range = IDBKeyRange.only([normalizedWord, targetListId]);
+				        const request = index.get(range);
 				        
-				        // 获取所有同名单词
-				        const request = index.getAll(normalizedWord);
-				        
-				        request.onsuccess = () => {
-				            const words = request.result || [];
-				            
-				            // 在同一单词库内查找
-				            const existing = words.find(w => {
-				                const wListId = w.listId ? parseInt(w.listId) : null;
-				                return wListId === targetListId;  // 严格比较同一库
-				            });
-				            
-				            resolve(existing);
-				        };
-				        
+				        request.onsuccess = () => resolve(request.result);
 				        request.onerror = () => reject(request.error);
 				    });
 				}
