@@ -2235,12 +2235,50 @@
 							    console.log('迁移到版本 5：创建复合唯一索引 [word, listId]');
 							    const transaction = event.target.transaction;
 							    const wordsStore = transaction.objectStore(STORES.WORDS);
-							    // 删除旧的 word 索引
-							    if (wordsStore.indexNames.contains('word')) {
-							        wordsStore.deleteIndex('word');
-							    }
-							    // 创建新的复合唯一索引
-							    wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
+							    
+							    // 1. 获取所有单词
+							    const getAllRequest = wordsStore.getAll();
+							    getAllRequest.onsuccess = function() {
+							        const allWords = getAllRequest.result || [];
+							        const map = new Map();          // 键: word_lowercase + '|' + listId
+							        const duplicatesToDelete = [];   // 要删除的重复单词ID
+							        
+							        // 2. 找出重复记录
+							        allWords.forEach(word => {
+							            const key = word.word.toLowerCase().trim() + '|' + (word.listId === undefined ? 'null' : word.listId);
+							            if (map.has(key)) {
+							                const existing = map.get(key);
+							                // 保留 ID 较小的那个
+							                if (word.id < existing.id) {
+							                    map.set(key, word);
+							                    duplicatesToDelete.push(existing.id);
+							                } else {
+							                    duplicatesToDelete.push(word.id);
+							                }
+							            } else {
+							                map.set(key, word);
+							            }
+							        });
+							        
+							        // 3. 如果有重复，删除关联数据（user_progress、new_words）和重复单词本身
+							        if (duplicatesToDelete.length > 0) {
+							            console.log(`发现 ${duplicatesToDelete.length} 个重复单词，正在清理...`);
+							            const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
+							            const newWordsStore = transaction.objectStore(STORES.NEW_WORDS);
+							            
+							            duplicatesToDelete.forEach(id => {
+							                progressStore.delete(id);   // 删除学习进度
+							                newWordsStore.delete(id);   // 删除生词本记录
+							                wordsStore.delete(id);      // 删除单词本身
+							            });
+							        }
+							        
+							        // 4. 删除旧索引，创建新索引
+							        if (wordsStore.indexNames.contains('word')) {
+							            wordsStore.deleteIndex('word');
+							        }
+							        wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
+							    };
 							}							
                         };
                         
@@ -2258,9 +2296,10 @@
                     
                     if (!db.objectStoreNames.contains(STORES.WORDS)) {
 						const wordsStore = db.createObjectStore(STORES.WORDS, { keyPath: 'id', autoIncrement: true });
-						// 复合唯一索引：同一单词库内不允许重复
-						wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
-						// 其他辅助索引保持不变
+						wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true }); // 复合唯一索引
+						wordsStore.createIndex('difficulty', 'difficulty');
+						wordsStore.createIndex('source', 'source');
+						wordsStore.createIndex('lastReviewed', 'lastReviewed');
 						wordsStore.createIndex('difficulty', 'difficulty');
 						wordsStore.createIndex('source', 'source');
 						wordsStore.createIndex('lastReviewed', 'lastReviewed');
@@ -2526,9 +2565,8 @@
 				    return new Promise((resolve, reject) => {
 				        const transaction = this.db.transaction([STORES.WORDS], 'readonly');
 				        const store = transaction.objectStore(STORES.WORDS);
-				        const index = store.index('word_list');  // 使用新索引
-				        // 精确匹配 [word, listId]
-				        const range = IDBKeyRange.only([normalizedWord, targetListId]);
+				        const index = store.index('word_list');  // 使用复合索引
+				        const range = IDBKeyRange.only([normalizedWord, targetListId]); // 精确匹配
 				        const request = index.get(range);
 				        
 				        request.onsuccess = () => resolve(request.result);
