@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+	<script>
+	// 每次更新改这个时间戳
+	const VERSION = '20260316-1307';
+	if (localStorage.getItem('app_version') !== VERSION) {
+	    localStorage.setItem('app_version', VERSION);
+	    // 强制刷新，跳过缓存
+	    location.reload(true);
+	}
+	</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#4CAF50">
