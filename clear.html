@@ -3,163 +3,269 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>清除缓存 - Word Learner</title>
+    <title>清除 kmword 缓存</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            background: #f5f5f5;
             padding: 20px;
         }
         .container {
             background: white;
             padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            text-align: center;
-            max-width: 400px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
             width: 100%;
+            text-align: center;
         }
-        h1 { color: #333; margin-bottom: 10px; }
-        p { color: #666; margin-bottom: 30px; }
-        .status {
-            margin: 20px 0;
-            padding: 15px;
-            border-radius: 8px;
+        h1 { font-size: 24px; margin-bottom: 10px; color: #333; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .scope-info {
             background: #e3f2fd;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-family: monospace;
+            font-size: 13px;
             color: #1976d2;
+            word-break: break-all;
         }
-        .success {
-            background: #e8f5e9;
-            color: #388e3c;
+        .log {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: left;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
         }
+        .log-item { margin: 5px 0; padding: 3px 0; border-bottom: 1px solid #e0e0e0; }
+        .log-item.success { color: #4CAF50; }
+        .log-item.error { color: #f44336; }
+        .log-item.skip { color: #9E9E9E; }
         button {
-            background: #4CAF50;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 14px 32px;
-            border-radius: 25px;
+            padding: 15px 40px;
+            border-radius: 30px;
             font-size: 16px;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin: 10px 0;
         }
-        button:hover { background: #45a049; transform: translateY(-2px); }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
         .spinner {
             width: 40px;
             height: 40px;
             border: 4px solid #e0e0e0;
-            border-top-color: #4CAF50;
+            border-top-color: #667eea;
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 20px auto;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .success-badge {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🧹 清除缓存</h1>
-        <p>点击下方按钮清除本网站的所有数据，包括：<br>
-        缓存文件、Cookie、本地存储、数据库</p>
-        
-        <div id="statusArea">
-            <div class="spinner" id="spinner" style="display:none;"></div>
-            <div class="status" id="statusText">准备清除...</div>
+        <h1>🧹 清除 kmword 缓存</h1>
+        <p class="subtitle">只清除当前路径 /kmword/ 的数据，不影响其他项目</p>
+
+        <div class="scope-info">
+            当前路径: <span id="currentPath">检测中...</span>
         </div>
-        
-        <button id="clearBtn" onclick="doClear()">立即清除所有数据</button>
-        <button id="backBtn" onclick="goBack()" style="display:none; margin-top:10px; background:#2196F3;">
+
+        <div class="log" id="log" style="display:none;"></div>
+
+        <button id="clearBtn" onclick="startClear()">开始清除</button>
+        <button id="backBtn" onclick="goBack()" style="display:none; background: #4CAF50;">
             返回主页面
         </button>
     </div>
 
     <script>
-    async function doClear() {
+    // 获取当前路径
+    const CURRENT_PATH = new URL(location.href).pathname;
+    const CURRENT_DIR = CURRENT_PATH.substring(0, CURRENT_PATH.lastIndexOf('/') + 1);
+
+    document.getElementById('currentPath').textContent = CURRENT_DIR;
+
+    function addLog(msg, type = 'info') {
+        const log = document.getElementById('log');
+        log.style.display = 'block';
+        const div = document.createElement('div');
+        div.className = `log-item ${type}`;
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        log.appendChild(div);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    async function startClear() {
         const btn = document.getElementById('clearBtn');
-        const spinner = document.getElementById('spinner');
-        const status = document.getElementById('statusText');
-        const backBtn = document.getElementById('backBtn');
-        
-        btn.style.display = 'none';
-        spinner.style.display = 'block';
-        status.textContent = '正在清除...';
-        
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0 auto;"></div>';
+
+        addLog('开始清除...', 'info');
+
         try {
-            // 1. 清除 localStorage 和 sessionStorage
-            localStorage.clear();
-            sessionStorage.clear();
-            status.textContent = '✓ 本地存储已清除';
-            await delay(300);
-            
-            // 2. 注销 Service Worker
+            // ===== 步骤 1: 只清除当前路径的 Service Worker =====
+            addLog('查找 Service Worker...', 'info');
+
             if ('serviceWorker' in navigator) {
                 const regs = await navigator.serviceWorker.getRegistrations();
+                addLog(`找到 ${regs.length} 个 SW`, 'info');
+
+                let cleared = 0;
                 for (const reg of regs) {
-                    await reg.unregister();
+                    const scope = reg.scope || '';
+
+                    // 关键：只清除作用域匹配当前路径的 SW
+                    // 匹配规则：SW 作用域是当前路径的子集或超集
+                    const isCurrentPath = scope === location.origin + CURRENT_DIR ||
+                                          scope.startsWith(location.origin + CURRENT_DIR) ||
+                                          CURRENT_DIR.startsWith(scope.replace(location.origin, ''));
+
+                    if (isCurrentPath) {
+                        await reg.unregister();
+                        addLog(`✓ 注销 SW: ${scope}`, 'success');
+                        cleared++;
+                    } else {
+                        addLog(`⊘ 跳过 SW: ${scope} (非当前路径)`, 'skip');
+                    }
                 }
-                status.textContent = `✓ Service Worker 已注销 (${regs.length}个)`;
-                await delay(300);
+                addLog(`SW 清理完成: ${cleared}/${regs.length}`, cleared > 0 ? 'success' : 'info');
             }
-            
-            // 3. 清除 Cache Storage
+
+            // ===== 步骤 2: 只清除当前路径相关的缓存 =====
+            addLog('清理 Cache Storage...', 'info');
+
             if ('caches' in window) {
                 const keys = await caches.keys();
+                let cleared = 0;
+
                 for (const key of keys) {
-                    await caches.delete(key);
+                    // 只清除包含当前路径标识的缓存
+                    if (key.includes('kmword') || key.includes('WordLearner')) {
+                        await caches.delete(key);
+                        addLog(`✓ 删除缓存: ${key}`, 'success');
+                        cleared++;
+                    } else {
+                        addLog(`⊘ 跳过缓存: ${key}`, 'skip');
+                    }
                 }
-                status.textContent = `✓ 缓存已清除 (${keys.length}个)`;
-                await delay(300);
+                addLog(`缓存清理完成: ${cleared}/${keys.length}`, cleared > 0 ? 'success' : 'info');
             }
-            
-            // 4. 清除 IndexedDB
-            const dbs = await indexedDB.databases?.() || [];
-            for (const db of dbs) {
-                indexedDB.deleteDatabase(db.name);
+
+            // ===== 步骤 3: 只清除当前路径相关的数据库 =====
+            addLog('清理 IndexedDB...', 'info');
+
+            try {
+                // 尝试获取所有数据库
+                const databases = await indexedDB.databases?.() || [];
+                let cleared = 0;
+
+                for (const db of databases) {
+                    if (db.name && (db.name.includes('kmword') || db.name.includes('WordLearner'))) {
+                        indexedDB.deleteDatabase(db.name);
+                        addLog(`✓ 删除数据库: ${db.name}`, 'success');
+                        cleared++;
+                    } else {
+                        addLog(`⊘ 跳过数据库: ${db.name || 'unnamed'}`, 'skip');
+                    }
+                }
+
+                // 确保删除主数据库
+                indexedDB.deleteDatabase('WordLearnerDB');
+                addLog('✓ 删除 WordLearnerDB', 'success');
+
+            } catch (e) {
+                // 如果 browsers 不支持 databases()，直接删除已知数据库
+                indexedDB.deleteDatabase('WordLearnerDB');
+                addLog('✓ 删除 WordLearnerDB (fallback)', 'success');
             }
-            indexedDB.deleteDatabase('WordLearnerDB');
-            status.textContent = `✓ 数据库已清除 (${dbs.length + 1}个)`;
-            await delay(300);
-            
-            // 5. 清除 Cookie
-            document.cookie.split(';').forEach(c => {
-                const [name] = c.trim().split('=');
-                document.cookie = `${name}=; expires=${new Date(0).toUTCString()}; path=/; domain=${location.hostname}`;
+
+            // ===== 步骤 4: 选择性清除 localStorage =====
+            addLog('清理 localStorage...', 'info');
+
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                // 只清除 kmword/WordLearner 相关的键
+                if (key && (
+                    key.includes('kmword') ||
+                    key.includes('WordLearner') ||
+                    key.includes('app_') ||
+                    key.includes('wordDB') ||
+                    key.startsWith('_') ||
+                    key === 'app_version' ||
+                    key === 'app_ver' ||
+                    key === 'app_build' ||
+                    key === 'deploy_time'
+                )) {
+                    keysToRemove.push(key);
+                }
+            }
+
+            keysToRemove.forEach(key => {
+                localStorage.removeItem(key);
+                addLog(`✓ 删除: ${key}`, 'success');
             });
-            status.textContent = '✓ Cookie 已清除';
-            await delay(300);
-            
-            // 完成
-            spinner.style.display = 'none';
-            status.className = 'status success';
-            status.innerHTML = '<strong>✅ 清除完成！</strong><br>所有数据已清除，下次访问将像第一次打开一样';
-            backBtn.style.display = 'inline-block';
-            
+
+            addLog(`localStorage 清理完成: ${keysToRemove.length} 项`, keysToRemove.length > 0 ? 'success' : 'info');
+
+            // ===== 步骤 5: 清除 sessionStorage =====
+            sessionStorage.clear();
+            addLog('✓ 清理 sessionStorage', 'success');
+
+            // ===== 完成 =====
+            addLog('✅ 所有清理完成！', 'success');
+
+            btn.style.display = 'none';
+            document.getElementById('backBtn').style.display = 'block';
+
+            // 显示成功标记
+            const badge = document.createElement('div');
+            badge.className = 'success-badge';
+            badge.textContent = '清理成功';
+            document.querySelector('.container').appendChild(badge);
+
         } catch (err) {
-            spinner.style.display = 'none';
-            status.style.background = '#ffebee';
-            status.style.color = '#c62828';
-            status.textContent = '清除出错: ' + err.message;
-            btn.style.display = 'inline-block';
+            addLog('❌ 错误: ' + err.message, 'error');
+            btn.disabled = false;
             btn.textContent = '重试';
         }
     }
-    
-    function delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-    
+
     function goBack() {
-        // 跳转回主页面，添加时间戳确保绕过缓存
+        // 跳转回主页面，添加时间戳绕过缓存
         location.href = './index.html?_=' + Date.now();
     }
-    
-    // 页面加载时自动执行（可选）
-    // window.onload = doClear;
     </script>
 </body>
 </html>
