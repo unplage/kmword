@@ -1,43 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-	<script>
-	const VERSION = '20260316-1330'; // 每次部署必须更新！格式：年月日-时分
-	const BUILD_TIME = '2026-03-16T13:30:00'; // ISO 格式时间
-	
-	const lastVersion = localStorage.getItem('app_version');
-	const lastBuild = localStorage.getItem('app_build');
-	
-	// 版本不一致或强制刷新参数存在时清除缓存
-	const urlParams = new URLSearchParams(window.location.search);
-	const forceRefresh = urlParams.has('refresh');
-	
-	if (lastVersion !== VERSION || forceRefresh) {
-	    console.log(`版本更新: ${lastVersion} -> ${VERSION}`);
-	    
-	    // 清除存储
-	    localStorage.clear();
-	    sessionStorage.clear();
-	    
-	    // 清除 IndexedDB（你的单词数据库除外，需要保留学习数据）
-	    // 注意：保留你的单词学习数据，只清除应用缓存
-	    
-	    // 注销 Service Worker
-	    if ('serviceWorker' in navigator) {
-	        navigator.serviceWorker.getRegistrations().then(regs => {
-	            regs.forEach(reg => {
-	                reg.unregister();
-	                console.log('Service Worker 已注销');
-	            });
-	            // 重新注册
-	            location.reload(true);
-	        });
-	    }
-	    
-	    localStorage.setItem('app_version', VERSION);
-	    localStorage.setItem('app_build', BUILD_TIME);
-	}
-	</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#4CAF50">
