@@ -2414,35 +2414,39 @@
                     });
                 }
 
-                async setDefaultWordList(listId) {
-                    await this.ready();
-                    const parsedId = parseInt(listId);
-                    
-                    const lists = await this.getWordLists();
-                    const transaction = this.db.transaction([STORES.WORD_LISTS], 'readwrite');
-                    const store = transaction.objectStore(STORES.WORD_LISTS);
-                    
-                    for (const list of lists) {
-                        if (list.isDefault) {
-                            list.isDefault = false;
-                            await new Promise((resolve, reject) => {
-                                const req = store.put(list);
-                                req.onsuccess = () => resolve();
-                                req.onerror = () => reject(req.error);
-                            });
-                        }
-                    }
-                    
-                    const list = await this.getWordList(parsedId);
-                    if (list) {
-                        list.isDefault = true;
-                        await new Promise((resolve, reject) => {
-                            const req = store.put(list);
-                            req.onsuccess = () => resolve();
-                            req.onerror = () => reject(req.error);
-                        });
-                    }
-                }
+				async setDefaultWordList(listId) {
+					await this.ready();
+					const parsedId = parseInt(listId);
+					
+					// 获取当前默认
+					const currentDefault = await this.getDefaultWordList();
+					
+					return new Promise((resolve, reject) => {
+						const transaction = this.db.transaction([STORES.WORD_LISTS], 'readwrite');
+						
+						transaction.onerror = () => reject(transaction.error);
+						transaction.oncomplete = () => resolve();
+						
+						const store = transaction.objectStore(STORES.WORD_LISTS);
+						
+						// 1. 取消当前默认
+						if (currentDefault && currentDefault.id !== parsedId) {
+							currentDefault.isDefault = false;
+							store.put(currentDefault);
+						}
+						
+						// 2. 设置新的默认
+						const getReq = store.get(parsedId);
+						getReq.onsuccess = () => {
+							const list = getReq.result;
+							if (list) {
+								list.isDefault = true;
+								store.put(list);
+							}
+						};
+						getReq.onerror = () => reject(getReq.error);
+					});
+				}
 
                 async getDefaultWordList() {
                     const lists = await this.getWordLists();
