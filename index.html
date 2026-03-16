@@ -3602,17 +3602,43 @@
                     });
                 }
 
-                assignDifficulty(word) {
-                    const frequency = this.wordFrequency.get(word) || 0;
-                    
-                    for (const [level, config] of Object.entries(this.difficultyLevels)) {
-                        if (frequency >= config.freqRange[0] && frequency <= config.freqRange[1]) {
-                            return parseInt(level);
-                        }
-                    }
-                    
-                    return 3;
-                }
+				// 替换原有的 assignDifficulty 方法
+				assignDifficulty(word) {
+				    const frequency = this.wordFrequency.get(word) || 0;
+				    const length = word.length;
+				    
+				    // 综合评分系统
+				    let difficultyScore = 0;
+				    
+				    // 1. 词频权重（降低权重，不作为主要因素）
+				    if (frequency >= 100) difficultyScore += 1;
+				    else if (frequency >= 20) difficultyScore += 2;
+				    else if (frequency >= 5) difficultyScore += 3;
+				    else difficultyScore += 4;
+				    
+				    // 2. 单词长度权重（更重要的因素）
+				    if (length <= 4) difficultyScore += 1;
+				    else if (length <= 6) difficultyScore += 2;
+				    else if (length <= 8) difficultyScore += 3;
+				    else if (length <= 10) difficultyScore += 4;
+				    else difficultyScore += 5;
+				    
+				    // 3. 特殊模式检测（学术词汇特征）
+				    // 希腊/拉丁词根特征
+				    const academicPatterns = /(ph|th|ch|psy|philo|ology|ism|ist|ize|ive|ous|ent|ant|ble|tion|sion|ment|ness|less|ful|able|ible)$/i;
+				    if (academicPatterns.test(word)) {
+				        difficultyScore += 1;
+				    }
+				    
+				    // 4. 平均并映射到1-5级
+				    const avgScore = difficultyScore / 3;  // 三个因素的平均
+				    
+				    if (avgScore <= 1.5) return 1;  // 初级
+				    if (avgScore <= 2.5) return 2;  // 中级
+				    if (avgScore <= 3.5) return 3;  // 高级
+				    if (avgScore <= 4.5) return 4;  // 专业
+				    return 5;  // 学术
+				}
 
                 getDifficultyDistribution(words) {
                     const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
