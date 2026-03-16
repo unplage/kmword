@@ -79,9 +79,11 @@
             margin-bottom: 20px;
             display: none;
         }
-        .log-item { padding: 4px 0; border-bottom: 1px solid #333; }
+        .log-item { padding: 4px 0; border-bottom: 1px solid #333; display: flex; gap: 8px; }
+        .log-time { color: #666; min-width: 60px; }
         .log-success { color: #4CAF50; }
         .log-skip { color: #9E9E9E; }
+        .log-error { color: #f44336; }
         .btn {
             width: 100%;
             padding: 16px 24px;
@@ -109,8 +111,8 @@
             <div class="path-display">
                 <div class="label">当前 PWA</div>
                 <div id="pwaName" style="font-weight:600;color:var(--primary);">检测中...</div>
-                <div class="label" style="margin-top:8px;">当前路径</div>
-                <div id="currentPath">检测中...</div>
+                <div class="label" style="margin-top:8px;">匹配关键词</div>
+                <div id="keywords" style="font-size:11px;color:var(--text-secondary);">检测中...</div>
             </div>
 
             <div class="stats">
@@ -137,18 +139,13 @@
 
     <script>
     // ==================== 配置区域 ====================
-    // 每个 PWA 只需要修改这里
-    
     const CONFIG = {
-        // 可选：添加当前 PWA 特有的额外关键词
-        // 不要在这里添加其他 PWA 的关键词！
+        // 可选：添加额外的匹配关键词
         CUSTOM_KEYWORDS: [],
-        
-        // 严格模式：true = 更安全，只清理明确匹配的数据
-        STRICT_MODE: true,
-        
-        // 是否包含通用 PWA 关键词
-        INCLUDE_BUILTIN: true
+        // 是否显示跳过的项目（调试用）
+        SHOW_SKIPPED: true,
+        // 严格模式：false = 更激进的匹配（推荐）
+        STRICT_MODE: false
     };
 
     // ==================== 核心代码 ====================
@@ -159,59 +156,79 @@
     const PATH_SEGMENTS = CURRENT_PATH.split('/').filter(s => s);
     const PWA_NAME = PATH_SEGMENTS[0] || 'unknown';
     const CURRENT_DIR = '/' + PATH_SEGMENTS.slice(0, -1).join('/') + '/';
+    const FULL_URL_PREFIX = URL_INFO.origin + CURRENT_DIR;  // https://unplage.github.io/kmword/
+
+    // 生成匹配关键词（关键修复：包含多种变体）
+    function generateKeywords(name) {
+        const keywords = [
+            name,                                    // kmword
+            name.toLowerCase(),                      // kmword
+            name.toUpperCase(),                      // KMWORD
+            name.replace(/-/g, ''),                  // kmword（去连字符）
+            name.replace(/_/g, ''),                  // kmword（去下划线）
+            name.replace(/-/g, '_'),                 // km_word
+            name.replace(/_/g, '-'),                 // km-word
+            URL_INFO.origin + CURRENT_DIR,           // https://unplage.github.io/kmword/
+            CURRENT_DIR,                             // /kmword/
+            CURRENT_DIR.slice(0, -1),                // /kmword（去末尾斜杠）
+        ];
+        
+        // 添加常见组合
+        const combinations = [
+            name + 'DB',
+            name + 'Cache',
+            name + 'Storage',
+            name + 'App',
+            name + '_cache',
+            name + '-cache',
+            'workbox-' + name,
+            'precache-' + name,
+        ];
+        
+        return [...new Set([...keywords, ...combinations, ...CONFIG.CUSTOM_KEYWORDS])];
+    }
+
+    const ALL_KEYWORDS = generateKeywords(PWA_NAME);
 
     // 显示信息
     document.getElementById('pwaName').textContent = PWA_NAME;
-    document.getElementById('currentPath').textContent = CURRENT_DIR;
-
-    // 生成自动关键词
-    function generateKeywords(name) {
-        const keywords = [name];
-        const variations = [
-            name.toLowerCase(),
-            name.toUpperCase(),
-            name.replace(/-/g, ''),
-            name.replace(/_/g, ''),
-        ];
-        variations.forEach(v => { if (!keywords.includes(v)) keywords.push(v); });
-        
-        // 常见组合
-        keywords.push(name + 'DB', name + 'Cache', name + 'Storage', name + 'App');
-        return [...new Set(keywords)];
-    }
-
-    // 内置通用关键词（不包含任何特定应用）
-    const BUILTIN_KEYWORDS = [
-        'app_', 'pwa_', 'sw_', 'service-worker', 'workbox',
-        'version', 'build', 'deploy', 'cache_', 'storage_'
-    ];
-
-    const ALL_KEYWORDS = [
-        ...generateKeywords(PWA_NAME),
-        ...(CONFIG.INCLUDE_BUILTIN ? BUILTIN_KEYWORDS : []),
-        ...CONFIG.CUSTOM_KEYWORDS
-    ];
+    document.getElementById('keywords').textContent = ALL_KEYWORDS.slice(0, 5).join(', ') + '...';
 
     function log(msg, type = 'info') {
         const container = document.getElementById('logContainer');
         container.style.display = 'block';
         const div = document.createElement('div');
         div.className = `log-item log-${type}`;
-        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        const time = new Date().toLocaleTimeString();
+        div.innerHTML = `<span class="log-time">${time}</span><span>${msg}</span>`;
         container.appendChild(div);
         container.scrollTop = container.scrollHeight;
     }
 
+    // 核心匹配函数（关键修复）
     function isMatch(text) {
         if (!text) return false;
+        const lowerText = text.toLowerCase();
         
-        // 严格模式：优先路径匹配
-        if (CONFIG.STRICT_MODE) {
-            return text.includes(CURRENT_DIR) || text.includes('/' + PWA_NAME + '/');
+        // 检查所有关键词
+        for (const keyword of ALL_KEYWORDS) {
+            if (!keyword) continue;
+            if (lowerText.includes(keyword.toLowerCase())) {
+                return true;
+            }
         }
         
-        // 关键词匹配
-        return ALL_KEYWORDS.some(k => text.toLowerCase().includes(k.toLowerCase()));
+        // 额外检查：是否包含当前路径（处理 workbox 完整 URL 格式）
+        if (lowerText.includes(URL_INFO.origin.toLowerCase() + CURRENT_DIR.toLowerCase())) {
+            return true;
+        }
+        
+        // 检查是否包含 PWA 名称（最基本匹配）
+        if (lowerText.includes(PWA_NAME.toLowerCase())) {
+            return true;
+        }
+        
+        return false;
     }
 
     async function startClear() {
@@ -220,59 +237,119 @@
         btn.textContent = '清理中...';
         
         log(`开始清理: ${PWA_NAME}`, 'info');
+        log(`完整路径: ${FULL_URL_PREFIX}`, 'info');
+        
+        let clearedSW = 0, clearedCache = 0, clearedDB = 0, clearedStorage = 0;
         
         try {
             // 1. Service Worker
+            log('检查 Service Worker...', 'info');
             if ('serviceWorker' in navigator) {
                 const regs = await navigator.serviceWorker.getRegistrations();
+                log(`发现 ${regs.length} 个 SW`, 'info');
+                
                 for (const reg of regs) {
                     const scope = reg.scope || '';
-                    if (scope.includes(PWA_NAME) || scope.includes(CURRENT_DIR)) {
+                    // 匹配规则：作用域包含当前 PWA 路径
+                    const isThisPWA = 
+                        scope.includes(FULL_URL_PREFIX) ||
+                        scope.includes(CURRENT_DIR) ||
+                        scope.includes(PWA_NAME);
+                    
+                    if (isThisPWA) {
                         await reg.unregister();
                         log(`✓ 注销 SW: ${scope}`, 'success');
+                        clearedSW++;
+                    } else if (CONFIG.SHOW_SKIPPED) {
+                        log(`⊘ 跳过 SW: ${scope}`, 'skip');
                     }
                 }
             }
             
-            // 2. Cache
+            // 2. Cache Storage（关键修复部分）
+            log('检查 Cache Storage...', 'info');
             if ('caches' in window) {
                 const keys = await caches.keys();
+                log(`发现 ${keys.length} 个缓存`, 'info');
+                
                 for (const key of keys) {
-                    if (isMatch(key)) {
+                    const isThisPWA = isMatch(key);
+                    
+                    if (isThisPWA) {
                         await caches.delete(key);
                         log(`✓ 删除缓存: ${key}`, 'success');
+                        clearedCache++;
+                    } else if (CONFIG.SHOW_SKIPPED) {
+                        log(`⊘ 跳过缓存: ${key}`, 'skip');
                     }
                 }
             }
             
             // 3. IndexedDB
+            log('检查 IndexedDB...', 'info');
             try {
                 const dbs = await indexedDB.databases?.() || [];
+                log(`发现 ${dbs.length} 个数据库`, 'info');
+                
                 for (const db of dbs) {
-                    if (isMatch(db.name)) {
-                        indexedDB.deleteDatabase(db.name);
-                        log(`✓ 删除数据库: ${db.name}`, 'success');
+                    const dbName = db.name || '';
+                    const isThisPWA = isMatch(dbName);
+                    
+                    if (isThisPWA) {
+                        indexedDB.deleteDatabase(dbName);
+                        log(`✓ 删除数据库: ${dbName}`, 'success');
+                        clearedDB++;
+                    } else if (CONFIG.SHOW_SKIPPED) {
+                        log(`⊘ 跳过数据库: ${dbName || 'unnamed'}`, 'skip');
                     }
                 }
-            } catch(e) {}
-            
-            // 4. localStorage
-            for (let i = localStorage.length - 1; i >= 0; i--) {
-                const key = localStorage.key(i);
-                if (key && isMatch(key)) {
-                    localStorage.removeItem(key);
-                    log(`✓ 删除: ${key}`, 'success');
+            } catch (e) {
+                // 尝试删除已知数据库
+                const knownDBs = [
+                    'WordLearnerDB',
+                    PWA_NAME + 'DB',
+                    PWA_NAME
+                ];
+                for (const dbName of knownDBs) {
+                    try {
+                        indexedDB.deleteDatabase(dbName);
+                        log(`尝试删除: ${dbName}`, 'info');
+                    } catch (err) {}
                 }
             }
             
-            sessionStorage.clear();
+            // 4. localStorage
+            log('检查 localStorage...', 'info');
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && isMatch(key)) {
+                    keysToRemove.push(key);
+                }
+            }
             
-            log('✅ 清理完成', 'success');
+            keysToRemove.forEach(key => {
+                localStorage.removeItem(key);
+                log(`✓ 删除: ${key}`, 'success');
+                clearedStorage++;
+            });
+            
+            // 5. sessionStorage
+            const ssCount = sessionStorage.length;
+            sessionStorage.clear();
+            if (ssCount > 0) {
+                log(`✓ 清理 sessionStorage: ${ssCount} 项`, 'success');
+            }
+            
+            // 完成
+            log(`========================`, 'info');
+            log(`完成: ${clearedSW} SW, ${clearedCache} 缓存, ${clearedDB} 数据库, ${clearedStorage} 存储`, 'success');
+            
             btn.style.display = 'none';
             document.getElementById('backBtn').style.display = 'block';
             
         } catch (err) {
-            log(`错误: ${err.message}`, 'error');
+            log(`❌ 错误: ${err.message}`, 'error');
             btn.disabled = false;
             btn.textContent = '重试';
         }
@@ -288,7 +365,12 @@
         
         if ('serviceWorker' in navigator) {
             const regs = await navigator.serviceWorker.getRegistrations();
-            sw = regs.filter(r => (r.scope || '').includes(PWA_NAME)).length;
+            sw = regs.filter(r => {
+                const scope = r.scope || '';
+                return scope.includes(FULL_URL_PREFIX) || 
+                       scope.includes(CURRENT_DIR) ||
+                       scope.includes(PWA_NAME);
+            }).length;
         }
         
         if ('caches' in window) {
