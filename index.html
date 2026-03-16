@@ -1997,7 +1997,7 @@
         </section>
 
         <!-- 生词本页面 -->
-        <section id="newWordsPage" class="page" aria-label="生词本">
+        <section id="new-wordsPage" class="page" aria-label="生词本">
             <div class="new-words-header">
                 <h2>生词本</h2>
                 <div class="new-words-actions" style="display: flex; gap: 10px;">
@@ -2762,61 +2762,150 @@
                     });
                 }
 
-                async getNewWords() {
-                    await this.ready();
-                    
-                    return new Promise((resolve, reject) => {
-                        const transaction = this.db.transaction([STORES.NEW_WORDS], 'readonly');
-                        const newWordsStore = transaction.objectStore(STORES.NEW_WORDS);
-                        
-                        console.log('开始获取生词本记录...');
-                        
-                        const request = newWordsStore.getAll();
-                        
-                        request.onsuccess = async () => {
-                            const newWordRecords = request.result || [];
-                            console.log(`找到 ${newWordRecords.length} 条生词记录`);
-                            
-                            if (newWordRecords.length === 0) {
-                                resolve([]);
-                                return;
-                            }
-                            
-                            const wordDetails = [];
-                            
-                            // 逐个查询单词详情，避免事务问题
-                            for (const record of newWordRecords) {
-                                const wordId = parseInt(record.wordId);
-                                if (isNaN(wordId)) {
-                                    console.warn('无效的生词记录:', record);
-                                    continue;
-                                }
-                                
-                                try {
-                                    const word = await this.getWordById(wordId);
-                                    if (word) {
-                                        wordDetails.push({
-                                            ...word,
-                                            addedAt: record.addedAt
-                                        });
-                                    } else {
-                                        console.warn(`找不到单词ID: ${wordId}`);
-                                    }
-                                } catch (err) {
-                                    console.error(`获取单词 ${wordId} 失败:`, err);
-                                }
-                            }
-                            
-                            console.log(`成功获取 ${wordDetails.length} 个生词详情`);
-                            resolve(wordDetails);
-                        };
-                        
-                        request.onerror = (event) => {
-                            console.error('获取生词记录失败:', event.target.error);
-                            reject(event.target.error);
-                        };
-                    });
-                }
+				// ========== 修复后的生词本方法 ==========
+
+				async getNewWords() {
+					await this.ready();
+					
+					// 第一步：先获取所有生词记录（独立事务）
+					const newWordRecords = await new Promise((resolve, reject) => {
+						const transaction = this.db.transaction([STORES.NEW_WORDS], 'readonly');
+						const store = transaction.objectStore(STORES.NEW_WORDS);
+						const request = store.getAll();
+						
+						request.onsuccess = () => resolve(request.result || []);
+						request.onerror = () => reject(request.error);
+					});
+					
+					console.log(`生词表原始记录数: ${newWordRecords.length}`);
+					
+					if (newWordRecords.length === 0) {
+						return [];
+					}
+					
+					// 第二步：逐个获取单词详情（每个查询独立事务）
+					const wordDetails = [];
+					
+					for (const record of newWordRecords) {
+						// 确保ID是数字类型
+						let wordId = record.wordId;
+						if (typeof wordId === 'string') {
+							wordId = parseInt(wordId);
+						}
+						
+						if (isNaN(wordId)) {
+							console.warn('无效的生词记录ID:', record);
+							continue;
+						}
+						
+						try {
+							const word = await this.getWordById(wordId);
+							if (word) {
+								wordDetails.push({
+									...word,
+									addedAt: record.addedAt
+								});
+							} else {
+								console.warn(`生词本中的单词ID ${wordId} 在单词表中不存在，可能是孤立记录`);
+								// 可选：自动清理孤立记录
+								// await this.removeFromNewWords(wordId);
+							}
+						} catch (err) {
+							console.error(`获取生词 ${wordId} 详情失败:`, err);
+						}
+					}
+					
+					console.log(`成功获取 ${wordDetails.length}/${newWordRecords.length} 个生词详情`);
+					return wordDetails;
+				}
+
+				async addToNewWords(wordId) {
+					await this.ready();
+					
+					const parsedId = parseInt(wordId);
+					if (isNaN(parsedId)) {
+						console.error('无效的单词ID:', wordId);
+						throw new Error('无效的单词ID');
+					}
+					
+					// 先检查是否已存在
+					const existing = await this.isInNewWords(parsedId);
+					if (existing) {
+						console.log(`单词 ${parsedId} 已在生词本中`);
+						return;
+					}
+					
+					return new Promise((resolve, reject) => {
+						const transaction = this.db.transaction([STORES.NEW_WORDS], 'readwrite');
+						
+						transaction.onerror = (e) => {
+							console.error('添加到生词本事务失败:', e.target.error);
+							reject(e.target.error);
+						};
+						
+						const store = transaction.objectStore(STORES.NEW_WORDS);
+						
+						// 使用 add 而非 put，确保不会意外覆盖
+						const request = store.add({
+							wordId: parsedId,
+							addedAt: new Date().toISOString()
+						});
+						
+						request.onsuccess = () => {
+							console.log(`单词 ${parsedId} 已加入生词本`);
+							resolve();
+						};
+						
+						request.onerror = (e) => {
+							if (e.target.error.name === 'ConstraintError') {
+								console.log(`单词 ${parsedId} 已存在（约束错误）`);
+								resolve(); // 已存在不算错误
+							} else {
+								console.error('添加生词失败:', e.target.error);
+								reject(e.target.error);
+							}
+						};
+					});
+				}
+
+				async removeFromNewWords(wordId) {
+					await this.ready();
+					const parsedId = parseInt(wordId);
+					if (isNaN(parsedId)) {
+						throw new Error('无效的单词ID');
+					}
+					
+					return new Promise((resolve, reject) => {
+						const transaction = this.db.transaction([STORES.NEW_WORDS], 'readwrite');
+						
+						transaction.onerror = (e) => reject(e.target.error);
+						
+						const store = transaction.objectStore(STORES.NEW_WORDS);
+						const request = store.delete(parsedId);
+						
+						request.onsuccess = () => {
+							console.log(`单词 ${parsedId} 已从生词本移除`);
+							resolve();
+						};
+						
+						request.onerror = () => reject(request.error);
+					});
+				}
+
+				async isInNewWords(wordId) {
+					await this.ready();
+					const parsedId = parseInt(wordId);
+					if (isNaN(parsedId)) return false;
+					
+					return new Promise((resolve, reject) => {
+						const transaction = this.db.transaction([STORES.NEW_WORDS], 'readonly');
+						const store = transaction.objectStore(STORES.NEW_WORDS);
+						const request = store.get(parsedId);
+						
+						request.onsuccess = () => resolve(!!request.result);
+						request.onerror = () => reject(request.error);
+					});
+				}
 
                 async saveDailyPlan(plan) {
                     await this.ready();
@@ -5050,81 +5139,104 @@
                     }
                 }
 
-                async loadNewWordsList() {
-                    try {
-                        const newWordsList = document.getElementById('newWordsList');
-                        if (!newWordsList) return;
-                        
-                        newWordsList.innerHTML = '<div class="loading">加载中...</div>';
-                        
-                        const newWords = await this.db.getNewWords();
-                        console.log(`加载生词本: ${newWords.length} 个生词`);
-                        
-                        if (newWords.length === 0) {
-                            newWordsList.innerHTML = '<p class="empty-state">生词本为空，学习过程中标记不认识的单词会出现在这里</p>';
-                            return;
-                        }
-                        
-                        const sortedWords = newWords.sort((a, b) => 
-                            new Date(b.addedAt) - new Date(a.addedAt)
-                        );
-                        
-                        let html = '';
-                        
-                        for (const word of sortedWords) {
-                            if (!word || !word.word) continue;
-                            
-                            const addedDate = new Date(word.addedAt);
-                            const dateStr = addedDate.toLocaleDateString('zh-CN', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric'
-                            });
-                            
-                            html += `
-                                <div class="word-item" data-word-id="${word.id}">
-                                    <div class="word-content">
-                                        <div class="word-text">${word.word}</div>
-                                        <div class="word-phonetic">${word.phonetic || ''}</div>
-                                        <div class="word-meaning">${word.meaning || '暂无释义'}</div>
-                                        <div class="word-meta">
-                                            <span class="added-date">
-                                                <i class="far fa-clock"></i> ${dateStr}
-                                            </span>
-                                            <span class="difficulty-badge small" data-level="${word.difficulty || 3}">
-                                                ${this.getDifficultyText(word.difficulty || 3)}
-                                            </span>
-                                            ${word.novelName ? `<small style="color: var(--gray-color);">来自: ${word.novelName}</small>` : ''}
-                                        </div>
-                                    </div>
-                                    <div class="word-actions">
-                                        <button class="icon-btn small" onclick="window.app.speakWord('${word.word}')" title="发音">
-                                            <i class="fas fa-volume-up"></i>
-                                        </button>
-                                        <button class="icon-btn small" onclick="window.app.removeFromNewWords(${word.id})" title="移除">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            `;
-                        }
-                        
-                        newWordsList.innerHTML = html;
-                        
-                    } catch (error) {
-                        console.error('加载生词本失败:', error);
-                        const newWordsList = document.getElementById('newWordsList');
-                        if (newWordsList) {
-                            newWordsList.innerHTML = `
-                                <div class="error-state">
-                                    <i class="fas fa-exclamation-triangle"></i>
-                                    <p>加载失败: ${error.message}</p>
-                                    <button class="retry-btn" onclick="window.app.retryLoadNewWords()">重试</button>
-                                </div>
-                            `;
-                        }
-                    }
-                }
+				async loadNewWordsList() {
+					try {
+						const newWordsList = document.getElementById('newWordsList');
+						if (!newWordsList) {
+							console.error('找不到 newWordsList 元素');
+							return;
+						}
+						
+						newWordsList.innerHTML = '<div class="loading">加载中...</div>';
+						
+						console.log('=== 开始加载生词本 ===');
+						const newWords = await this.db.getNewWords();
+						console.log(`生词本最终数据: ${newWords.length} 个`);
+						
+						if (newWords.length === 0) {
+							// 调试：检查原始数据
+							try {
+								const rawRecords = await new Promise((resolve) => {
+									const tx = this.db.db.transaction(['new_words'], 'readonly');
+									const store = tx.objectStore('new_words');
+									const req = store.getAll();
+									req.onsuccess = () => resolve(req.result);
+								});
+								console.log('原始生词记录:', rawRecords);
+								
+								// 检查是否有ID匹配问题
+								if (rawRecords.length > 0) {
+									const sampleId = rawRecords[0].wordId;
+									const testWord = await this.db.getWordById(parseInt(sampleId));
+									console.log(`测试查询ID ${sampleId}:`, testWord ? '找到' : '未找到');
+								}
+							} catch (e) {
+								console.error('调试查询失败:', e);
+							}
+							
+							newWordsList.innerHTML = '<p class="empty-state">生词本为空，学习过程中标记不认识的单词会出现在这里</p>';
+							return;
+						}
+						
+						// 原有渲染代码保持不变...
+						const sortedWords = newWords.sort((a, b) => 
+							new Date(b.addedAt) - new Date(a.addedAt)
+						);
+						
+						let html = '';
+						for (const word of sortedWords) {
+							if (!word || !word.word) continue;
+							
+							const addedDate = new Date(word.addedAt);
+							const dateStr = addedDate.toLocaleDateString('zh-CN', {
+								year: 'numeric',
+								month: 'short',
+								day: 'numeric'
+							});
+							
+							html += `
+								<div class="word-item" data-word-id="${word.id}">
+									<div class="word-content">
+										<div class="word-text">${word.word}</div>
+										<div class="word-phonetic">${word.phonetic || ''}</div>
+										<div class="word-meaning">${word.meaning || '暂无释义'}</div>
+										<div class="word-meta">
+											<span class="added-date">
+												<i class="far fa-clock"></i> ${dateStr}
+											</span>
+											<span class="difficulty-badge small" data-level="${word.difficulty || 3}">
+												${this.getDifficultyText(word.difficulty || 3)}
+											</span>
+										</div>
+									</div>
+									<div class="word-actions">
+										<button class="icon-btn small" onclick="window.app.speakWord('${word.word}')" title="发音">
+											<i class="fas fa-volume-up"></i>
+										</button>
+										<button class="icon-btn small" onclick="window.app.removeFromNewWords(${word.id})" title="移除">
+											<i class="fas fa-trash-alt"></i>
+										</button>
+									</div>
+								</div>
+							`;
+						}
+						
+						newWordsList.innerHTML = html;
+						
+					} catch (error) {
+						console.error('加载生词本失败:', error);
+						const newWordsList = document.getElementById('newWordsList');
+						if (newWordsList) {
+							newWordsList.innerHTML = `
+								<div class="error-state">
+									<i class="fas fa-exclamation-triangle"></i>
+									<p>加载失败: ${error.message}</p>
+									<button class="retry-btn" onclick="window.app.retryLoadNewWords()">重试</button>
+								</div>
+							`;
+						}
+					}
+				}
 
                 async removeFromNewWords(wordId) {
                     try {
