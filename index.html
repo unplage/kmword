@@ -2238,55 +2238,66 @@
 							    const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
 							    const newWordsStore = transaction.objectStore(STORES.NEW_WORDS);
 							    
-							    // 1. 删除旧的 word 索引（如果存在）
+							    // 关键：只有存在旧索引 'word' 时，才需要清理数据并重建索引
 							    if (wordsStore.indexNames.contains('word')) {
+							        // 1. 删除旧的 word 索引
 							        wordsStore.deleteIndex('word');
-							    }
-							    
-							    // 2. 创建临时索引（非唯一），用于遍历
-							    wordsStore.createIndex('word_list_temp', ['word', 'listId'], { unique: false });
-							    
-							    // 3. 使用游标找出重复记录并删除（所有操作在同一个事务中完成）
-							    const seen = new Map();          // 键: word小写 + '|' + listId
-							    const duplicates = [];           // 要删除的重复单词ID
-							    
-							    const cursorRequest = wordsStore.index('word_list_temp').openCursor();
-							    cursorRequest.onsuccess = function(event) {
-							        const cursor = event.target.result;
-							        if (cursor) {
-							            const word = cursor.value;
-							            const key = word.word.toLowerCase().trim() + '|' + (word.listId === undefined ? 'null' : word.listId);
-							            if (seen.has(key)) {
-							                // 重复，保留 ID 较小的那个
-							                const existingId = seen.get(key);
-							                if (word.id < existingId) {
-							                    duplicates.push(existingId);
-							                    seen.set(key, word.id);
+							        
+							        // 2. 创建临时索引（非唯一），用于遍历所有单词
+							        wordsStore.createIndex('word_list_temp', ['word', 'listId'], { unique: false });
+							        
+							        // 3. 使用游标找出重复记录并删除（所有操作在同一个事务中）
+							        const seen = new Map();          // 键: word小写 + '|' + listId
+							        const duplicates = [];           // 要删除的重复单词ID
+							        
+							        const cursorRequest = wordsStore.index('word_list_temp').openCursor();
+							        cursorRequest.onsuccess = function(event) {
+							            const cursor = event.target.result;
+							            if (cursor) {
+							                const word = cursor.value;
+							                // 标准化 listId 为字符串表示，便于比较（数字或 null 均转换为字符串）
+							                const listKey = word.listId === undefined || word.listId === null ? 'null' : String(word.listId);
+							                const key = word.word.toLowerCase().trim() + '|' + listKey;
+							                
+							                if (seen.has(key)) {
+							                    // 发现重复，保留 ID 较小的那个
+							                    const existingId = seen.get(key);
+							                    if (word.id < existingId) {
+							                        duplicates.push(existingId);
+							                        seen.set(key, word.id);
+							                    } else {
+							                        duplicates.push(word.id);
+							                    }
 							                } else {
-							                    duplicates.push(word.id);
+							                    seen.set(key, word.id);
 							                }
+							                cursor.continue();
 							            } else {
-							                seen.set(key, word.id);
+							                // 游标遍历结束，处理重复项
+							                if (duplicates.length > 0) {
+							                    console.log(`发现 ${duplicates.length} 个重复单词，正在清理...`);
+							                    duplicates.forEach(id => {
+							                        progressStore.delete(id);   // 删除学习进度
+							                        newWordsStore.delete(id);   // 删除生词本记录
+							                        wordsStore.delete(id);      // 删除单词本身
+							                    });
+							                }
+							                
+							                // 4. 删除临时索引
+							                wordsStore.deleteIndex('word_list_temp');
+							                
+							                // 5. 创建真正的唯一复合索引（如果尚未存在）
+							                if (!wordsStore.indexNames.contains('word_list')) {
+							                    wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
+							                }
 							            }
-							            cursor.continue();
-							        } else {
-							            // 游标遍历结束，处理重复项
-							            if (duplicates.length > 0) {
-							                console.log(`发现 ${duplicates.length} 个重复单词，正在清理...`);
-							                duplicates.forEach(id => {
-							                    progressStore.delete(id);   // 删除学习进度
-							                    newWordsStore.delete(id);   // 删除生词本记录
-							                    wordsStore.delete(id);      // 删除单词本身
-							                });
-							            }
-							            
-							            // 4. 删除临时索引
-							            wordsStore.deleteIndex('word_list_temp');
-							            
-							            // 5. 创建真正的唯一复合索引
+							        };
+							    } else {
+							        // 全新安装或已经迁移过：只需确保复合索引存在
+							        if (!wordsStore.indexNames.contains('word_list')) {
 							            wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
 							        }
-							    };
+							    }
 							}							
                         };
                         
