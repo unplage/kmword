@@ -5168,25 +5168,77 @@
                         this.showNotification('设置失败', 'error');
                     }
                 }
-
-                async deleteWordList(listId) {
-                    const list = await this.db.getWordList(listId);
-                    if (!confirm(`确定要删除单词库 "${list.name}" 吗？\n这将同时删除其中的 ${list.wordCount || 0} 个单词！`)) {
-                        return;
-                    }
-                    
-                    try {
-                        this.showLoader('正在删除...');
-                        await this.db.deleteWordList(listId);
-                        this.hideLoader();
-                        this.showNotification('单词库已删除', 'success');
-                        this.showWordListManager();
-                        await this.loadWordsList();
-                    } catch (error) {
-                        this.hideLoader();
-                        this.showNotification('删除失败', 'error');
-                    }
-                }
+				/**
+				 * 批量删除指定单词库中的所有单词及相关数据
+				 * @param {number} listId - 单词库ID
+				 * @returns {Promise<number>} 删除的单词数量
+				 */
+				async batchDeleteWordsByList(listId) {
+				    await this.ready();
+				    const parsedId = parseInt(listId);
+				    
+				    // 先获取该库的所有单词ID
+				    const words = await this.getWordsByList(parsedId);
+				    const wordIds = words.map(w => w.id);
+				    
+				    if (wordIds.length === 0) return 0;
+				    
+				    return new Promise((resolve, reject) => {
+				        // 开启一个读写事务，包含 words、user_progress、new_words 三个表
+				        const transaction = this.db.transaction(
+				            [STORES.WORDS, STORES.USER_PROGRESS, STORES.NEW_WORDS],
+				            'readwrite'
+				        );
+				        const wordsStore = transaction.objectStore(STORES.WORDS);
+				        const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
+				        const newWordsStore = transaction.objectStore(STORES.NEW_WORDS);
+				        
+				        let deletedCount = 0;
+				        
+				        transaction.oncomplete = () => {
+				            console.log(`批量删除完成，共删除 ${deletedCount} 个单词及相关数据`);
+				            resolve(deletedCount);
+				        };
+				        transaction.onerror = (e) => {
+				            console.error('批量删除事务失败:', e.target.error);
+				            reject(e.target.error);
+				        };
+				        
+				        // 循环删除每个单词及相关联的数据
+				        wordIds.forEach(id => {
+				            // 删除单词本身
+				            const req1 = wordsStore.delete(id);
+				            req1.onsuccess = () => {
+				                deletedCount++;
+				            };
+				            // 删除该单词的学习进度
+				            progressStore.delete(id);
+				            // 删除该单词的生词本记录（如果存在）
+				            newWordsStore.delete(id);
+				        });
+				    });
+				}
+				async deleteWordList(listId) {
+				    await this.ready();
+				    const parsedId = parseInt(listId);
+				    
+				    // 1. 批量删除该库中的所有单词及相关数据
+				    const deletedCount = await this.batchDeleteWordsByList(parsedId);
+				    console.log(`已删除 ${deletedCount} 个单词`);
+				    
+				    // 2. 删除单词库本身
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.WORD_LISTS], 'readwrite');
+				        const store = transaction.objectStore(STORES.WORD_LISTS);
+				        const request = store.delete(parsedId);
+				        
+				        request.onsuccess = () => {
+				            console.log('单词库删除成功:', parsedId);
+				            resolve();
+				        };
+				        request.onerror = () => reject(request.error);
+				    });
+				}
 
                 async createNewWordList() {
                     const name = prompt('请输入新单词库名称:');
