@@ -3602,42 +3602,72 @@
                     });
                 }
 
-				// 替换原有的 assignDifficulty 方法
 				assignDifficulty(word) {
 				    const frequency = this.wordFrequency.get(word) || 0;
 				    const length = word.length;
+				    const lowerWord = word.toLowerCase();
 				    
-				    // 综合评分系统
+				    // 综合评分系统（限制总分范围）
 				    let difficultyScore = 0;
+				    let maxPossibleScore = 0;  // 用于归一化
 				    
-				    // 1. 词频权重（降低权重，不作为主要因素）
-				    if (frequency >= 100) difficultyScore += 1;
-				    else if (frequency >= 20) difficultyScore += 2;
-				    else if (frequency >= 5) difficultyScore += 3;
-				    else difficultyScore += 4;
+				    // 1. 词频权重（20%）- 反转：高频=简单
+				    let freqScore;
+				    if (frequency >= 100) freqScore = 1;
+				    else if (frequency >= 30) freqScore = 2;
+				    else if (frequency >= 10) freqScore = 3;
+				    else if (frequency >= 5) freqScore = 4;
+				    else freqScore = 5;
+				    difficultyScore += freqScore * 0.2;
+				    maxPossibleScore += 5 * 0.2;
 				    
-				    // 2. 单词长度权重（更重要的因素）
-				    if (length <= 4) difficultyScore += 1;
-				    else if (length <= 6) difficultyScore += 2;
-				    else if (length <= 8) difficultyScore += 3;
-				    else if (length <= 10) difficultyScore += 4;
-				    else difficultyScore += 5;
+				    // 2. 单词长度权重（50%）- 主要因素
+				    let lengthScore;
+				    if (length <= 3) lengthScore = 1;
+				    else if (length <= 5) lengthScore = 2;
+				    else if (length <= 7) lengthScore = 3;
+				    else if (length <= 9) lengthScore = 4;
+				    else lengthScore = 5;
+				    difficultyScore += lengthScore * 0.5;
+				    maxPossibleScore += 5 * 0.5;
 				    
-				    // 3. 特殊模式检测（学术词汇特征）
-				    // 希腊/拉丁词根特征
-				    const academicPatterns = /(ph|th|ch|psy|philo|ology|ism|ist|ize|ive|ous|ent|ant|ble|tion|sion|ment|ness|less|ful|able|ible)$/i;
-				    if (academicPatterns.test(word)) {
-				        difficultyScore += 1;
-				    }
+				    // 3. 音节复杂度（20%）- 比长度更能反映真实难度
+				    const vowelGroups = (lowerWord.match(/[aeiouy]+/g) || []).length;
+				    let syllableScore;
+				    if (vowelGroups <= 1) syllableScore = 1;
+				    else if (vowelGroups === 2) syllableScore = 2;
+				    else if (vowelGroups === 3) syllableScore = 3;
+				    else if (vowelGroups === 4) syllableScore = 4;
+				    else syllableScore = 5;
+				    difficultyScore += syllableScore * 0.2;
+				    maxPossibleScore += 5 * 0.2;
 				    
-				    // 4. 平均并映射到1-5级
-				    const avgScore = difficultyScore / 3;  // 三个因素的平均
+				    // 4. 学术特征（10%）- 严格匹配，避免误判
+				    let academicScore = 0;
 				    
-				    if (avgScore <= 1.5) return 1;  // 初级
-				    if (avgScore <= 2.5) return 2;  // 中级
-				    if (avgScore <= 3.5) return 3;  // 高级
-				    if (avgScore <= 4.5) return 4;  // 专业
-				    return 5;  // 学术
+				    // 严格后缀（必须是真正的学术后缀，不是巧合）
+				    const strictAcademicSuffixes = /(ology|ologist|ism|ist|ize|ise|ify|ation|ition|ance|ence|ency|ancy|ive|ous|able|ible|ent|ant)$/i;
+				    // 严格前缀
+				    const strictAcademicPrefixes = /^(anti|auto|bi|co|counter|de|dis|en|ex|extra|fore|hyper|il|im|in|ir|inter|intra|macro|micro|mid|mis|mono|multi|non|over|post|pre|pro|pseudo|re|semi|sub|super|trans|tri|ultra|un|under|uni|bio|cardio|chrono|cosmo|cycl|demo|dyn|eco|ethno|geo|graph|helio|hemo|hydro|hypo|iso|mega|meta|micro|mono|morph|neo|neuro|omni|para|path|phil|phobia|photo|physio|pod|poly|psych|pyro|scope|socio|techno|tele|thermo|typo|xeno)/i;
+				    
+				    if (strictAcademicSuffixes.test(lowerWord)) academicScore += 1;
+				    if (strictAcademicPrefixes.test(lowerWord)) academicScore += 1;
+				    
+				    // 特殊处理：如果同时有前缀和后缀，很可能是学术词
+				    if (academicScore >= 2 && length >= 8) academicScore += 1;
+				    
+				    difficultyScore += Math.min(3, academicScore) * 0.1;  // 最高贡献0.3分
+				    maxPossibleScore += 3 * 0.1;
+				    
+				    // 归一化到 1-5 范围
+				    const normalizedScore = (difficultyScore / maxPossibleScore) * 5;
+				    
+				    // 映射到整数级别（使用区间边界）
+				    if (normalizedScore <= 1.6) return 1;  // 初级: 1.0-1.6
+				    if (normalizedScore <= 2.4) return 2;  // 中级: 1.7-2.4
+				    if (normalizedScore <= 3.2) return 3;  // 高级: 2.5-3.2
+				    if (normalizedScore <= 4.0) return 4;  // 专业: 3.3-4.0
+				    return 5;  // 学术: 4.1-5.0
 				}
 
                 getDifficultyDistribution(words) {
