@@ -2182,7 +2182,81 @@
                     this.initPromise = null;
                     this.isInitializing = false;
                 }
-
+				/**
+				 * 批量添加单词到指定单词库（同一事务，高性能）
+				 * @param {Array} wordDataArray - 单词数据数组（每个元素包含 word, difficulty, meaning 等）
+				 * @param {number} listId - 目标单词库ID
+				 * @returns {Promise<{saved: number, skipped: number}>} 保存和跳过的数量
+				 */
+				async batchAddWords(wordDataArray, listId) {
+				    await this.ready();
+				    const targetListId = listId ? parseInt(listId) : null;
+				    
+				    // 1. 预加载当前库的所有单词到 Set（用于快速去重）
+				    const existingWordsSet = new Set();
+				    const existingWords = await this.getWordsByList(targetListId);
+				    existingWords.forEach(w => existingWordsSet.add(w.word.toLowerCase().trim()));
+				
+				    // 2. 过滤出真正需要插入的单词（去重）
+				    const toInsert = [];
+				    const skipped = [];
+				    for (const wordData of wordDataArray) {
+				        const normalizedWord = wordData.word.toLowerCase().trim();
+				        if (existingWordsSet.has(normalizedWord)) {
+				            skipped.push(normalizedWord);
+				            console.log(`单词 "${normalizedWord}" 已存在，跳过`);
+				        } else {
+				            toInsert.push({
+				                ...wordData,
+				                word: normalizedWord,
+				                listId: targetListId,
+				                createdAt: new Date().toISOString(),
+				                lastReviewed: null,
+				                reviewCount: 0
+				            });
+				        }
+				    }
+				
+				    if (toInsert.length === 0) {
+				        return { saved: 0, skipped: skipped.length };
+				    }
+				
+				    // 3. 在一个事务中批量插入
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.WORDS], 'readwrite');
+				        const store = transaction.objectStore(STORES.WORDS);
+				
+				        let savedCount = 0;
+				
+				        transaction.oncomplete = () => {
+				            console.log(`批量保存完成：保存 ${savedCount} 个，跳过 ${skipped.length} 个`);
+				            resolve({ saved: savedCount, skipped: skipped.length });
+				        };
+				        transaction.onerror = (e) => {
+				            console.error('批量保存事务失败:', e.target.error);
+				            reject(e.target.error);
+				        };
+				
+				        // 逐个添加（仍在同一事务内）
+				        for (const data of toInsert) {
+				            const request = store.add(data);
+				            request.onsuccess = () => {
+				                savedCount++;
+				            };
+				            // 如果发生唯一约束错误（理论上不会，因为已去重），忽略该记录
+				            request.onerror = (e) => {
+				                if (e.target.error.name === 'ConstraintError') {
+				                    console.warn('批量保存时出现意外重复:', data.word);
+				                    // 不计入 savedCount
+				                } else {
+				                    // 其他错误，让事务失败
+				                    transaction.abort();
+				                    reject(e.target.error);
+				                }
+				            };
+				        }
+				    });
+				}
                 async init() {
                     if (this.initPromise) return this.initPromise;
                     if (this.isInitializing) {
@@ -4839,42 +4913,37 @@
                         
                         this.showLoader(`正在保存 ${processedWords.length} 个单词到 "${listName}"...`);
                         
-                        let savedCount = 0;
-                        let skippedCount = 0;
-                        const total = processedWords.length;
-                        
-                        for (let i = 0; i < processedWords.length; i += 10) {
-                            const batch = processedWords.slice(i, i + 10);
-                            
-                            await Promise.all(batch.map(async (wordData) => {
-                                try {
-                                    const id = await this.db.addWord({
-                                        word: wordData.word,
-                                        difficulty: wordData.difficulty,
-                                        frequency: wordData.frequency,
-                                        meaning: wordData.meaning,
-                                        phonetic: wordData.phonetic,
-                                        example: wordData.example,
-                                        collins: wordData.collins,
-                                        source: 'novel',
-                                        novelName: this.novelFileName,
-                                        listId: listId
-                                    });
-                                    
-                                    if (id) savedCount++;
-                                    else skippedCount++;
-                                    
-                                } catch (error) {
-                                    console.error(`保存单词失败:`, error);
-                                    skippedCount++;
-                                }
-                            }));
-                            
-                            this.showLoader(`正在保存: ${Math.min(i + 10, total)}/${total}`);
-                            await new Promise(resolve => setTimeout(resolve, 10));
-                        }
-                        
-                        const setAsDefault = confirm(`成功保存 ${savedCount} 个单词到 "${listName}"\n\n是否设为当前学习单词库？`);
+						this.showLoader('正在批量保存单词...');
+						
+						// 准备单词数据数组
+						const wordDataArray = processedWords.map(wordData => ({
+						    word: wordData.word,
+						    difficulty: wordData.difficulty,
+						    frequency: wordData.frequency,
+						    meaning: wordData.meaning,
+						    phonetic: wordData.phonetic,
+						    example: wordData.example,
+						    collins: wordData.collins,
+						    source: 'novel',
+						    novelName: this.novelFileName
+						}));
+						
+						// 批量保存
+						const result = await this.db.batchAddWords(wordDataArray, listId);
+						const savedCount = result.saved;
+						const skippedCount = result.skipped;
+						// 更新单词库计数
+						await this.db.updateWordListWordCount(listId);
+						
+						this.hideLoader(); // ✅ 隐藏加载器
+						this.isProcessing = false;
+						
+						this.showNotification(
+						    `成功保存 ${savedCount} 个单词${skippedCount > 0 ? `（${skippedCount} 个重复）` : ''}`,
+						    'success'
+						);
+						
+						const setAsDefault = confirm(`成功保存 ${savedCount} 个单词到 "${listName}"\n\n是否设为当前学习单词库？`);
                         if (setAsDefault) {
                             await this.db.setDefaultWordList(listId);
                             await this.db.saveSetting('currentListId', listId);
