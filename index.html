@@ -3754,62 +3754,64 @@
                     };
                 }
 
-                async batchProcessWords(words, callback, concurrency = 3) {
-                    const results = [];
-                    const queue = [...words];
-                    let processed = 0;
-                    
-                    const processBatch = async () => {
-                        const batch = queue.splice(0, concurrency);
-                        if (batch.length === 0) return;
-                        
-                        await Promise.all(batch.map(async (word) => {
-                            try {
-                                const data = await this.getDictionaryData(word);
-                                const difficulty = this.assignDifficulty(word);
-                                const frequency = this.wordFrequency.get(word) || 0;
-                                
-                                results.push({
-                                    word,
-                                    difficulty,
-                                    frequency,
-                                    meaning: data.meaning,
-                                    phonetic: data.phonetic,
-                                    example: Array.isArray(data.examples) ? data.examples[0] : data.examples,
-                                    collins: null,
-                                    rawData: data.rawApiData
-                                });
-                                
-                                processed++;
-                                if (callback) {
-                                    callback(processed, words.length, word);
-                                }
-                                
-                            } catch (error) {
-                                if (error.name === 'AbortError') throw error;
-                                
-                                console.error(`处理单词 "${word}" 时出错:`, error);
-                                const fallbackData = this.getFallbackData(word);
-                                results.push({
-                                    word,
-                                    difficulty: this.assignDifficulty(word),
-                                    frequency: this.wordFrequency.get(word) || 0,
-                                    meaning: fallbackData.meaning,
-                                    phonetic: fallbackData.phonetic,
-                                    example: fallbackData.examples[0],
-                                    collins: null
-                                });
-                                processed++;
-                            }
-                        }));
-                        
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                        await processBatch();
-                    };
-                    
-                    await processBatch();
-                    return results;
-                }
+				// 替换原有的 batchProcessWords 方法
+				async batchProcessWords(words, callback, concurrency = 12) {  // 改为12
+				    const results = [];
+				    const queue = [...words];
+				    let processed = 0;
+				    
+				    // 使用 Promise.all 实现真正的并行
+				    const workers = Array(concurrency).fill().map(async () => {
+				        while (queue.length > 0) {
+				            const word = queue.shift();
+				            
+				            try {
+				                const data = await this.getDictionaryData(word);
+				                const difficulty = this.assignDifficulty(word);
+				                const frequency = this.wordFrequency.get(word) || 0;
+				                
+				                results.push({
+				                    word,
+				                    difficulty,
+				                    frequency,
+				                    meaning: data.meaning,
+				                    phonetic: data.phonetic,
+				                    example: Array.isArray(data.examples) ? data.examples[0] : data.examples,
+				                    collins: null,
+				                    rawData: data.rawApiData
+				                });
+				                
+				                processed++;
+				                if (callback) callback(processed, words.length, word);
+				                
+				            } catch (error) {
+				                if (error.name === 'AbortError') {
+				                    console.log(`获取单词"${word}"被取消`);
+				                    throw error;
+				                }
+				                
+				                console.error(`处理单词 "${word}" 时出错:`, error);
+				                const fallbackData = this.getFallbackData(word);
+				                results.push({
+				                    word,
+				                    difficulty: this.assignDifficulty(word),
+				                    frequency: this.wordFrequency.get(word) || 0,
+				                    meaning: fallbackData.meaning,
+				                    phonetic: fallbackData.phonetic,
+				                    example: fallbackData.examples[0],
+				                    collins: null
+				                });
+				                processed++;
+				            }
+				            
+				            // 小延迟避免服务器拒绝
+				            await new Promise(r => setTimeout(r, 20));
+				        }
+				    });
+				    
+				    await Promise.all(workers);
+				    return results;
+				}
             }
 
             window.novelProcessor = new NovelProcessor();
