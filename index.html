@@ -5565,9 +5565,6 @@
 				        
 				        const newWords = await this.db.getNewWords(currentListId);  // ← 传入过滤参数
 				        console.log(`生词本最终数据: ${newWords.length} 个`);
-						console.log('=== 开始加载生词本 ===');
-						const newWords = await this.db.getNewWords();
-						console.log(`生词本最终数据: ${newWords.length} 个`);
 						
 						if (newWords.length === 0) {
 							// 调试：检查原始数据
@@ -5667,7 +5664,8 @@
 
 			    async studyNewWords() {
 			        try {
-			            const newWords = await this.db.getNewWords();
+				        const currentListId = await this.db.getSetting('currentListId');
+				        const newWords = await this.db.getNewWords(currentListId);  // 传入过滤参数
 			            
 			            if (newWords.length === 0) {
 			                this.showNotification('生词本为空', 'info');
