@@ -3,391 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PWA 缓存清理工具</title>
+    <title>清除缓存 - Word Learner</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            --primary: #667eea;
-            --secondary: #764ba2;
-            --success: #4CAF50;
-            --warning: #FF9800;
-            --error: #f44336;
-            --bg: #f5f7fa;
-            --card: #ffffff;
-            --text: #333333;
-            --text-secondary: #666666;
-        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, var(--bg) 0%, #e4e8ec 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             min-height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
             padding: 20px;
-            color: var(--text);
         }
-        .container { max-width: 600px; margin: 0 auto; }
-        .header { text-align: center; padding: 40px 20px; }
-        .header h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .card {
-            background: var(--card);
+        .container {
+            background: white;
+            padding: 40px;
             border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        }
-        .path-display {
-            background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
-            padding: 16px;
-            border-radius: 12px;
-            font-family: monospace;
-            font-size: 13px;
-            margin-bottom: 20px;
-        }
-        .path-display .label {
-            color: var(--text-secondary);
-            font-size: 11px;
-            text-transform: uppercase;
-            margin-bottom: 6px;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .stat-item {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             text-align: center;
-            padding: 16px 8px;
-            background: var(--bg);
-            border-radius: 12px;
-        }
-        .stat-item .number { font-size: 24px; font-weight: 700; color: var(--primary); }
-        .log-container {
-            background: #1e1e1e;
-            border-radius: 12px;
-            padding: 16px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-            color: #fff;
-            margin-bottom: 20px;
-            display: none;
-        }
-        .log-item { padding: 4px 0; border-bottom: 1px solid #333; display: flex; gap: 8px; }
-        .log-time { color: #666; min-width: 60px; }
-        .log-success { color: #4CAF50; }
-        .log-skip { color: #9E9E9E; }
-        .log-error { color: #f44336; }
-        .btn {
+            max-width: 400px;
             width: 100%;
-            padding: 16px 24px;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
         }
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
+        h1 { color: #333; margin-bottom: 10px; }
+        p { color: #666; margin-bottom: 30px; }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        button {
+            background: #4CAF50;
             color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
         }
-        .btn-success { background: var(--success); color: white; display: none; }
+        button:hover { background: #45a049; transform: translateY(-2px); }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🧹 PWA 缓存清理工具</h1>
-            <p>只清理当前 PWA，不影响其他项目</p>
+        <h1>🧹 清除缓存</h1>
+        <p>点击下方按钮清除本网站的所有数据，包括：<br>
+        缓存文件、Cookie、本地存储、数据库</p>
+        
+        <div id="statusArea">
+            <div class="spinner" id="spinner" style="display:none;"></div>
+            <div class="status" id="statusText">准备清除...</div>
         </div>
-
-        <div class="card">
-            <div class="path-display">
-                <div class="label">当前 PWA</div>
-                <div id="pwaName" style="font-weight:600;color:var(--primary);">检测中...</div>
-                <div class="label" style="margin-top:8px;">匹配关键词</div>
-                <div id="keywords" style="font-size:11px;color:var(--text-secondary);">检测中...</div>
-            </div>
-
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="number" id="stat-sw">-</div>
-                    <div class="label">Service Worker</div>
-                </div>
-                <div class="stat-item">
-                    <div class="number" id="stat-cache">-</div>
-                    <div class="label">缓存</div>
-                </div>
-                <div class="stat-item">
-                    <div class="number" id="stat-storage">-</div>
-                    <div class="label">存储项</div>
-                </div>
-            </div>
-
-            <div class="log-container" id="logContainer"></div>
-
-            <button class="btn btn-primary" id="clearBtn" onclick="startClear()">开始清理</button>
-            <button class="btn btn-success" id="backBtn" onclick="goBack()" style="display:none;">✓ 返回 PWA</button>
-        </div>
+        
+        <button id="clearBtn" onclick="doClear()">立即清除所有数据</button>
+        <button id="backBtn" onclick="goBack()" style="display:none; margin-top:10px; background:#2196F3;">
+            返回主页面
+        </button>
     </div>
 
     <script>
-    // ==================== 配置区域 ====================
-    const CONFIG = {
-        // 可选：添加额外的匹配关键词
-        CUSTOM_KEYWORDS: ['WordLearnerDB'],
-        // 是否显示跳过的项目（调试用）
-        SHOW_SKIPPED: true,
-        // 严格模式：false = 更激进的匹配（推荐）
-        STRICT_MODE: false
-    };
-
-    // ==================== 核心代码 ====================
-
-    // 自动提取 PWA 信息
-    const URL_INFO = new URL(location.href);
-    const CURRENT_PATH = URL_INFO.pathname;
-    const PATH_SEGMENTS = CURRENT_PATH.split('/').filter(s => s);
-    const PWA_NAME = PATH_SEGMENTS[0] || 'unknown';
-    const CURRENT_DIR = '/' + PATH_SEGMENTS.slice(0, -1).join('/') + '/';
-    const FULL_URL_PREFIX = URL_INFO.origin + CURRENT_DIR;  // https://unplage.github.io/kmword/
-
-    // 生成匹配关键词（关键修复：包含多种变体）
-    function generateKeywords(name) {
-        const keywords = [
-            name,                                    // kmword
-            name.toLowerCase(),                      // kmword
-            name.toUpperCase(),                      // KMWORD
-            name.replace(/-/g, ''),                  // kmword（去连字符）
-            name.replace(/_/g, ''),                  // kmword（去下划线）
-            name.replace(/-/g, '_'),                 // km_word
-            name.replace(/_/g, '-'),                 // km-word
-            URL_INFO.origin + CURRENT_DIR,           // https://unplage.github.io/kmword/
-            CURRENT_DIR,                             // /kmword/
-            CURRENT_DIR.slice(0, -1),                // /kmword（去末尾斜杠）
-        ];
-        
-        // 添加常见组合
-        const combinations = [
-            name + 'DB',
-            name + 'Cache',
-            name + 'Storage',
-            name + 'App',
-            name + '_cache',
-            name + '-cache',
-            'workbox-' + name,
-            'precache-' + name,
-        ];
-        
-        return [...new Set([...keywords, ...combinations, ...CONFIG.CUSTOM_KEYWORDS])];
-    }
-
-    const ALL_KEYWORDS = generateKeywords(PWA_NAME);
-
-    // 显示信息
-    document.getElementById('pwaName').textContent = PWA_NAME;
-    document.getElementById('keywords').textContent = ALL_KEYWORDS.slice(0, 5).join(', ') + '...';
-
-    function log(msg, type = 'info') {
-        const container = document.getElementById('logContainer');
-        container.style.display = 'block';
-        const div = document.createElement('div');
-        div.className = `log-item log-${type}`;
-        const time = new Date().toLocaleTimeString();
-        div.innerHTML = `<span class="log-time">${time}</span><span>${msg}</span>`;
-        container.appendChild(div);
-        container.scrollTop = container.scrollHeight;
-    }
-
-    // 核心匹配函数（关键修复）
-    function isMatch(text) {
-        if (!text) return false;
-        const lowerText = text.toLowerCase();
-        
-        // 检查所有关键词
-        for (const keyword of ALL_KEYWORDS) {
-            if (!keyword) continue;
-            if (lowerText.includes(keyword.toLowerCase())) {
-                return true;
-            }
-        }
-        
-        // 额外检查：是否包含当前路径（处理 workbox 完整 URL 格式）
-        if (lowerText.includes(URL_INFO.origin.toLowerCase() + CURRENT_DIR.toLowerCase())) {
-            return true;
-        }
-        
-        // 检查是否包含 PWA 名称（最基本匹配）
-        if (lowerText.includes(PWA_NAME.toLowerCase())) {
-            return true;
-        }
-        
-        return false;
-    }
-
-    async function startClear() {
+    async function doClear() {
         const btn = document.getElementById('clearBtn');
-        btn.disabled = true;
-        btn.textContent = '清理中...';
+        const spinner = document.getElementById('spinner');
+        const status = document.getElementById('statusText');
+        const backBtn = document.getElementById('backBtn');
         
-        log(`开始清理: ${PWA_NAME}`, 'info');
-        log(`完整路径: ${FULL_URL_PREFIX}`, 'info');
-        
-        let clearedSW = 0, clearedCache = 0, clearedDB = 0, clearedStorage = 0;
+        btn.style.display = 'none';
+        spinner.style.display = 'block';
+        status.textContent = '正在清除...';
         
         try {
-            // 1. Service Worker
-            log('检查 Service Worker...', 'info');
+            // 1. 清除 localStorage 和 sessionStorage
+            localStorage.clear();
+            sessionStorage.clear();
+            status.textContent = '✓ 本地存储已清除';
+            await delay(300);
+            
+            // 2. 注销 Service Worker
             if ('serviceWorker' in navigator) {
                 const regs = await navigator.serviceWorker.getRegistrations();
-                log(`发现 ${regs.length} 个 SW`, 'info');
-                
                 for (const reg of regs) {
-                    const scope = reg.scope || '';
-                    // 匹配规则：作用域包含当前 PWA 路径
-                    const isThisPWA = 
-                        scope.includes(FULL_URL_PREFIX) ||
-                        scope.includes(CURRENT_DIR) ||
-                        scope.includes(PWA_NAME);
-                    
-                    if (isThisPWA) {
-                        await reg.unregister();
-                        log(`✓ 注销 SW: ${scope}`, 'success');
-                        clearedSW++;
-                    } else if (CONFIG.SHOW_SKIPPED) {
-                        log(`⊘ 跳过 SW: ${scope}`, 'skip');
-                    }
+                    await reg.unregister();
                 }
+                status.textContent = `✓ Service Worker 已注销 (${regs.length}个)`;
+                await delay(300);
             }
             
-            // 2. Cache Storage（关键修复部分）
-            log('检查 Cache Storage...', 'info');
+            // 3. 清除 Cache Storage
             if ('caches' in window) {
                 const keys = await caches.keys();
-                log(`发现 ${keys.length} 个缓存`, 'info');
-                
                 for (const key of keys) {
-                    const isThisPWA = isMatch(key);
-                    
-                    if (isThisPWA) {
-                        await caches.delete(key);
-                        log(`✓ 删除缓存: ${key}`, 'success');
-                        clearedCache++;
-                    } else if (CONFIG.SHOW_SKIPPED) {
-                        log(`⊘ 跳过缓存: ${key}`, 'skip');
-                    }
+                    await caches.delete(key);
                 }
+                status.textContent = `✓ 缓存已清除 (${keys.length}个)`;
+                await delay(300);
             }
             
-            // 3. IndexedDB
-            log('检查 IndexedDB...', 'info');
-            try {
-                const dbs = await indexedDB.databases?.() || [];
-                log(`发现 ${dbs.length} 个数据库`, 'info');
-                
-                for (const db of dbs) {
-                    const dbName = db.name || '';
-                    const isThisPWA = isMatch(dbName);
-                    
-                    if (isThisPWA) {
-                        indexedDB.deleteDatabase(dbName);
-                        log(`✓ 删除数据库: ${dbName}`, 'success');
-                        clearedDB++;
-                    } else if (CONFIG.SHOW_SKIPPED) {
-                        log(`⊘ 跳过数据库: ${dbName || 'unnamed'}`, 'skip');
-                    }
-                }
-            } catch (e) {
-                // 尝试删除已知数据库
-                const knownDBs = [
-                    'WordLearnerDB',
-                    PWA_NAME + 'DB',
-                    PWA_NAME
-                ];
-                for (const dbName of knownDBs) {
-                    try {
-                        indexedDB.deleteDatabase(dbName);
-                        log(`尝试删除: ${dbName}`, 'info');
-                    } catch (err) {}
-                }
+            // 4. 清除 IndexedDB
+            const dbs = await indexedDB.databases?.() || [];
+            for (const db of dbs) {
+                indexedDB.deleteDatabase(db.name);
             }
+            indexedDB.deleteDatabase('WordLearnerDB');
+            status.textContent = `✓ 数据库已清除 (${dbs.length + 1}个)`;
+            await delay(300);
             
-            // 4. localStorage
-            log('检查 localStorage...', 'info');
-            const keysToRemove = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && isMatch(key)) {
-                    keysToRemove.push(key);
-                }
-            }
-            
-            keysToRemove.forEach(key => {
-                localStorage.removeItem(key);
-                log(`✓ 删除: ${key}`, 'success');
-                clearedStorage++;
+            // 5. 清除 Cookie
+            document.cookie.split(';').forEach(c => {
+                const [name] = c.trim().split('=');
+                document.cookie = `${name}=; expires=${new Date(0).toUTCString()}; path=/; domain=${location.hostname}`;
             });
-            
-            // 5. sessionStorage
-            const ssCount = sessionStorage.length;
-            sessionStorage.clear();
-            if (ssCount > 0) {
-                log(`✓ 清理 sessionStorage: ${ssCount} 项`, 'success');
-            }
+            status.textContent = '✓ Cookie 已清除';
+            await delay(300);
             
             // 完成
-            log(`========================`, 'info');
-            log(`完成: ${clearedSW} SW, ${clearedCache} 缓存, ${clearedDB} 数据库, ${clearedStorage} 存储`, 'success');
-            
-            btn.style.display = 'none';
-            document.getElementById('backBtn').style.display = 'block';
+            spinner.style.display = 'none';
+            status.className = 'status success';
+            status.innerHTML = '<strong>✅ 清除完成！</strong><br>所有数据已清除，下次访问将像第一次打开一样';
+            backBtn.style.display = 'inline-block';
             
         } catch (err) {
-            log(`❌ 错误: ${err.message}`, 'error');
-            btn.disabled = false;
+            spinner.style.display = 'none';
+            status.style.background = '#ffebee';
+            status.style.color = '#c62828';
+            status.textContent = '清除出错: ' + err.message;
+            btn.style.display = 'inline-block';
             btn.textContent = '重试';
         }
     }
-
+    
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    
     function goBack() {
-        location.href = CURRENT_DIR + 'index.html?_=' + Date.now();
+        // 跳转回主页面，添加时间戳确保绕过缓存
+        location.href = './index.html?_=' + Date.now();
     }
-
-    // 预检测
-    async function preCheck() {
-        let sw = 0, cache = 0, storage = 0;
-        
-        if ('serviceWorker' in navigator) {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            sw = regs.filter(r => {
-                const scope = r.scope || '';
-                return scope.includes(FULL_URL_PREFIX) || 
-                       scope.includes(CURRENT_DIR) ||
-                       scope.includes(PWA_NAME);
-            }).length;
-        }
-        
-        if ('caches' in window) {
-            const keys = await caches.keys();
-            cache = keys.filter(k => isMatch(k)).length;
-        }
-        
-        for (let i = 0; i < localStorage.length; i++) {
-            if (isMatch(localStorage.key(i))) storage++;
-        }
-        
-        document.getElementById('stat-sw').textContent = sw;
-        document.getElementById('stat-cache').textContent = cache;
-        document.getElementById('stat-storage').textContent = storage;
-    }
-
-    window.addEventListener('load', preCheck);
+    
+    // 页面加载时自动执行（可选）
+    // window.onload = doClear;
     </script>
 </body>
 </html>
