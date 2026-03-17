@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清除 kmword 数据</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        p { color: #666; margin-bottom: 30px; }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #e3f2fd;
+            color: #1976d2;
+            text-align: left;
+            white-space: pre-line;
+        }
+        .success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 5px;
+            min-width: 150px;
+        }
+        button:hover { background: #45a049; transform: translateY(-2px); }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .back-btn {
+            background: #2196F3;
+        }
+        .back-btn:hover { background: #1976D2; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🧹 清除 kmword 数据</h1>
+        <p>此操作将删除：<br>
+        • 所有以 <strong>kmword</strong> 开头的缓存<br>
+        • IndexedDB 数据库 <strong>WordLearnerDB</strong><br>
+        • 当前域下的 Service Worker<br>
+        • 本地存储、会话存储、Cookie<br>
+        <strong style="color:#d32f2f;">不会影响同一域名下的其他 PWA。</strong></p>
+        
+        <div id="statusArea" class="status">就绪</div>
+        <div id="spinner" class="spinner" style="display: none;"></div>
+        
+        <button id="clearBtn">立即清除</button>
+        <button id="backBtn" class="back-btn" style="display: none;">返回应用</button>
+    </div>
+
+    <script>
+        const DB_NAME = 'WordLearnerDB';          // IndexedDB 名称
+        const CACHE_PREFIX = 'kmword';             // 缓存名称前缀
+
+        async function doClear() {
+            const status = document.getElementById('statusArea');
+            const spinner = document.getElementById('spinner');
+            const clearBtn = document.getElementById('clearBtn');
+            const backBtn = document.getElementById('backBtn');
+
+            status.className = 'status';
+            status.innerText = '正在清除...';
+            spinner.style.display = 'block';
+            clearBtn.disabled = true;
+
+            try {
+                // 1. 清除 localStorage 和 sessionStorage
+                localStorage.clear();
+                sessionStorage.clear();
+                status.innerText = '✓ 本地存储已清除';
+                await delay(200);
+
+                // 2. 删除指定的 IndexedDB 数据库
+                await new Promise((resolve) => {
+                    const request = indexedDB.deleteDatabase(DB_NAME);
+                    request.onsuccess = () => {
+                        status.innerText = '✓ IndexedDB 已清除';
+                        resolve();
+                    };
+                    request.onerror = () => {
+                        status.innerText = '✓ IndexedDB 删除成功（或不存在）';
+                        resolve();
+                    };
+                    request.onblocked = () => {
+                        status.innerText = '⏳ IndexedDB 被阻塞，请关闭其他标签页后重试';
+                        reject(new Error('数据库被阻塞'));
+                    };
+                });
+                await delay(200);
+
+                // 3. 注销当前域的所有 Service Worker
+                if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    for (const reg of regs) {
+                        await reg.unregister();
+                    }
+                    status.innerText = `✓ Service Worker 已注销 (${regs.length}个)`;
+                }
+                await delay(200);
+
+                // 4. 清除以指定前缀开头的缓存
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    let deletedCount = 0;
+                    for (const key of keys) {
+                        if (key.startsWith(CACHE_PREFIX)) {
+                            await caches.delete(key);
+                            deletedCount++;
+                        }
+                    }
+                    status.innerText = `✓ 应用缓存已清除 (${deletedCount}个)`;
+                }
+                await delay(200);
+
+                // 5. 清除当前域的 Cookie
+                document.cookie.split(';').forEach(c => {
+                    document.cookie = c
+                        .replace(/^ +/, '')
+                        .replace(/=.*/, '=;expires=' + new Date(0).toUTCString() + ';path=/');
+                });
+                status.innerText = '✓ Cookie 已清除';
+
+                // 完成
+                spinner.style.display = 'none';
+                status.className = 'status success';
+                status.innerHTML = '<strong>✅ 清除完成！</strong><br>现在可以重新打开应用。';
+                backBtn.style.display = 'inline-block';
+
+            } catch (err) {
+                spinner.style.display = 'none';
+                status.className = 'status error';
+                status.innerText = '清除失败：' + err.message;
+                clearBtn.disabled = false;
+            }
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function goBack() {
+            location.href = './index.html?t=' + Date.now();
+        }
+
+        document.getElementById('clearBtn').addEventListener('click', doClear);
+        document.getElementById('backBtn').addEventListener('click', goBack);
+    </script>
+</body>
+</html>
