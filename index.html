@@ -2695,43 +2695,53 @@
 				    });
 				}
 
-                async getWordsByList(listId, filter = {}) {
-                    await this.ready();
-                    const parsedId = parseInt(listId);
-                    
-                    return new Promise((resolve, reject) => {
-                        const transaction = this.db.transaction([STORES.WORDS], 'readonly');
-                        const store = transaction.objectStore(STORES.WORDS);
-                        const request = store.getAll();
-                        
-                        request.onsuccess = () => {
-                            let words = request.result || [];
-                            
-                            if (!isNaN(parsedId)) {
-                                words = words.filter(w => w.listId === parsedId);
-                            } else {
-                                words = words.filter(w => !w.listId);
-                            }
-                            
-                            if (filter.difficulty && filter.difficulty !== 'all') {
-                                words = words.filter(w => w.difficulty == filter.difficulty);
-                            }
-                            
-                            if (filter.search) {
-                                const searchTerm = filter.search.toLowerCase().trim();
-                                words = words.filter(w => 
-                                    w.word.toLowerCase().includes(searchTerm) ||
-                                    (w.meaning && w.meaning.toLowerCase().includes(searchTerm))
-                                );
-                            }
-                            
-                            resolve(words);
-                        };
-                        
-                        request.onerror = () => reject(request.error);
-                    });
-                }
-
+				// 在 WordDatabase 类中，修改 getWordsByList 方法
+				
+				async getWordsByList(listId, filter = {}) {
+				    await this.ready();
+				    
+				    // 🔴 唯一必要的修复：处理 'all' 特殊值
+				    const effectiveListId = (listId === 'all' || listId === null) ? null : listId;
+				    
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.WORDS], 'readonly');
+				        const store = transaction.objectStore(STORES.WORDS);
+				        const request = store.getAll();
+				        
+				        request.onsuccess = () => {
+				            let words = request.result || [];
+				            
+				            // 修改后的过滤逻辑
+				            if (effectiveListId === null) {
+				                // 'all' 或 null：返回所有单词，不过滤 listId
+				            } else if (effectiveListId === 'uncategorized') {
+				                words = words.filter(w => !w.listId);
+				            } else {
+				                const parsedId = parseInt(effectiveListId);
+				                if (!isNaN(parsedId)) {
+				                    words = words.filter(w => w.listId === parsedId);
+				                }
+				            }
+				            
+				            // 应用其他过滤器（difficulty, search）
+				            if (filter.difficulty && filter.difficulty !== 'all') {
+				                words = words.filter(w => w.difficulty == filter.difficulty);
+				            }
+				            
+				            if (filter.search) {
+				                const searchTerm = filter.search.toLowerCase().trim();
+				                words = words.filter(w => 
+				                    w.word.toLowerCase().includes(searchTerm) ||
+				                    (w.meaning && w.meaning.toLowerCase().includes(searchTerm))
+				                );
+				            }
+				            
+				            resolve(words);
+				        };
+				        
+				        request.onerror = () => reject(request.error);
+				    });
+				}
                 async getWordCountByList(listId) {
                     const words = await this.getWordsByList(listId);
                     return words.length;
