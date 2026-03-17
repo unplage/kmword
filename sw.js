@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v3';  // 每次更新时递增
+const CACHE_VERSION = 'v4';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
