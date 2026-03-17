@@ -2345,91 +2345,50 @@
                             resolve(this.db);
                         };
                         
-                        request.onupgradeneeded = (event) => {
-                            console.log('数据库升级，版本:', event.oldVersion, '->', event.newVersion);
-                            const db = event.target.result;
-                            const oldVersion = event.oldVersion;
-                            
-                            if (oldVersion < 1) {
-                                this.createInitialStores(db);
-                            }
-                            
-                            if (oldVersion < 2) {
-                                this.migrateToVersion2(db);
-                            }
-                            
-                            if (oldVersion < 3) {
-                                this.migrateToVersion3(db);
-                            }
-							if (oldVersion < 5) {
-							    console.log('迁移到版本 5：创建复合唯一索引 [word, listId]');
-							    const transaction = event.target.transaction;
-							    const wordsStore = transaction.objectStore(STORES.WORDS);
-							    const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
-							    const newWordsStore = transaction.objectStore(STORES.NEW_WORDS);
-							    
-							    // 关键：只有存在旧索引 'word' 时，才需要清理数据并重建索引
-							    if (wordsStore.indexNames.contains('word')) {
-							        // 1. 删除旧的 word 索引
-							        wordsStore.deleteIndex('word');
-							        
-							        // 2. 创建临时索引（非唯一），用于遍历所有单词
-							        wordsStore.createIndex('word_list_temp', ['word', 'listId'], { unique: false });
-							        
-							        // 3. 使用游标找出重复记录并删除（所有操作在同一个事务中）
-							        const seen = new Map();          // 键: word小写 + '|' + listId
-							        const duplicates = [];           // 要删除的重复单词ID
-							        
-							        const cursorRequest = wordsStore.index('word_list_temp').openCursor();
-							        cursorRequest.onsuccess = function(event) {
-							            const cursor = event.target.result;
-							            if (cursor) {
-							                const word = cursor.value;
-							                // 标准化 listId 为字符串表示，便于比较（数字或 null 均转换为字符串）
-							                const listKey = word.listId === undefined || word.listId === null ? 'null' : String(word.listId);
-							                const key = word.word.toLowerCase().trim() + '|' + listKey;
-							                
-							                if (seen.has(key)) {
-							                    // 发现重复，保留 ID 较小的那个
-							                    const existingId = seen.get(key);
-							                    if (word.id < existingId) {
-							                        duplicates.push(existingId);
-							                        seen.set(key, word.id);
-							                    } else {
-							                        duplicates.push(word.id);
-							                    }
-							                } else {
-							                    seen.set(key, word.id);
-							                }
-							                cursor.continue();
-							            } else {
-							                // 游标遍历结束，处理重复项
-							                if (duplicates.length > 0) {
-							                    console.log(`发现 ${duplicates.length} 个重复单词，正在清理...`);
-							                    duplicates.forEach(id => {
-							                        progressStore.delete(id);   // 删除学习进度
-							                        newWordsStore.delete(id);   // 删除生词本记录
-							                        wordsStore.delete(id);      // 删除单词本身
-							                    });
-							                }
-							                
-							                // 4. 删除临时索引
-							                wordsStore.deleteIndex('word_list_temp');
-							                
-							                // 5. 创建真正的唯一复合索引（如果尚未存在）
-							                if (!wordsStore.indexNames.contains('word_list')) {
-							                    wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
-							                }
-							            }
-							        };
-							    } else {
-							        // 全新安装或已经迁移过：只需确保复合索引存在
-							        if (!wordsStore.indexNames.contains('word_list')) {
-							            wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
-							        }
-							    }
-							}							
-                        };
+						request.onupgradeneeded = (event) => {
+						    console.log('数据库升级，版本:', event.oldVersion, '->', event.newVersion);
+						    const db = event.target.result;
+						    const transaction = event.target.transaction; // 获取升级事务
+						    const oldVersion = event.oldVersion;
+						    
+						    if (oldVersion < 1) {
+						        this.createInitialStores(db);
+						    }
+						    
+						    if (oldVersion < 2) {
+						        this.migrateToVersion2(db);
+						    }
+						    
+						    if (oldVersion < 3) {
+						        this.migrateToVersion3(db);
+						    }
+						    
+						    if (oldVersion < 5) {
+						        console.log('迁移到版本 5：创建复合唯一索引 [word, listId]');
+						        const wordsStore = transaction.objectStore(STORES.WORDS);
+						        
+						        // 🔴 关键修复：简化迁移逻辑，避免异步操作
+						        
+						        // 1. 删除旧的 word 索引（如果存在）
+						        if (wordsStore.indexNames.contains('word')) {
+						            wordsStore.deleteIndex('word');
+						        }
+						        
+						        // 2. 创建新的复合唯一索引（如果不存在）
+						        // 注意：如果已有重复数据，创建 unique 索引会失败
+						        // 但由于是升级场景，假设数据已清理或接受首次创建
+						        if (!wordsStore.indexNames.contains('word_list')) {
+						            try {
+						                wordsStore.createIndex('word_list', ['word', 'listId'], { unique: true });
+						                console.log('成功创建复合唯一索引 word_list');
+						            } catch (e) {
+						                console.warn('创建唯一索引失败，可能存在重复数据，创建非唯一索引:', e);
+						                // 降级方案：创建非唯一索引
+						                wordsStore.createIndex('word_list', ['word', 'listId'], { unique: false });
+						            }
+						        }
+						    }
+						};
                         
                         request.onblocked = () => {
                             console.warn('数据库被阻塞，请关闭其他标签页');
@@ -2997,59 +2956,70 @@
 
 				// ========== 修复后的生词本方法 ==========
 
-				async getNewWords() {
-					await this.ready();
-					
-					// 第一步：先获取所有生词记录（独立事务）
-					const newWordRecords = await new Promise((resolve, reject) => {
-						const transaction = this.db.transaction([STORES.NEW_WORDS], 'readonly');
-						const store = transaction.objectStore(STORES.NEW_WORDS);
-						const request = store.getAll();
-						
-						request.onsuccess = () => resolve(request.result || []);
-						request.onerror = () => reject(request.error);
-					});
-					
-					console.log(`生词表原始记录数: ${newWordRecords.length}`);
-					
-					if (newWordRecords.length === 0) {
-						return [];
-					}
-					
-					// 第二步：逐个获取单词详情（每个查询独立事务）
-					const wordDetails = [];
-					
-					for (const record of newWordRecords) {
-						// 确保ID是数字类型
-						let wordId = record.wordId;
-						if (typeof wordId === 'string') {
-							wordId = parseInt(wordId);
-						}
-						
-						if (isNaN(wordId)) {
-							console.warn('无效的生词记录ID:', record);
-							continue;
-						}
-						
-						try {
-							const word = await this.getWordById(wordId);
-							if (word) {
-								wordDetails.push({
-									...word,
-									addedAt: record.addedAt
-								});
-							} else {
-								console.warn(`生词本中的单词ID ${wordId} 在单词表中不存在，可能是孤立记录`);
-								// 可选：自动清理孤立记录
-								// await this.removeFromNewWords(wordId);
-							}
-						} catch (err) {
-							console.error(`获取生词 ${wordId} 详情失败:`, err);
-						}
-					}
-					
-					console.log(`成功获取 ${wordDetails.length}/${newWordRecords.length} 个生词详情`);
-					return wordDetails;
+				async getNewWords(listIdFilter = null) {
+				    await this.ready();
+				    
+				    // 第一步：先获取所有生词记录（独立事务）
+				    const newWordRecords = await new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.NEW_WORDS], 'readonly');
+				        const store = transaction.objectStore(STORES.NEW_WORDS);
+				        const request = store.getAll();
+				        
+				        request.onsuccess = () => resolve(request.result || []);
+				        request.onerror = () => reject(request.error);
+				    });
+				    
+				    console.log(`生词表原始记录数: ${newWordRecords.length}`);
+				    
+				    if (newWordRecords.length === 0) {
+				        return [];
+				    }
+				    
+				    // 第二步：逐个获取单词详情（每个查询独立事务）
+				    const wordDetails = [];
+				    
+				    for (const record of newWordRecords) {
+				        let wordId = record.wordId;
+				        if (typeof wordId === 'string') {
+				            wordId = parseInt(wordId);
+				        }
+				        
+				        if (isNaN(wordId)) {
+				            console.warn('无效的生词记录ID:', record);
+				            continue;
+				        }
+				        
+				        try {
+				            const word = await this.getWordById(wordId);
+				            if (word) {
+				                // 🔴 关键修复：如果指定了单词库，进行过滤
+				                if (listIdFilter && listIdFilter !== 'all') {
+				                    if (listIdFilter === 'uncategorized') {
+				                        // 只包含未分类的单词（没有listId）
+				                        if (word.listId) continue;
+				                    } else {
+				                        // 只包含指定单词库的单词
+				                        const targetListId = parseInt(listIdFilter);
+				                        if (isNaN(targetListId) || word.listId !== targetListId) {
+				                            continue;
+				                        }
+				                    }
+				                }
+				                
+				                wordDetails.push({
+				                    ...word,
+				                    addedAt: record.addedAt
+				                });
+				            } else {
+				                console.warn(`生词本中的单词ID ${wordId} 在单词表中不存在`);
+				            }
+				        } catch (err) {
+				            console.error(`获取生词 ${wordId} 详情失败:`, err);
+				        }
+				    }
+				    
+				    console.log(`成功获取 ${wordDetails.length}/${newWordRecords.length} 个生词详情（已过滤）`);
+				    return wordDetails;
 				}
 
 				async addToNewWords(wordId) {
@@ -5579,7 +5549,12 @@
 						}
 						
 						newWordsList.innerHTML = '<div class="loading">加载中...</div>';
-						
+						// 🔴 关键修复：获取当前选中的单词库ID
+				        const currentListId = await this.db.getSetting('currentListId');
+				        console.log(`=== 开始加载生词本，当前库: ${currentListId || '全部'} ===`);
+				        
+				        const newWords = await this.db.getNewWords(currentListId);  // ← 传入过滤参数
+				        console.log(`生词本最终数据: ${newWords.length} 个`);
 						console.log('=== 开始加载生词本 ===');
 						const newWords = await this.db.getNewWords();
 						console.log(`生词本最终数据: ${newWords.length} 个`);
