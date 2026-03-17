@@ -3264,88 +3264,163 @@
                         request.onerror = () => reject(request.error);
                     });
                 }
+				/**
+				 * 获取所有已学习过的单词ID（有user_progress记录的）
+				 * 用于区分真正的新词和已学习过的词
+				 */
+				async getAllLearnedWordIds(listIdFilter = null) {
+				    await this.ready();
+				    
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.USER_PROGRESS, STORES.WORDS], 'readonly');
+				        const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
+				        
+				        const request = progressStore.getAll();
+				        
+				        request.onsuccess = async () => {
+				            const progressList = request.result || [];
+				            const learnedIds = new Set();
+				            
+				            for (const progress of progressList) {
+				                // 如果指定了单词库，需要验证该单词是否属于该库
+				                if (listIdFilter && listIdFilter !== 'all') {
+				                    if (listIdFilter === 'uncategorized') {
+				                        // 检查单词是否没有listId
+				                        const word = await this.getWordById(progress.wordId);
+				                        if (word && !word.listId) {
+				                            learnedIds.add(progress.wordId);
+				                        }
+				                    } else {
+				                        // 检查单词是否属于指定库
+				                        const word = await this.getWordById(progress.wordId);
+				                        if (word && word.listId === parseInt(listIdFilter)) {
+				                            learnedIds.add(progress.wordId);
+				                        }
+				                    }
+				                } else {
+				                    // 不过滤单词库，获取所有已学习单词
+				                    learnedIds.add(progress.wordId);
+				                }
+				            }
+				            
+				            resolve(learnedIds);
+				        };
+				        
+				        request.onerror = () => reject(request.error);
+				    });
+				}
+				async getWordsForReview(listIdFilter = null) {
+				    await this.ready();
+				    const now = new Date().toISOString();
+				    
+				    // 获取当前选中的单词库（如果未指定）
+				    let targetListId = listIdFilter;
+				    if (targetListId === null) {
+				        targetListId = await this.getSetting('currentListId');
+				    }
+				    
+				    console.log(`获取需要复习的单词，当前时间: ${now}, 单词库过滤: ${targetListId || '全部'}`);
+				    
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.transaction([STORES.USER_PROGRESS, STORES.WORDS], 'readonly');
+				        const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
+				        const wordsStore = transaction.objectStore(STORES.WORDS);
+				        
+				        const index = progressStore.index('nextReview');
+				        const range = IDBKeyRange.upperBound(now);
+				        const request = index.getAll(range);
+				        
+				        request.onsuccess = async () => {
+				            const progressItems = request.result || [];
+				            console.log(`找到 ${progressItems.length} 条需要复习的进度记录`);
+				            
+				            if (progressItems.length === 0) {
+				                resolve([]);
+				                return;
+				            }
+				            
+				            const wordDetails = [];
+				            
+				            for (const progress of progressItems) {
+				                try {
+				                    const word = await this.getWordById(progress.wordId);
+				                    if (!word) {
+				                        console.warn(`复习单词表中找不到单词ID: ${progress.wordId}`);
+				                        continue;
+				                    }
+				                    
+				                    // 🔴 关键：根据单词库过滤
+				                    if (targetListId && targetListId !== 'all') {
+				                        if (targetListId === 'uncategorized') {
+				                            // 未分类：只包含没有 listId 的单词
+				                            if (word.listId) continue;
+				                        } else {
+				                            // 特定单词库：严格匹配 listId
+				                            if (word.listId !== parseInt(targetListId)) continue;
+				                        }
+				                    }
+				                    // 如果 targetListId 为 'all' 或 null，则包含所有单词
+				                    
+				                    wordDetails.push({
+				                        ...word,
+				                        progress: progress
+				                    });
+				                } catch (err) {
+				                    console.error(`获取复习单词 ${progress.wordId} 失败:`, err);
+				                }
+				            }
+				            
+				            console.log(`成功获取 ${wordDetails.length} 个复习单词（已按单词库过滤）`);
+				            resolve(wordDetails);
+				        };
+				        
+				        request.onerror = (event) => {
+				            console.error('获取复习单词失败:', event.target.error);
+				            reject(event.target.error);
+				        };
+				    });
+				}
 
-                async getWordsForReview() {
-                    await this.ready();
-                    const now = new Date().toISOString();
-                    
-                    console.log(`获取需要复习的单词，当前时间: ${now}`);
-                    
-                    return new Promise((resolve, reject) => {
-                        const transaction = this.db.transaction([STORES.USER_PROGRESS, STORES.WORDS], 'readonly');
-                        const progressStore = transaction.objectStore(STORES.USER_PROGRESS);
-                        const wordsStore = transaction.objectStore(STORES.WORDS);
-                        
-                        const index = progressStore.index('nextReview');
-                        const range = IDBKeyRange.upperBound(now);
-                        const request = index.getAll(range);
-                        
-                        request.onsuccess = async () => {
-                            const progressItems = request.result || [];
-                            console.log(`找到 ${progressItems.length} 条需要复习的进度记录`);
-                            
-                            if (progressItems.length === 0) {
-                                resolve([]);
-                                return;
-                            }
-                            
-                            const wordDetails = [];
-                            
-                            for (const progress of progressItems) {
-                                try {
-                                    const word = await this.getWordById(progress.wordId);
-                                    if (word) {
-                                        wordDetails.push({
-                                            ...word,
-                                            progress: progress
-                                        });
-                                    } else {
-                                        console.warn(`复习单词表中找不到单词ID: ${progress.wordId}`);
-                                    }
-                                } catch (err) {
-                                    console.error(`获取复习单词 ${progress.wordId} 失败:`, err);
-                                }
-                            }
-                            
-                            console.log(`成功获取 ${wordDetails.length} 个复习单词`);
-                            resolve(wordDetails);
-                        };
-                        
-                        request.onerror = (event) => {
-                            console.error('获取复习单词失败:', event.target.error);
-                            reject(event.target.error);
-                        };
-                    });
-                }
-
-                async getTodayWords(limit = 20) {
-                    const plan = await this.getDailyPlan();
-                    const reviewWords = await this.getWordsForReview();
-                    
-                    // 获取当前选中的单词库
-                    const currentListId = await this.getSetting('currentListId');
-                    let allWords;
-                    
-                    if (currentListId && currentListId !== 'all') {
-                        allWords = await this.getWordsByList(currentListId);
-                    } else {
-                        allWords = await this.getAllWords();
-                    }
-                    
-                    console.log(`获取今日单词: 复习 ${reviewWords.length} 个, 当前库 ${allWords.length} 个单词`);
-                    
-                    const learnedWordIds = new Set(reviewWords.map(w => w.id));
-                    const newWords = allWords
-                        .filter(w => !learnedWordIds.has(w.id))
-                        .sort(() => Math.random() - 0.5)
-                        .slice(0, Math.max(0, plan.dailyGoal - Math.min(reviewWords.length, plan.reviewGoal)));
-                    
-                    const reviewToTake = Math.min(reviewWords.length, plan.reviewGoal);
-                    const todayWords = [...reviewWords.slice(0, reviewToTake), ...newWords];
-                    
-                    console.log(`今日学习单词: 复习 ${reviewToTake} 个, 新学 ${newWords.length} 个, 总计 ${todayWords.length} 个`);
-                    return todayWords;
-                }
+				async getTodayWords(limit = 20) {
+				    const plan = await this.getDailyPlan();
+				    const currentListId = await this.getSetting('currentListId');
+				    
+				    // 1. 获取当前单词库中到期的复习单词（传入listId实现隔离）
+				    const dueReviewWords = await this.getWordsForReview(currentListId);
+				    
+				    // 2. 计算实际可复习数量（不超过配额）
+				    const reviewQuota = Math.min(dueReviewWords.length, plan.reviewGoal);
+				    const reviewWordsToLearn = dueReviewWords.slice(0, reviewQuota);
+				    
+				    // 3. 计算剩余配额给新词
+				    const remainingQuota = Math.max(0, plan.dailyGoal - reviewWordsToLearn.length);
+				    
+				    // 4. 获取当前单词库的所有单词
+				    let allWords;
+				    if (currentListId && currentListId !== 'all') {
+				        allWords = await this.getWordsByList(currentListId);
+				    } else {
+				        allWords = await this.getAllWords();
+				    }
+				    
+				    // 5. 🔴 关键修复：获取所有已学习单词ID（不只是到期的）
+				    const allLearnedIds = await this.getAllLearnedWordIds(currentListId);
+				    
+				    // 6. 筛选真正的新词：从未学习过（不在allLearnedIds中）
+				    const trulyNewWords = allWords
+				        .filter(w => !allLearnedIds.has(w.id))  // ← 修复：排除所有已学习，不只是到期的
+				        .sort(() => Math.random() - 0.5)
+				        .slice(0, remainingQuota);
+				    
+				    // 7. 组合今日学习列表：复习优先，然后是新词
+				    const todayWords = [...reviewWordsToLearn, ...trulyNewWords];
+				    
+				    console.log(`获取今日单词: 复习 ${reviewWordsToLearn.length} 个, 新学 ${trulyNewWords.length} 个, 总计 ${todayWords.length} 个`);
+				    console.log(`  - 到期复习: ${dueReviewWords.length} 个, 取 ${reviewQuota} 个`);
+				    console.log(`  - 真正新词: ${trulyNewWords.length}/${allWords.length - allLearnedIds.size} 个可用`);
+				    
+				    return todayWords;
+				}
 
                 async saveSetting(key, value) {
                     await this.ready();
