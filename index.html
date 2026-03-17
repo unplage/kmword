@@ -6191,135 +6191,345 @@
                     document.documentElement.style.fontSize = sizes[size] || '16px';
                 }
 
-                async exportData() {
-                    try {
-                        this.showLoader('正在导出数据...');
-                        
-                        const allWords = await this.db.getAllWords();
-                        const newWords = await this.db.getNewWords();
-                        const plan = await this.db.getDailyPlan();
-                        const settings = await this.db.getAllSettings();
-                        const stats = await this.db.getLearningStats(365);
-                        const wordLists = await this.db.getWordLists();
-                        
-                        const exportData = {
-                            version: '3.0',
-                            exportDate: new Date().toISOString(),
-                            words: allWords,
-                            newWords: newWords.map(w => ({ wordId: w.id, addedAt: w.addedAt })),
-                            wordLists: wordLists,
-                            plan: plan,
-                            settings: settings,
-                            stats: stats
-                        };
-                        
-                        const dataStr = JSON.stringify(exportData, null, 2);
-                        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-                        
-                        const url = URL.createObjectURL(dataBlob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `word-learner-backup-${new Date().toISOString().split('T')[0]}.json`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-                        
-                        this.hideLoader();
-                        this.showNotification('数据导出成功', 'success');
-                        
-                    } catch (error) {
-                        console.error('导出数据失败:', error);
-                        this.hideLoader();
-                        this.showNotification('导出数据失败', 'error');
-                    }
-                }
-
-				async importData(file) {
-					if (!file) return;
-					
-					if (!confirm('导入数据将覆盖当前数据，是否继续？')) {
-						return;
-					}
-					
-					try {
-						this.showLoader('正在读取文件...');
-						
-						const text = await file.text();
-						const importData = JSON.parse(text);
-						
-						if (!importData.words || !Array.isArray(importData.words)) {
-							throw new Error('数据格式不正确');
-						}
-
-						// 先清空数据
-						this.showLoader('正在清空旧数据...');
-						await this.db.clearAllData();
-						await this.db.ready();
-
-						// 批量导入，每批 500 条
-						const BATCH_SIZE = 500;
-						
-						// 1. 导入单词库（通常数量少，一次性导入）
-						if (importData.wordLists?.length > 0) {
-							this.showLoader(`正在导入 ${importData.wordLists.length} 个单词库...`);
-							await this.batchImportWordLists(importData.wordLists);
-						}
-
-						// 重新获取映射关系
-						const newLists = await this.db.getWordLists();
-						const listIdMap = {};
-						if (importData.wordLists) {
-							importData.wordLists.forEach((oldList, idx) => {
-								const newList = newLists.find(l => l.name === oldList.name);
-								if (newList) {
-									listIdMap[oldList.id] = newList.id;
-								}
-							});
-						}
-
-						// 2. 批量导入单词
-						const words = importData.words || [];
-						const totalWords = words.length;
-						let importedWords = 0;
-						
-						for (let i = 0; i < totalWords; i += BATCH_SIZE) {
-							const batch = words.slice(i, i + BATCH_SIZE);
-							this.showLoader(`正在导入单词... ${Math.min(i + BATCH_SIZE, totalWords)}/${totalWords}`);
-							
-							await this.batchImportWords(batch, listIdMap);
-							importedWords += batch.length;
-						}
-
-						// 3. 批量导入生词本
-						if (importData.newWords?.length > 0) {
-							this.showLoader(`正在导入生词本...`);
-							await this.batchImportNewWords(importData.newWords);
-						}
-
-						// 4. 导入计划和设置
-						if (importData.plan) {
-							await this.db.saveDailyPlan(importData.plan);
-						}
-						
-						if (importData.settings) {
-							for (const [key, value] of Object.entries(importData.settings)) {
-								await this.db.saveSetting(key, value);
-							}
-						}
-
-						this.hideLoader();
-						this.showNotification(`成功导入 ${importedWords} 个单词！`, 'success');
-						
-						setTimeout(() => location.reload(), 1500);
-						
-					} catch (error) {
-						console.error('导入数据失败:', error);
-						this.hideLoader();
-						this.showNotification('导入数据失败: ' + error.message, 'error');
-					}
+				/**
+				 * 导出所有学习数据 - 完整版（含进度和历史）
+				 */
+				async exportData() {
+				    try {
+				        this.showLoader('正在导出数据...');
+				        
+				        // 基础数据
+				        const allWords = await this.db.getAllWords();
+				        const newWords = await this.db.getNewWords();
+				        const plan = await this.db.getDailyPlan();
+				        const settings = await this.db.getAllSettings();
+				        const stats = await this.db.getLearningStats(365);
+				        const wordLists = await this.db.getWordLists();
+				        
+				        // 🔴 新增：导出用户进度
+				        const allProgress = await new Promise((resolve) => {
+				            const tx = this.db.db.transaction(['user_progress'], 'readonly');
+				            const store = tx.objectStore('user_progress');
+				            const req = store.getAll();
+				            req.onsuccess = () => resolve(req.result || []);
+				        });
+				        
+				        // 🔴 新增：导出学习历史
+				        const allHistory = await new Promise((resolve) => {
+				            const tx = this.db.db.transaction(['learning_history'], 'readonly');
+				            const store = tx.objectStore('learning_history');
+				            const req = store.getAll();
+				            req.onsuccess = () => resolve(req.result || []);
+				        });
+				        
+				        this.showLoader(`正在打包数据... 单词:${allWords.length}, 历史:${allHistory.length}`);
+				        
+				        const exportData = {
+				            version: '3.0',
+				            exportDate: new Date().toISOString(),
+				            words: allWords,
+				            newWords: newWords.map(w => ({ 
+				                wordId: w.id, 
+				                addedAt: w.addedAt 
+				            })),
+				            wordLists: wordLists,
+				            userProgress: allProgress,           // 🔴 新增
+				            learningHistory: allHistory,         // 🔴 新增
+				            plan: plan,
+				            settings: settings,
+				            stats: stats
+				        };
+				        
+				        // 生成文件
+				        const dataStr = JSON.stringify(exportData, null, 2);
+				        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+				        
+				        const url = URL.createObjectURL(dataBlob);
+				        const a = document.createElement('a');
+				        a.href = url;
+				        a.download = `word-learner-backup-${new Date().toISOString().split('T')[0]}.json`;
+				        document.body.appendChild(a);
+				        a.click();
+				        document.body.removeChild(a);
+				        URL.revokeObjectURL(url);
+				        
+				        this.hideLoader();
+				        this.showNotification(`数据导出成功！包含 ${allWords.length} 个单词，${allHistory.length} 条学习记录`, 'success');
+				        
+				    } catch (error) {
+				        console.error('导出数据失败:', error);
+				        this.hideLoader();
+				        this.showNotification('导出数据失败: ' + error.message, 'error');
+				    }
 				}
 
+				/**
+				 * 导入学习数据 - 完整版（含进度和历史）
+				 * @param {File} file - JSON文件
+				 */
+				async importData(file) {
+				    if (!file) return;
+				    
+				    if (!confirm('导入数据将覆盖当前数据，是否继续？')) {
+				        return;
+				    }
+				    
+				    // 二次确认
+				    if (!confirm('⚠️ 警告：此操作将删除所有现有数据，确定要继续吗？')) {
+				        return;
+				    }
+				    
+				    try {
+				        this.showLoader('正在读取文件...');
+				        
+				        const text = await file.text();
+				        const importData = JSON.parse(text);
+				        
+				        // 版本检查
+				        const version = importData.version || '1.0';
+				        console.log(`导入数据版本: ${version}`);
+				        
+				        if (!importData.words || !Array.isArray(importData.words)) {
+				            throw new Error('数据格式不正确：缺少words字段');
+				        }
+				
+				        // 警告缺失字段
+				        if (!importData.userProgress || importData.userProgress.length === 0) {
+				            console.warn('导入的数据不包含学习进度，复习计划将重置');
+				        }
+				        if (!importData.learningHistory || importData.learningHistory.length === 0) {
+				            console.warn('导入的数据不包含学习历史，统计数据将重置');
+				        }
+				
+				        // 先清空数据
+				        this.showLoader('正在清空旧数据...');
+				        await this.db.clearAllData();
+				        await this.db.ready();
+				
+				        const BATCH_SIZE = 500;
+				        
+				        // 1. 导入单词库
+				        if (importData.wordLists?.length > 0) {
+				            this.showLoader(`正在导入 ${importData.wordLists.length} 个单词库...`);
+				            await this.batchImportWordLists(importData.wordLists);
+				        }
+				
+				        // 重新获取映射关系
+				        const newLists = await this.db.getWordLists();
+				        const listIdMap = {};
+				        if (importData.wordLists) {
+				            importData.wordLists.forEach((oldList) => {
+				                const newList = newLists.find(l => l.name === oldList.name);
+				                if (newList) {
+				                    listIdMap[oldList.id] = newList.id;
+				                } else {
+				                    console.warn(`单词库 "${oldList.name}" 未找到匹配`);
+				                }
+				            });
+				        }
+				
+				        // 2. 批量导入单词 - 获取ID映射
+				        const words = importData.words || [];
+				        const totalWords = words.length;
+				        let importedWords = 0;
+				        let wordIdMap = {};  // 收集所有批次的ID映射
+				        
+				        for (let i = 0; i < totalWords; i += BATCH_SIZE) {
+				            const batch = words.slice(i, i + BATCH_SIZE);
+				            this.showLoader(`正在导入单词... ${Math.min(i + BATCH_SIZE, totalWords)}/${totalWords}`);
+				            
+				            // 获取本批次的ID映射并合并
+				            const batchIdMap = await this.batchImportWords(batch, listIdMap);
+				            Object.assign(wordIdMap, batchIdMap);
+				            importedWords += batch.length;
+				        }
+				
+				        console.log(`单词ID映射表: ${Object.keys(wordIdMap).length} 个`);
+				
+				        // 3. 批量导入生词本（使用ID映射）
+				        if (importData.newWords?.length > 0) {
+				            this.showLoader(`正在导入生词本...`);
+				            await this.batchImportNewWords(importData.newWords, wordIdMap);
+				        }
+				
+				        // 4. 导入用户进度（使用ID映射）
+				        if (importData.userProgress?.length > 0) {
+				            this.showLoader(`正在导入学习进度...`);
+				            await this.batchImportUserProgress(importData.userProgress, wordIdMap);
+				        }
+				
+				        // 5. 导入学习历史（使用ID映射）
+				        if (importData.learningHistory?.length > 0) {
+				            this.showLoader(`正在导入学习历史...`);
+				            await this.batchImportLearningHistory(importData.learningHistory, wordIdMap);
+				        }
+				
+				        // 6. 导入计划和设置
+				        if (importData.plan) {
+				            await this.db.saveDailyPlan(importData.plan);
+				        }
+				        
+				        if (importData.settings) {
+				            for (const [key, value] of Object.entries(importData.settings)) {
+				                await this.db.saveSetting(key, value);
+				            }
+				        }
+				
+				        this.hideLoader();
+				        this.showNotification(`成功导入 ${importedWords} 个单词！`, 'success');
+				        
+				        setTimeout(() => location.reload(), 1500);
+				        
+				    } catch (error) {
+				        console.error('导入数据失败:', error);
+				        this.hideLoader();
+				        this.showNotification('导入数据失败: ' + error.message, 'error');
+				    }
+				}
+				
+				/**
+				 * 批量导入用户进度
+				 * @param {Array} progressList - 进度记录数组
+				 * @param {Object} wordIdMap - 新旧单词ID映射
+				 */
+				async batchImportUserProgress(progressList, wordIdMap) {
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.db.transaction(['user_progress'], 'readwrite');
+				        const store = transaction.objectStore('user_progress');
+				        
+				        let completed = 0;
+				        let skipped = 0;
+				        
+				        transaction.oncomplete = () => {
+				            console.log(`导入学习进度完成: ${completed} 个成功, ${skipped} 个跳过`);
+				            resolve();
+				        };
+				        transaction.onerror = () => reject(transaction.error);
+				        
+				        progressList.forEach(progress => {
+				            // 转换wordId
+				            let newWordId;
+				            if (typeof progress.wordId === 'string') {
+				                newWordId = parseInt(progress.wordId);
+				            } else {
+				                newWordId = progress.wordId;
+				            }
+				            
+				            // 使用映射获取新ID
+				            if (wordIdMap[newWordId]) {
+				                newWordId = wordIdMap[newWordId];
+				            } else {
+				                console.warn(`进度记录找不到对应单词: ${newWordId}，跳过`);
+				                skipped++;
+				                return;
+				            }
+				            
+				            const newProgress = {
+				                wordId: newWordId,
+				                familiarity: progress.familiarity || 0,
+				                nextReview: progress.nextReview || new Date().toISOString(),
+				                lastReview: progress.lastReview || new Date().toISOString(),
+				                totalReviews: progress.totalReviews || 0
+				            };
+				            
+				            const request = store.put(newProgress);  // 使用put，允许覆盖
+				            
+				            request.onsuccess = () => {
+				                completed++;
+				            };
+				            
+				            request.onerror = () => {
+				                skipped++;
+				            };
+				        });
+				        
+				        if (progressList.length === 0) resolve();
+				    });
+				}
+				
+				/**
+				 * 批量导入学习历史
+				 * @param {Array} historyList - 历史记录数组
+				 * @param {Object} wordIdMap - 新旧单词ID映射
+				 */
+				async batchImportLearningHistory(historyList, wordIdMap) {
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.db.transaction(['learning_history'], 'readwrite');
+				        const store = transaction.objectStore('learning_history');
+				        
+				        let completed = 0;
+				        let skipped = 0;
+				        
+				        transaction.oncomplete = () => {
+				            console.log(`导入学习历史完成: ${completed} 个成功, ${skipped} 个跳过`);
+				            resolve();
+				        };
+				        transaction.onerror = () => reject(transaction.error);
+				        
+				        // 分批处理，避免事务过大
+				        const BATCH_SIZE = 1000;
+				        const batches = [];
+				        for (let i = 0; i < historyList.length; i += BATCH_SIZE) {
+				            batches.push(historyList.slice(i, i + BATCH_SIZE));
+				        }
+				        
+				        let batchIndex = 0;
+				        
+				        const processBatch = () => {
+				            if (batchIndex >= batches.length) {
+				                if (completed + skipped >= historyList.length) {
+				                    resolve();
+				                }
+				                return;
+				            }
+				            
+				            const batch = batches[batchIndex++];
+				            
+				            batch.forEach(history => {
+				                // 转换wordId
+				                let newWordId;
+				                if (typeof history.wordId === 'string') {
+				                    newWordId = parseInt(history.wordId);
+				                } else {
+				                    newWordId = history.wordId;
+				                }
+				                
+				                // 使用映射获取新ID
+				                if (wordIdMap[newWordId]) {
+				                    newWordId = wordIdMap[newWordId];
+				                } else {
+				                    skipped++;
+				                    return;
+				                }
+				                
+				                const newHistory = {
+				                    wordId: newWordId,
+				                    date: history.date || new Date().toISOString(),
+				                    correct: history.correct
+				                };
+				                
+				                const request = store.add(newHistory);
+				                
+				                request.onsuccess = () => {
+				                    completed++;
+				                };
+				                
+				                request.onerror = () => {
+				                    skipped++;
+				                };
+				            });
+				            
+				            // 继续下一批
+				            setTimeout(processBatch, 0);
+				        };
+				        
+				        if (historyList.length === 0) {
+				            resolve();
+				        } else {
+				            processBatch();
+				        }
+				    });
+				}
 				// 批量导入单词库 - 使用单个事务
 				async batchImportWordLists(lists) {
 					return new Promise((resolve, reject) => {
@@ -6349,47 +6559,129 @@
 				}
 
 				// 批量导入单词 - 使用单个事务处理一批
+				/**
+				 * 批量导入单词 - 使用单个事务，返回新旧ID映射
+				 * @param {Array} words - 单词数组
+				 * @param {Object} listIdMap - 单词库ID映射 {旧ID: 新ID}
+				 * @returns {Promise<Object>} 新旧单词ID映射 {旧ID: 新ID}
+				 */
 				async batchImportWords(words, listIdMap) {
-					return new Promise((resolve, reject) => {
-						const transaction = this.db.db.transaction(['words'], 'readwrite');
-						const store = transaction.objectStore('words');
-						
-						let completed = 0;
-						let errors = 0;
-						
-						transaction.oncomplete = () => resolve({ completed, errors });
-						transaction.onerror = () => reject(transaction.error);
-						
-						words.forEach(word => {
-							// 更新 listId 映射
-							if (word.listId && listIdMap[word.listId]) {
-								word.listId = listIdMap[word.listId];
-							}
-							
-							const request = store.add(word);
-							request.onsuccess = () => { completed++; };
-							request.onerror = () => { errors++; };
-						});
-					});
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.db.transaction(['words'], 'readwrite');
+				        const store = transaction.objectStore('words');
+				        
+				        const wordIdMap = {};  // 旧ID → 新ID 映射
+				        let completed = 0;
+				        let errors = 0;
+				        
+				        transaction.oncomplete = () => {
+				            console.log(`批量导入单词完成: ${completed} 个成功, ${errors} 个失败`);
+				            resolve(wordIdMap);  // 返回ID映射
+				        };
+				        transaction.onerror = () => reject(transaction.error);
+				        
+				        words.forEach(oldWord => {
+				            // 准备新单词数据
+				            const newWord = { ...oldWord };
+				            
+				            // 更新 listId 映射
+				            if (newWord.listId && listIdMap[newWord.listId]) {
+				                newWord.listId = listIdMap[newWord.listId];
+				            }
+				            
+				            // 记录旧ID
+				            const oldId = newWord.id;
+				            
+				            // 删除旧ID，让数据库自增生成新ID
+				            delete newWord.id;
+				            
+				            const request = store.add(newWord);
+				            
+				            request.onsuccess = () => {
+				                // 记录新旧ID映射
+				                wordIdMap[oldId] = request.result;
+				                completed++;
+				            };
+				            
+				            request.onerror = (e) => {
+				                if (e.target.error.name === 'ConstraintError') {
+				                    // 唯一约束错误（单词已存在），尝试查找现有ID
+				                    console.warn(`单词 "${newWord.word}" 可能已存在`);
+				                }
+				                errors++;
+				            };
+				        });
+				        
+				        if (words.length === 0) {
+				            resolve({});
+				        }
+				    });
 				}
-
-				// 批量导入生词本
-				async batchImportNewWords(newWords) {
-					return new Promise((resolve, reject) => {
-						const transaction = this.db.db.transaction(['new_words'], 'readwrite');
-						const store = transaction.objectStore('new_words');
-						
-						let completed = 0;
-						
-						transaction.oncomplete = () => resolve();
-						transaction.onerror = () => reject(transaction.error);
-						
-						newWords.forEach(nw => {
-							store.add(nw);
-						});
-					});
+				/**
+				 * 批量导入生词本 - 使用ID映射转换
+				 * @param {Array} newWords - 生词本记录数组
+				 * @param {Object} wordIdMap - 新旧单词ID映射 {旧ID: 新ID}
+				 * @returns {Promise<void>}
+				 */
+				async batchImportNewWords(newWords, wordIdMap) {
+				    return new Promise((resolve, reject) => {
+				        const transaction = this.db.db.transaction(['new_words'], 'readwrite');
+				        const store = transaction.objectStore('new_words');
+				        
+				        let completed = 0;
+				        let skipped = 0;
+				        
+				        transaction.oncomplete = () => {
+				            console.log(`批量导入生词本完成: ${completed} 个成功, ${skipped} 个跳过`);
+				            resolve();
+				        };
+				        transaction.onerror = () => reject(transaction.error);
+				        
+				        newWords.forEach(nw => {
+				            // 转换单词ID
+				            let newWordId;
+				            
+				            if (typeof nw.wordId === 'string') {
+				                newWordId = parseInt(nw.wordId);
+				            } else {
+				                newWordId = nw.wordId;
+				            }
+				            
+				            // 使用映射获取新ID
+				            if (wordIdMap[newWordId]) {
+				                newWordId = wordIdMap[newWordId];
+				            } else {
+				                console.warn(`生词本记录找不到对应单词: ${newWordId}，跳过`);
+				                skipped++;
+				                return;
+				            }
+				            
+				            const newRecord = {
+				                wordId: newWordId,
+				                addedAt: nw.addedAt || new Date().toISOString()
+				            };
+				            
+				            const request = store.add(newRecord);
+				            
+				            request.onsuccess = () => {
+				                completed++;
+				            };
+				            
+				            request.onerror = (e) => {
+				                if (e.target.error.name === 'ConstraintError') {
+				                    // 已存在，不算错误
+				                    completed++;
+				                } else {
+				                    skipped++;
+				                }
+				            };
+				        });
+				        
+				        if (newWords.length === 0) {
+				            resolve();
+				        }
+				    });
 				}
-
                 async clearAllData() {
                     if (!confirm('确定要清空所有数据吗？此操作不可恢复。')) {
                         return;
