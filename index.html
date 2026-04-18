@@ -2159,7 +2159,7 @@
     <!-- ========== 脚本区 ========== -->
     <script>
         // ==========================================
-        // 数据库模块 (db.js) - 修复版 v3.0 to V4.0
+        // 数据库模块 (db.js) - 修复版 v3.0 to V4.0，已改为北京时间
         // ==========================================
         (function() {
             const DB_NAME = 'WordLearnerDB';
@@ -3189,21 +3189,76 @@
                     });
                 }
 
+                // ========== 修改后的 getTodayHistory 方法（北京时间） ==========
                 async getTodayHistory() {
                     await this.ready();
-                    const today = new Date().toISOString().split('T')[0];
+                    
+                    // 获取当前北京时间日期（格式：YYYY-MM-DD）
+                    const beijingDate = new Date().toLocaleDateString('zh-CN', {
+                        timeZone: 'Asia/Shanghai',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    }).replace(/\//g, '-');
+                    
+                    // 构造UTC时间范围：北京时间当天的 00:00:00 到 23:59:59.999
+                    const start = new Date(beijingDate + 'T00:00:00+08:00').toISOString();
+                    const end = new Date(beijingDate + 'T23:59:59.999+08:00').toISOString();
                     
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.LEARNING_HISTORY], 'readonly');
                         const store = transaction.objectStore(STORES.LEARNING_HISTORY);
                         const index = store.index('date');
                         
-                        const range = IDBKeyRange.bound(today, today + '\uffff');
+                        const range = IDBKeyRange.bound(start, end);
                         const request = index.getAll(range);
                         
                         request.onsuccess = () => resolve(request.result || []);
                         request.onerror = () => reject(request.error);
                     });
+                }
+
+                // ========== 修改后的 updateStreak 方法（北京时间） ==========
+                async updateStreak() {
+                    // 获取当前北京时间日期
+                    const todayBeijing = new Date().toLocaleDateString('zh-CN', {
+                        timeZone: 'Asia/Shanghai',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    }).replace(/\//g, '-');
+                    
+                    const lastStudy = await this.getSetting('lastStudyDate');
+                    let currentStreak = await this.getSetting('learningStreak') || 0;
+                    
+                    let newStreak = currentStreak;
+                    if (lastStudy) {
+                        // 将存储的UTC时间转换为北京时间日期
+                        const lastBeijing = new Date(lastStudy).toLocaleDateString('zh-CN', {
+                            timeZone: 'Asia/Shanghai',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                        }).replace(/\//g, '-');
+                        
+                        // 计算日期差（转换为时间戳）
+                        const lastDate = new Date(lastBeijing);
+                        const todayDate = new Date(todayBeijing);
+                        const diffDays = Math.floor((todayDate - lastDate) / (1000 * 60 * 60 * 24));
+                        
+                        if (diffDays === 1) {
+                            newStreak = currentStreak + 1;
+                        } else if (diffDays > 1) {
+                            newStreak = 1;
+                        }
+                    } else {
+                        newStreak = 1;
+                    }
+                    
+                    // 保存时仍使用UTC时间，但下次会按北京时间转换
+                    await this.saveSetting('lastStudyDate', new Date().toISOString());
+                    await this.saveSetting('learningStreak', newStreak);
+                    return newStreak;
                 }
 
                 async getLearningStats(days = 30) {
@@ -3454,33 +3509,6 @@
                         
                         request.onerror = () => reject(request.error);
                     });
-                }
-
-                async updateStreak() {
-                    const today = new Date().toISOString().split('T')[0];
-                    const lastStudy = await this.getSetting('lastStudyDate');
-                    let currentStreak = await this.getSetting('learningStreak') || 0;
-                    
-                    let newStreak = currentStreak;
-                    if (lastStudy) {
-                        const lastDate = new Date(lastStudy);
-                        const todayDate = new Date(today);
-                        const diffTime = todayDate - lastDate;
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                        
-                        if (diffDays === 1) {
-                            newStreak = currentStreak + 1;
-                        } else if (diffDays > 1) {
-                            newStreak = 1;
-                        }
-                    } else {
-                        newStreak = 1;
-                    }
-                    
-                    await this.saveSetting('lastStudyDate', today);
-                    await this.saveSetting('learningStreak', newStreak);
-                    
-                    return newStreak;
                 }
 
                 async debugDatabase() {
