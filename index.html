@@ -3948,19 +3948,20 @@
                                 }
                             }
 
-                            if (entry.quotes && Array.isArray(entry.quotes)) {
-                                entry.quotes.forEach(q => {
-                                    let quoteText = q.t ? this.cleanMWText(q.t) : '';
-                                    let source = '';
-                                    if (q.aq) {
-                                        const auth = q.aq.auth || '';
-                                        const src = q.aq.source || '';
-                                        const date = q.aq.aqdate || '';
-                                        source = `${auth}${src ? ', ' + src : ''}${date ? ', ' + date : ''}`;
-                                    }
-                                    result.quotes.push({ text: quoteText, source: source });
-                                });
-                            }
+							// 提取引文 (quotes)
+							if (entry.quotes && Array.isArray(entry.quotes)) {
+								entry.quotes.forEach(q => {
+									let quoteText = q.t ? this.cleanMWText(q.t) : '';
+									let source = '';
+									if (q.aq) {
+										const auth = this.cleanMWText(q.aq.auth || '');
+										const src = this.cleanMWText(q.aq.source || '');
+										const date = this.cleanMWText(q.aq.aqdate || '');
+										source = `${auth}${src ? ', ' + src : ''}${date ? ', ' + date : ''}`;
+									}
+									result.quotes.push({ text: quoteText, source: source });
+								});
+							}
 
                             return result;
                         },
