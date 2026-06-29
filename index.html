@@ -1725,6 +1725,253 @@
             font-style: italic;
             margin: 6px 0;
         }
+
+        /* ========== 查词弹窗 ========== */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .modal-content.lookup-modal {
+            background: white;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 520px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            box-sizing: border-box;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--primary-color);
+            cursor: pointer;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.8rem;
+            line-height: 1;
+            color: var(--gray-color);
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+        .modal-close:hover { background: rgba(0,0,0,0.06); color: var(--dark-color); }
+        .modal-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .modal-section {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px dashed var(--border-color);
+        }
+        .modal-section:first-of-type { border-top: none; padding-top: 0; }
+
+        /* 可点击单词（学习卡片主词 + 例句内单词） */
+        #currentWord { cursor: pointer; transition: var(--transition); }
+        #currentWord:hover { color: var(--secondary-color); }
+        .clickable-word {
+            cursor: pointer;
+            border-bottom: 1px dashed transparent;
+            transition: var(--transition);
+        }
+        .clickable-word:hover {
+            color: var(--secondary-color);
+            border-bottom-color: var(--secondary-color);
+        }
+
+        /* ========== 统计页图表 ========== */
+        .summary-sub {
+            font-size: 0.8rem;
+            color: var(--gray-color);
+            margin: 4px 0 0;
+        }
+        .stats-chart-card {
+            background: white;
+            border-radius: 10px;
+            padding: 16px;
+            margin-top: 16px;
+            box-shadow: var(--card-shadow);
+        }
+        .stats-chart-card h3 {
+            margin: 0 0 14px;
+            font-size: 1rem;
+            color: var(--dark-color);
+        }
+        .activity-chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 140px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+        .activity-bar {
+            flex: 1 0 0;
+            min-width: 10px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            position: relative;
+        }
+        .activity-bar-fill {
+            width: 70%;
+            min-height: 2px;
+            background: var(--secondary-color);
+            border-radius: 3px 3px 0 0;
+            position: relative;
+            overflow: hidden;
+        }
+        .activity-bar-correct {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: var(--primary-color);
+        }
+        .activity-bar-label {
+            font-size: 0.55rem;
+            color: var(--gray-color);
+            margin-top: 4px;
+            white-space: nowrap;
+            transform: rotate(-45deg);
+            transform-origin: center top;
+        }
+        .mastery-dist { display: flex; flex-direction: column; gap: 8px; }
+        .mastery-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+        }
+        .mastery-label { width: 80px; color: var(--dark-color); flex-shrink: 0; }
+        .mastery-bar-track {
+            flex: 1;
+            height: 18px;
+            background: var(--light-color);
+            border-radius: 9px;
+            overflow: hidden;
+        }
+        .mastery-bar-fill { height: 100%; border-radius: 9px; transition: width 0.4s ease; }
+        .mastery-count { width: 36px; text-align: right; color: var(--gray-color); flex-shrink: 0; }
+
+        .accuracy-trend { display: flex; flex-direction: column; gap: 8px; }
+        .accuracy-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+        }
+        .accuracy-label { width: 50px; color: var(--dark-color); flex-shrink: 0; }
+        .accuracy-bar-track {
+            flex: 1;
+            height: 14px;
+            background: var(--light-color);
+            border-radius: 7px;
+            overflow: hidden;
+        }
+        .accuracy-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--warning-color), var(--primary-color));
+            border-radius: 7px;
+            transition: width 0.4s ease;
+        }
+        .accuracy-value { width: 44px; text-align: right; color: var(--gray-color); flex-shrink: 0; }
+
+        /* ========== 拼写模式 ========== */
+        .mode-toggle {
+            display: inline-flex;
+            background: var(--light-color);
+            border-radius: 8px;
+            padding: 3px;
+            gap: 2px;
+        }
+        .mode-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--gray-color);
+            transition: var(--transition);
+        }
+        .mode-btn.active {
+            background: var(--primary-color);
+            color: white;
+        }
+        .spelling-section {
+            padding: 12px 0;
+            text-align: center;
+        }
+        .spelling-prompt {
+            color: var(--gray-color);
+            font-size: 0.9rem;
+            margin-bottom: 14px;
+        }
+        #spellingInput {
+            width: 80%;
+            max-width: 320px;
+            padding: 12px 16px;
+            font-size: 1.2rem;
+            text-align: center;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            outline: none;
+            transition: var(--transition);
+            box-sizing: border-box;
+        }
+        #spellingInput:focus { border-color: var(--primary-color); }
+        .spelling-actions {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+        .spelling-feedback {
+            margin-top: 14px;
+            font-size: 1rem;
+            min-height: 24px;
+        }
+        .spelling-feedback.correct { color: var(--primary-color); font-weight: 600; }
+        .spelling-feedback.wrong { color: var(--danger-color); font-weight: 600; }
+
+        /* 学习会话进度条 */
+        .session-progress-bar {
+            height: 6px;
+            background: var(--light-color);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+        .session-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+            border-radius: 3px;
+            transition: width 0.4s ease;
+        }
     </style>
 </head>
 <body>
@@ -1860,11 +2107,18 @@
         <section id="learnPage" class="page" aria-label="学习">
             <div class="learning-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2>单词学习</h2>
-                <div class="learning-progress">
-                    <span id="learnedCount">0</span>/<span id="totalToLearn">10</span>
+                <div class="learning-header-right" style="display: flex; align-items: center; gap: 16px;">
+                    <div class="mode-toggle" role="group" aria-label="学习模式">
+                        <button class="mode-btn active" data-mode="recognition" type="button">认词</button>
+                        <button class="mode-btn" data-mode="spelling" type="button">拼写</button>
+                    </div>
+                    <div class="learning-progress">
+                        <span id="learnedCount">0</span>/<span id="totalToLearn">10</span>
+                    </div>
                 </div>
             </div>
-            
+            <div class="session-progress-bar"><div id="sessionProgress" class="session-progress-fill" style="width:0%;"></div></div>
+
             <div class="learning-card" id="wordCard">
                 <div class="word-display">
                     <h1 id="currentWord">Loading...</h1>
@@ -1874,6 +2128,19 @@
                             <i class="fas fa-volume-up"></i>
                         </button>
                     </div>
+                </div>
+
+                <!-- 拼写模式：隐藏单词，输入拼写 -->
+                <div class="spelling-section" id="spellingSection" style="display:none;">
+                    <div class="spelling-prompt">根据释义与发音拼写单词</div>
+                    <input type="text" id="spellingInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入拼写">
+                    <div class="spelling-actions">
+                        <button class="action-btn primary" id="spellingSubmit" type="button">
+                            <i class="fas fa-check"></i> 提交
+                        </button>
+                        <button class="action-btn small danger" id="spellingGiveUp" type="button">我不会</button>
+                    </div>
+                    <div id="spellingFeedback" class="spelling-feedback"></div>
                 </div>
                 
                 <div class="word-details" id="wordDetails" style="display: none;">
@@ -1899,7 +2166,7 @@
                     </div>
                 </div>
                 
-                <div class="learning-actions">
+                <div class="learning-actions" id="recognitionActions">
                     <button class="action-btn danger" id="notKnowBtn">
                         <i class="fas fa-times"></i> 不认识
                     </button>
@@ -2140,22 +2407,46 @@
                 <h2>统计</h2>
             </div>
             <div class="stats-container">
+                <!-- 顶部 4 张卡片 -->
                 <div class="daily-summary" id="statsContent">
                     <div class="summary-card">
-                        <h3>本周学习</h3>
-                        <div class="streak" id="weeklyLearned">0</div>
+                        <h3>连续学习</h3>
+                        <div class="streak" id="statStreak">0</div>
+                        <p class="summary-sub">天</p>
                     </div>
                     <div class="summary-card">
-                        <h3>本月学习</h3>
-                        <div class="streak" id="monthlyLearned">0</div>
+                        <h3>今日学习</h3>
+                        <div class="streak" id="statToday">0</div>
+                        <p class="summary-sub">个</p>
                     </div>
                     <div class="summary-card">
-                        <h3>正确率</h3>
-                        <div class="streak" id="accuracyRate">0%</div>
+                        <h3>已掌握</h3>
+                        <div class="streak" id="statMastered">0</div>
+                        <p class="summary-sub">个</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>近30天正确率</h3>
+                        <div class="streak" id="statAccuracy">0%</div>
                     </div>
                 </div>
-                <div id="statsChart" style="margin-top: 20px;">
-                    <p class="empty-state">详细统计功能开发中...</p>
+
+                <!-- 近 30 天活动柱状图 -->
+                <div class="stats-chart-card">
+                    <h3>近 30 天学习量</h3>
+                    <div id="activityChart" class="activity-chart"></div>
+                    <p class="empty-state" id="activityEmpty" style="display:none;">暂无学习记录</p>
+                </div>
+
+                <!-- 掌握度分布 -->
+                <div class="stats-chart-card">
+                    <h3>掌握度分布</h3>
+                    <div id="masteryDist" class="mastery-dist"></div>
+                </div>
+
+                <!-- 正确率趋势 -->
+                <div class="stats-chart-card">
+                    <h3>近 7 天正确率</h3>
+                    <div id="accuracyTrend" class="accuracy-trend"></div>
                 </div>
             </div>
         </section>
@@ -2752,21 +3043,64 @@
                         return;
                     }
                     const now = new Date();
-                    let nextInterval;
-                    let familiarity = progress ? progress.familiarity : 0;
-                    if (correct) {
-                        familiarity = Math.min(familiarity + 1, 5);
-                        const intervals = [1, 3, 7, 14, 30];
-                        nextInterval = intervals[Math.max(0, familiarity - 1)];
+
+                    // ---- SM-2 算法（向后兼容旧 familiarity-only 记录）----
+                    // 旧记录缺 easeFactor/repetition/interval 时，按 familiarity 即时迁移：
+                    //   easeFactor -> 2.5；repetition -> familiarity；interval -> 旧间隔表对应值
+                    const OLD_INTERVALS = [1, 3, 7, 14, 30];
+                    let repetition, interval, easeFactor, familiarity;
+                    if (progress && (progress.easeFactor != null || progress.repetition != null)) {
+                        // 已是 SM-2 记录
+                        easeFactor = progress.easeFactor != null ? progress.easeFactor : 2.5;
+                        repetition = progress.repetition || 0;
+                        interval = progress.interval || 1;
+                        familiarity = progress.familiarity || 0;
+                    } else if (progress) {
+                        // 旧记录迁移
+                        familiarity = progress.familiarity || 0;
+                        repetition = familiarity;
+                        interval = familiarity > 0
+                            ? OLD_INTERVALS[Math.min(familiarity - 1, OLD_INTERVALS.length - 1)]
+                            : 1;
+                        easeFactor = 2.5;
                     } else {
-                        familiarity = Math.max(familiarity - 1, 0);
-                        nextInterval = 1;
+                        repetition = 0;
+                        interval = 1;
+                        easeFactor = 2.5;
+                        familiarity = 0;
                     }
+
+                    // 二元答题映射为 SM-2 质量 q：认识=5（完美），不认识=2（有印象但答错，q<3 触发重置）
+                    const q = correct ? 5 : 2;
+
+                    if (q >= 3) {
+                        if (repetition === 0) {
+                            interval = 1;
+                        } else if (repetition === 1) {
+                            interval = 6;
+                        } else {
+                            interval = Math.max(1, Math.round(interval * easeFactor));
+                        }
+                        repetition += 1;
+                        familiarity = Math.min(familiarity + 1, 5);
+                    } else {
+                        repetition = 0;
+                        interval = 1;
+                        familiarity = Math.max(familiarity - 1, 0);
+                    }
+
+                    // 更新 ease factor，下限 1.3
+                    easeFactor = easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
+                    if (easeFactor < 1.3) easeFactor = 1.3;
+
                     const nextReview = new Date(now);
-                    nextReview.setDate(nextReview.getDate() + nextInterval);
+                    nextReview.setDate(nextReview.getDate() + interval);
                     const progressData = {
                         wordId: parseInt(wordId),
                         familiarity,
+                        repetition,
+                        interval,
+                        easeFactor,
                         nextReview: nextReview.toISOString(),
                         lastReview: now.toISOString(),
                         totalReviews: (progress?.totalReviews || 0) + 1
@@ -2776,7 +3110,7 @@
                         transaction.onerror = (e) => reject(e.target.error);
                         const store = transaction.objectStore(STORES.USER_PROGRESS);
                         const request = store.put(progressData);
-                        request.onsuccess = () => resolve();
+                        request.onsuccess = () => resolve(progressData);
                         request.onerror = () => reject(request.error);
                     });
                 }
@@ -3045,6 +3379,35 @@
                                 if (h.correct) stats.byDay[day].correct++;
                             });
                             resolve(stats);
+                        };
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                // 统计 USER_PROGRESS：按 familiarity 分布、已掌握数、总学习单词数、累计复习次数
+                async getProgressStats() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.USER_PROGRESS], 'readonly');
+                        const store = transaction.objectStore(STORES.USER_PROGRESS);
+                        const request = store.getAll();
+                        request.onsuccess = () => {
+                            const records = request.result || [];
+                            const distribution = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+                            let mastered = 0;
+                            let totalReviews = 0;
+                            records.forEach(p => {
+                                const f = Math.max(0, Math.min(5, p.familiarity || 0));
+                                distribution[f]++;
+                                if (f >= 4) mastered++;
+                                totalReviews += p.totalReviews || 0;
+                            });
+                            resolve({
+                                distribution,
+                                mastered,
+                                total: records.length,
+                                totalReviews
+                            });
                         };
                         request.onerror = () => reject(request.error);
                     });
@@ -3606,7 +3969,9 @@
                     this.searchDebounceTimer = null;
                     this.isProcessing = false;
                     this.isStudyingNewWords = false;
-                    
+                    this.learningMode = 'recognition'; // 'recognition' | 'spelling'
+                    this.spellingLocked = false;        // 提交后锁定输入直到推进
+
                     this.dictionaryAPI = {
                         baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
                         cache: new Map(),
@@ -4092,6 +4457,8 @@
                         await this.loadInitialData();
                         await this.updateTodayProgress();
                         await this.testNetworkConnection();
+                        this.learningMode = await this.db.getSetting('learningMode', 'recognition') || 'recognition';
+                        this.syncModeToggleUI();
                         document.getElementById('mwLookupBtn')?.addEventListener('click', () => this.lookupMerriamWebster());
                         window.addEventListener('beforeunload', () => {
                             this.cleanup();
@@ -4238,6 +4605,56 @@
                         });
                     }
 
+                    // 查词弹窗：主单词点击 + 例句单词委托 + 弹窗按钮
+                    const currentWordEl = document.getElementById('currentWord');
+                    if (currentWordEl) {
+                        currentWordEl.addEventListener('click', () => {
+                            const w = this.learningWords[this.currentWordIndex]?.word;
+                            if (w) this.openWordLookup(w);
+                        });
+                    }
+                    const wordExampleEl = document.getElementById('wordExample');
+                    if (wordExampleEl) {
+                        wordExampleEl.addEventListener('click', (e) => {
+                            const target = e.target;
+                            if (target.classList && target.classList.contains('clickable-word')) {
+                                this.openWordLookup(target.dataset.word);
+                            }
+                        });
+                    }
+                    document.getElementById('lookupModalClose')?.addEventListener('click', () => this.closeWordLookup());
+                    document.getElementById('wordLookupModal')?.addEventListener('click', (e) => {
+                        if (e.target.id === 'wordLookupModal') this.closeWordLookup();
+                    });
+                    document.getElementById('lookupModalAddBtn')?.addEventListener('click', () => this.addLookupWordToDB());
+                    document.getElementById('lookupModalSpeakBtn')?.addEventListener('click', () => {
+                        if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
+                    });
+                    document.getElementById('lookupModalMwBtn')?.addEventListener('click', () => this.lookupModalMw());
+                    // 弹窗内单词标题也可点击发音
+                    document.getElementById('lookupModalWord')?.addEventListener('click', () => {
+                        if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
+                    });
+
+                    // 学习模式切换 + 拼写提交
+                    document.querySelectorAll('.mode-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            this.setLearningMode(btn.dataset.mode);
+                        });
+                    });
+                    document.getElementById('spellingSubmit')?.addEventListener('click', () => this.submitSpelling());
+                    document.getElementById('spellingGiveUp')?.addEventListener('click', () => this.giveUpSpelling());
+                    const spellingInput = document.getElementById('spellingInput');
+                    if (spellingInput) {
+                        spellingInput.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                this.submitSpelling();
+                            }
+                        });
+                    }
+
                     console.log('事件绑定完成');
                 }
 
@@ -4295,6 +4712,9 @@
                 }
 
                 handleKeyboard(e) {
+                    // 输入框/文本域中不触发全局学习快捷键（拼写模式输入时尤其重要）
+                    const tag = e.target && e.target.tagName;
+                    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
                     if (e.key === 'Escape') {
                         this.closeSidebar();
                     }
@@ -4312,6 +4732,90 @@
                             this.toggleDetails();
                         }
                     }
+                }
+
+                // ===== 学习模式（认词 / 拼写）=====
+                syncModeToggleUI() {
+                    document.querySelectorAll('.mode-btn').forEach(btn => {
+                        if (btn.dataset.mode === this.learningMode) {
+                            btn.classList.add('active');
+                        } else {
+                            btn.classList.remove('active');
+                        }
+                    });
+                }
+
+                async setLearningMode(mode) {
+                    if (mode !== 'recognition' && mode !== 'spelling') return;
+                    if (mode === this.learningMode) return;
+                    this.learningMode = mode;
+                    await this.db.saveSetting('learningMode', mode);
+                    this.syncModeToggleUI();
+                    // 重新渲染当前单词以应用新模式
+                    if (this.currentPage === 'learn' && this.learningWords.length > 0) {
+                        await this.displayCurrentWord();
+                    }
+                }
+
+                async submitSpelling() {
+                    if (this.spellingLocked) return;
+                    const wordData = this.learningWords[this.currentWordIndex];
+                    if (!wordData) return;
+                    const inputEl = document.getElementById('spellingInput');
+                    const feedbackEl = document.getElementById('spellingFeedback');
+                    const currentWordEl = document.getElementById('currentWord');
+                    if (!inputEl || !feedbackEl) return;
+                    const input = inputEl.value.toLowerCase().trim();
+                    const target = (wordData.word || '').toLowerCase().trim();
+                    if (!input) {
+                        feedbackEl.className = 'spelling-feedback wrong';
+                        feedbackEl.textContent = '请输入拼写';
+                        inputEl.focus();
+                        return;
+                    }
+                    this.spellingLocked = true;
+                    inputEl.disabled = true;
+                    const correct = input === target;
+                    if (correct) {
+                        feedbackEl.className = 'spelling-feedback correct';
+                        feedbackEl.textContent = '✓ 正确！';
+                    } else {
+                        feedbackEl.className = 'spelling-feedback wrong';
+                        feedbackEl.textContent = `✗ 正确答案：${wordData.word}`;
+                    }
+                    // 揭示单词（拼写模式下 h1 被隐藏，需恢复显示）
+                    if (currentWordEl) {
+                        currentWordEl.style.display = '';
+                        currentWordEl.textContent = wordData.word;
+                    }
+                    // 复用 handleAnswer 的 SRS + 历史 + 连击 + 推进逻辑
+                    // 注：handleAnswer 内部用 setTimeout 推进，下一个单词渲染时
+                    // applyLearningModeLayout 会重置输入框与 spellingLocked
+                    setTimeout(() => {
+                        this.handleAnswer(correct);
+                    }, 1000);
+                }
+
+                giveUpSpelling() {
+                    if (this.spellingLocked) return;
+                    const wordData = this.learningWords[this.currentWordIndex];
+                    if (!wordData) return;
+                    const inputEl = document.getElementById('spellingInput');
+                    const feedbackEl = document.getElementById('spellingFeedback');
+                    const currentWordEl = document.getElementById('currentWord');
+                    this.spellingLocked = true;
+                    if (inputEl) inputEl.disabled = true;
+                    if (feedbackEl) {
+                        feedbackEl.className = 'spelling-feedback wrong';
+                        feedbackEl.textContent = `正确答案：${wordData.word}`;
+                    }
+                    if (currentWordEl) {
+                        currentWordEl.style.display = '';
+                        currentWordEl.textContent = wordData.word;
+                    }
+                    setTimeout(() => {
+                        this.handleAnswer(false);
+                    }, 1200);
                 }
 
                 async loadInitialData() {
@@ -4553,7 +5057,7 @@
                         if (currentWord) currentWord.textContent = freshData.word;
                         if (wordPhonetic) wordPhonetic.textContent = freshData.phonetic;
                         if (wordMeaning) wordMeaning.textContent = freshData.meaning;
-                        if (wordExample) wordExample.textContent = freshData.example || '暂无例句';
+                        if (wordExample) wordExample.innerHTML = this.renderClickableExample(freshData.example || '暂无例句');
                         this.updateDictionaryDetails(freshData);
                         this.currentAudioUrl = freshData.audioUrl;
                         const autoPlay = await this.db.getSetting('autoPlaySound');
@@ -4569,7 +5073,7 @@
                         if (currentWord) currentWord.textContent = wordData.word;
                         if (wordPhonetic) wordPhonetic.textContent = wordData.phonetic || '/ˈwɜːd/';
                         if (wordMeaning) wordMeaning.textContent = wordData.meaning || '暂无释义';
-                        if (wordExample) wordExample.textContent = wordData.example || '暂无例句';
+                        if (wordExample) wordExample.innerHTML = this.renderClickableExample(wordData.example || '暂无例句');
                     }
                     const difficultyBadge = document.getElementById('difficultyBadge');
                     if (difficultyBadge) {
@@ -4579,6 +5083,11 @@
                     const learnedCount = document.getElementById('learnedCount');
                     if (learnedCount) {
                         learnedCount.textContent = this.currentWordIndex + 1;
+                    }
+                    const sessionProgress = document.getElementById('sessionProgress');
+                    if (sessionProgress && this.learningWords.length > 0) {
+                        const pct = ((this.currentWordIndex + 1) / this.learningWords.length) * 100;
+                        sessionProgress.style.width = `${pct}%`;
                     }
                     await this.updateNewWordButton(wordData.id);
                     const detailsSection = document.getElementById('wordDetails');
@@ -4601,12 +5110,55 @@
                         mwResult.style.display = 'none';
                         mwResult.innerHTML = '';
                     }
+                    this.applyLearningModeLayout();
                     this.hideLoader();
                 }
 
+                // 根据当前学习模式（认词/拼写）调整卡片可见性
+                applyLearningModeLayout() {
+                    const wordCard = document.getElementById('wordCard');
+                    if (!wordCard) return;
+                    const currentWordEl = document.getElementById('currentWord');
+                    const spellingSection = document.getElementById('spellingSection');
+                    const recognitionActions = document.getElementById('recognitionActions');
+                    const detailsSection = document.getElementById('wordDetails');
+                    const showDetailsBtn = document.getElementById('showDetails');
+                    const exampleSection = wordCard.querySelector('.example-section');
+                    const collinsSection = wordCard.querySelector('.collins-section');
+
+                    if (this.learningMode === 'spelling') {
+                        if (currentWordEl) currentWordEl.style.display = 'none';          // 隐藏单词（不泄露答案）
+                        if (spellingSection) spellingSection.style.display = 'block';     // 显示拼写区
+                        if (recognitionActions) recognitionActions.style.display = 'none';// 隐藏认词/不认识按钮
+                        if (detailsSection) detailsSection.style.display = 'block';       // 露出释义作为提示
+                        if (exampleSection) exampleSection.style.display = 'none';        // 例句含目标词，隐藏
+                        if (collinsSection) collinsSection.style.display = 'none';        // 词典区无需展示
+                        if (showDetailsBtn) showDetailsBtn.style.display = 'none';        // 拼写模式下禁用详情切换
+                        // 重置拼写输入
+                        const inputEl = document.getElementById('spellingInput');
+                        const feedbackEl = document.getElementById('spellingFeedback');
+                        if (inputEl) { inputEl.value = ''; inputEl.disabled = false; }
+                        if (feedbackEl) { feedbackEl.className = 'spelling-feedback'; feedbackEl.textContent = ''; }
+                        this.spellingLocked = false;
+                        setTimeout(() => { if (inputEl) inputEl.focus(); }, 100);
+                    } else {
+                        if (currentWordEl) currentWordEl.style.display = '';              // 恢复单词
+                        if (spellingSection) spellingSection.style.display = 'none';      // 隐藏拼写区
+                        if (recognitionActions) recognitionActions.style.display = '';    // 恢复认词按钮
+                        if (exampleSection) exampleSection.style.display = '';
+                        if (collinsSection) collinsSection.style.display = '';
+                        if (showDetailsBtn) showDetailsBtn.style.display = '';
+                        // details 可见性由上方 showingDetails/showPhonetic 逻辑控制，不在此处覆盖
+                    }
+                }
+
                 updateDictionaryDetails(wordData) {
-                    const collinsContent = document.getElementById('collinsContent');
-                    if (!collinsContent) return;
+                    this.renderDictDetails(wordData, document.getElementById('collinsContent'));
+                }
+
+                // 参数化版本：可向任意容器渲染 free dict 详细释义，供学习卡片与查词弹窗复用
+                renderDictDetails(wordData, containerEl) {
+                    if (!containerEl) return;
                     if (wordData.allMeanings && wordData.allMeanings.length > 0) {
                         let html = '<div class="dictionary-details">';
                         wordData.allMeanings.slice(0, 3).forEach((meaning) => {
@@ -4619,9 +5171,9 @@
                             `;
                         });
                         html += '</div>';
-                        collinsContent.innerHTML = html;
+                        containerEl.innerHTML = html;
                     } else {
-                        collinsContent.innerHTML = '<p class="empty-state">暂无详细词典数据</p>';
+                        containerEl.innerHTML = '<p class="empty-state">暂无详细词典数据</p>';
                     }
                 }
 
@@ -6137,19 +6689,124 @@
 
                 async loadStatsPage() {
                     try {
-                        const weeklyLearned = document.getElementById('weeklyLearned');
-                        const monthlyLearned = document.getElementById('monthlyLearned');
-                        const accuracyRate = document.getElementById('accuracyRate');
-                        const weekStats = await this.db.getLearningStats(7);
+                        const streak = await this.db.getSetting('learningStreak') || 0;
+                        const todayStats = await this.db.getLearningStats(1);
                         const monthStats = await this.db.getLearningStats(30);
-                        if (weeklyLearned) weeklyLearned.textContent = weekStats.total;
-                        if (monthlyLearned) monthlyLearned.textContent = monthStats.total;
-                        const accuracy = monthStats.total > 0 ? 
-                            Math.round((monthStats.correct / monthStats.total) * 100) : 0;
-                        if (accuracyRate) accuracyRate.textContent = `${accuracy}%`;
+                        const progressStats = await this.db.getProgressStats();
+                        const accuracy = monthStats.total > 0
+                            ? Math.round((monthStats.correct / monthStats.total) * 100)
+                            : 0;
+
+                        const setText = (id, v) => {
+                            const el = document.getElementById(id);
+                            if (el) el.textContent = v;
+                        };
+                        setText('statStreak', streak);
+                        setText('statToday', todayStats.total);
+                        setText('statMastered', progressStats.mastered);
+                        setText('statAccuracy', `${accuracy}%`);
+
+                        this.renderActivityChart(monthStats.byDay);
+                        this.renderMasteryDist(progressStats.distribution);
+                        this.renderAccuracyTrend(monthStats.byDay);
                     } catch (error) {
                         console.error('加载统计页面失败:', error);
                     }
+                }
+
+                // 近 30 天柱状图：byDay = { 'YYYY-MM-DD': { total, correct } }
+                renderActivityChart(byDay) {
+                    const container = document.getElementById('activityChart');
+                    const empty = document.getElementById('activityEmpty');
+                    if (!container) return;
+                    const days = 30;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const bars = [];
+                    let maxTotal = 0;
+                    const entries = [];
+                    for (let i = days - 1; i >= 0; i--) {
+                        const d = new Date(today);
+                        d.setDate(d.getDate() - i);
+                        const key = d.toISOString().split('T')[0];
+                        const stat = byDay[key] || { total: 0, correct: 0 };
+                        entries.push({ key, stat, date: d });
+                        if (stat.total > maxTotal) maxTotal = stat.total;
+                    }
+                    if (maxTotal === 0) {
+                        container.innerHTML = '';
+                        if (empty) empty.style.display = 'block';
+                        return;
+                    }
+                    if (empty) empty.style.display = 'none';
+                    entries.forEach(({ stat, date }) => {
+                        const heightPct = maxTotal > 0 ? (stat.total / maxTotal) * 100 : 0;
+                        const correctPct = stat.total > 0 ? (stat.correct / stat.total) * 100 : 0;
+                        const label = `${date.getMonth() + 1}/${date.getDate()}`;
+                        const title = `${label}: ${stat.total} 个（正确 ${stat.correct}）`;
+                        bars.push(`
+                            <div class="activity-bar" title="${title}">
+                                <div class="activity-bar-fill" style="height:${heightPct}%;">
+                                    <div class="activity-bar-correct" style="height:${correctPct}%;"></div>
+                                </div>
+                                <span class="activity-bar-label">${label}</span>
+                            </div>
+                        `);
+                    });
+                    container.innerHTML = bars.join('');
+                }
+
+                // 掌握度分布：familiarity 0-5 共 6 根条
+                renderMasteryDist(distribution) {
+                    const container = document.getElementById('masteryDist');
+                    if (!container) return;
+                    const labels = ['陌生', '初识', '了解', '熟悉', '熟练', '掌握'];
+                    const colors = ['#F44336', '#FF9800', '#FFC107', '#2196F3', '#4CAF50', '#388E3C'];
+                    const max = Math.max(1, ...Object.values(distribution));
+                    let html = '';
+                    for (let i = 0; i <= 5; i++) {
+                        const count = distribution[i] || 0;
+                        const widthPct = (count / max) * 100;
+                        html += `
+                            <div class="mastery-row">
+                                <span class="mastery-label">${i}★ ${labels[i]}</span>
+                                <div class="mastery-bar-track">
+                                    <div class="mastery-bar-fill" style="width:${widthPct}%; background:${colors[i]};"></div>
+                                </div>
+                                <span class="mastery-count">${count}</span>
+                            </div>
+                        `;
+                    }
+                    container.innerHTML = html;
+                }
+
+                // 近 7 天正确率折线（用柱状表示，简洁无依赖）
+                renderAccuracyTrend(byDay) {
+                    const container = document.getElementById('accuracyTrend');
+                    if (!container) return;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const rows = [];
+                    let anyData = false;
+                    for (let i = 6; i >= 0; i--) {
+                        const d = new Date(today);
+                        d.setDate(d.getDate() - i);
+                        const key = d.toISOString().split('T')[0];
+                        const stat = byDay[key] || { total: 0, correct: 0 };
+                        const rate = stat.total > 0 ? Math.round((stat.correct / stat.total) * 100) : 0;
+                        if (stat.total > 0) anyData = true;
+                        const label = `${d.getMonth() + 1}/${d.getDate()}`;
+                        rows.push(`
+                            <div class="accuracy-row">
+                                <span class="accuracy-label">${label}</span>
+                                <div class="accuracy-bar-track">
+                                    <div class="accuracy-bar-fill" style="width:${rate}%;"></div>
+                                </div>
+                                <span class="accuracy-value">${stat.total > 0 ? rate + '%' : '—'}</span>
+                            </div>
+                        `);
+                    }
+                    container.innerHTML = anyData ? rows.join('') : '<p class="empty-state">近 7 天暂无数据</p>';
                 }
 
                 showStats() {
@@ -6261,27 +6918,28 @@
                 async lookupMerriamWebster() {
                     const mwResult = document.getElementById('mwResult');
                     if (!mwResult) return;
-                    
                     const word = document.getElementById('currentWord')?.textContent;
                     if (!word || word === 'Loading...') {
                         this.showNotification('请先加载一个单词', 'warning');
                         return;
                     }
-                    
-                    mwResult.style.display = 'block';
-                    mwResult.innerHTML = '<div class="mw-loading"><i class="fas fa-spinner fa-spin"></i> 正在查询韦氏词典...</div>';
-                    
+                    await this.renderMwResult(word, mwResult);
+                }
+
+                // 参数化版本：把韦氏查询结果渲染到指定容器，供学习卡片与查词弹窗复用
+                async renderMwResult(word, containerEl) {
+                    if (!containerEl) return;
+                    containerEl.style.display = 'block';
+                    containerEl.innerHTML = '<div class="mw-loading"><i class="fas fa-spinner fa-spin"></i> 正在查询韦氏词典...</div>';
                     try {
                         const result = await this.mwAPI.lookupWord(word);
-                        
                         const dictData = this.mwAPI.parseDict(result.dict);
                         const thesData = this.mwAPI.parseThesaurus(result.thesaurus);
-                        
                         let html = '<div class="mw-result-section">';
-                        
+
                         if (dictData && dictData.definitions.length > 0) {
                             html += '<h4 style="margin: 10px 0 6px;">📖 韦氏词典 (Collegiate Dictionary)</h4>';
-                            
+
                             if (dictData.functionalLabel) {
                                 html += `<div style="font-size:0.9rem; color:var(--secondary-color); margin-bottom:6px;">
                                             <strong>词性：</strong> ${dictData.functionalLabel}
@@ -6293,7 +6951,7 @@
                                             <strong>词源：</strong> ${dictData.etymology}
                                         </div>`;
                             }
-                            
+
                             if (dictData.audioId) {
                                 const audioUrl = this.mwAPI.getAudioUrl(dictData.audioId);
                                 html += `<button class="icon-btn small" onclick="window.app.playAudio('${audioUrl}', '${dictData.word}')">
@@ -6308,7 +6966,7 @@
                             const renderDef = (def, depth = 0) => {
                                 const indent = depth * 20;
                                 let block = `<div style="margin-bottom:12px; padding-left:${indent}px; border-left: ${depth === 0 ? '3px solid var(--primary-color)' : '2px solid var(--gray-color)'};">`;
-                                
+
                                 let senseHeader = '';
                                 if (def.senseNumber) senseHeader += `<strong>${def.senseNumber}.</strong> `;
                                 if (def.grammaticalLabel) senseHeader += `<span style="color:var(--gray-color);">[${def.grammaticalLabel}]</span> `;
@@ -6375,7 +7033,7 @@
                                 html += '<p class="mw-error">未找到词典释义，可能单词拼写有误。</p>';
                             }
                         }
-                        
+
                         if (thesData) {
                             let hasThesData = false;
                             if (thesData.synonyms.length > 0) {
@@ -6434,26 +7092,136 @@
                                 html += '<p class="mw-error">同义词数据获取失败。</p>';
                             }
                         }
-                        
+
                         html += '</div>';
-                        mwResult.innerHTML = html;
-                        
+                        containerEl.innerHTML = html;
+
                         if (!dictData && !thesData) {
-                            mwResult.innerHTML = '<p class="mw-error">未找到任何韦氏数据，请检查单词拼写或 API Key 是否有效。</p>';
+                            containerEl.innerHTML = '<p class="mw-error">未找到任何韦氏数据，请检查单词拼写或 API Key 是否有效。</p>';
                         }
-                        
+
                     } catch (error) {
                         console.error('韦氏查询失败:', error);
-                        mwResult.innerHTML = `<p class="mw-error">查询失败：${error.message}</p>`;
+                        containerEl.innerHTML = `<p class="mw-error">查询失败：${error.message}</p>`;
                         if (error.message.includes('API Key')) {
                             this.showNotification('请至少配置一个 Merriam-Webster API Key', 'warning');
                         }
                     }
+                }
+
+                // ===== 查词弹窗（学习卡片点击单词 / 例句单词）=====
+                async openWordLookup(word) {
+                    if (!word) return;
+                    word = String(word).trim();
+                    this.lookupModalWord = word;
+                    const modal = document.getElementById('wordLookupModal');
+                    const titleEl = document.getElementById('lookupModalWord');
+                    const freeDictEl = document.getElementById('lookupModalFreeDict');
+                    const mwResultEl = document.getElementById('lookupModalMwResult');
+                    if (!modal || !titleEl) return;
+                    titleEl.textContent = word;
+                    if (freeDictEl) {
+                        freeDictEl.innerHTML = '<p class="empty-state"><i class="fas fa-spinner fa-spin"></i> 加载中...</p>';
+                    }
+                    if (mwResultEl) {
+                        mwResultEl.style.display = 'none';
+                        mwResultEl.innerHTML = '';
+                    }
+                    modal.style.display = 'flex';
+                    // 拉取 free dict 并渲染
+                    try {
+                        const data = await this.dictionaryAPI.fetchWordData(word);
+                        if (titleEl) titleEl.textContent = data.word || word;
+                        this.renderDictDetails(data, freeDictEl);
+                        // 顶部补一行音标 + 释义摘要，便于没展开 details 也能看到
+                        const summary = [];
+                        if (data.phonetic) summary.push(`<span style="color:var(--gray-color);">${data.phonetic}</span>`);
+                        if (data.meaning) summary.push(`<div style="margin-top:6px;">${data.meaning}</div>`);
+                        if (summary.length && freeDictEl) {
+                            freeDictEl.insertAdjacentHTML('afterbegin', `<div style="margin-bottom:8px;">${summary.join(' ')}</div>`);
+                        }
+                        this.currentAudioUrl = data.audioUrl;
+                    } catch (e) {
+                        if (freeDictEl) freeDictEl.innerHTML = '<p class="empty-state">词典数据加载失败</p>';
+                    }
+                }
+
+                closeWordLookup() {
+                    const modal = document.getElementById('wordLookupModal');
+                    if (modal) modal.style.display = 'none';
+                    this.lookupModalWord = null;
+                }
+
+                async addLookupWordToDB() {
+                    const word = this.lookupModalWord;
+                    if (!word) return;
+                    try {
+                        const listId = await this.db.getSetting('currentListId');
+                        const targetListId = listId && listId !== 'all' ? parseInt(listId) : null;
+                        const existing = await this.db.getWordInList(word, targetListId);
+                        if (existing) {
+                            this.showNotification(`"${word}" 已在词库中`, 'info');
+                            return;
+                        }
+                        await this.db.addWord({
+                            word,
+                            meaning: '',
+                            source: 'lookup',
+                            difficulty: 3,
+                            listId: targetListId
+                        });
+                        this.showNotification(`"${word}" 已加入词库`, 'success');
+                    } catch (e) {
+                        console.error('加入词库失败:', e);
+                        this.showNotification('加入词库失败', 'error');
+                    }
+                }
+
+                async lookupModalMw() {
+                    const word = this.lookupModalWord;
+                    if (!word) return;
+                    const mwResultEl = document.getElementById('lookupModalMwResult');
+                    await this.renderMwResult(word, mwResultEl);
+                }
+
+                // 把例句文本中的英文单词包成可点击 span（保留中文与标点）
+                renderClickableExample(text) {
+                    if (!text) return '暂无例句';
+                    const escaped = String(text)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+                    return escaped.replace(/([a-zA-Z][a-zA-Z'-]*)/g, (m) =>
+                        `<span class="clickable-word" data-word="${m}">${m}</span>`
+                    );
                 }
             }
 
             window.app = new WordLearnerApp();
         })();
     </script>
+
+    <!-- 查词弹窗：学习卡片点击单词 / 例句单词时打开，可加入词库 + free dict + 韦氏 -->
+    <div class="modal-overlay" id="wordLookupModal" style="display:none;">
+        <div class="modal-content lookup-modal">
+            <div class="modal-header">
+                <h2 id="lookupModalWord"></h2>
+                <button class="modal-close" id="lookupModalClose" aria-label="关闭">×</button>
+            </div>
+            <div class="modal-actions">
+                <button class="action-btn small primary" id="lookupModalAddBtn">
+                    <i class="fas fa-plus-circle"></i> 加入词库
+                </button>
+                <button class="action-btn small" id="lookupModalSpeakBtn">
+                    <i class="fas fa-volume-up"></i> 发音
+                </button>
+                <button class="action-btn small secondary" id="lookupModalMwBtn">
+                    <i class="fas fa-book"></i> 韦氏词典
+                </button>
+            </div>
+            <div id="lookupModalFreeDict" class="modal-section"></div>
+            <div id="lookupModalMwResult" class="modal-section" style="display:none;"></div>
+        </div>
+    </div>
 </body>
 </html>
