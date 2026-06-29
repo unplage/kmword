@@ -3983,115 +3983,104 @@
                     this.learningMode = 'recognition'; // 'recognition' | 'spelling'
                     this.spellingLocked = false;        // 提交后锁定输入直到推进
 
-                    this.dictionaryAPI = {
-                        baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
-                        cache: new Map(),
-                        
-                        async fetchWordData(word) {
-                            if (this.cache.has(word)) {
-                                return this.cache.get(word);
-                            }
-                            try {
-                                console.log(`正在获取单词"${word}"的数据...`);
-                                const response = await fetch(`${this.baseUrl}/${encodeURIComponent(word)}`);
-                                if (!response.ok) {
-                                    if (response.status === 404) {
-                                        const fallbackData = this.getFallbackData(word);
-                                        this.cache.set(word, fallbackData);
-                                        return fallbackData;
-                                    }
-                                    throw new Error(`API请求失败: ${response.status}`);
-                                }
-                                const data = await response.json();
-                                console.log(`单词"${word}"数据获取成功`);
-                                const parsedData = this.parseApiData(data, word);
-                                this.cache.set(word, parsedData);
-                                return parsedData;
-                            } catch (error) {
-                                console.error(`获取单词"${word}"数据失败:`, error);
-                                const fallbackData = this.getFallbackData(word);
-                                this.cache.set(word, fallbackData);
-                                return fallbackData;
-                            }
-                        },
-                        
-                        parseApiData(apiData, originalWord) {
-                            if (!apiData || !Array.isArray(apiData) || apiData.length === 0) {
-                                return this.getFallbackData(originalWord);
-                            }
-                            const entry = apiData[0];
-                            let phonetic = '';
-                            if (entry.phonetic) {
-                                phonetic = entry.phonetic;
-                            } else if (entry.phonetics && entry.phonetics.length > 0) {
-                                const firstPhonetic = entry.phonetics.find(p => p.text);
-                                if (firstPhonetic) {
-                                    phonetic = firstPhonetic.text;
-                                }
-                            }
-                            let meaning = '';
-                            let example = '';
-                            let allMeanings = [];
-                            if (entry.meanings && entry.meanings.length > 0) {
-                                entry.meanings.forEach(meaningObj => {
-                                    const partOfSpeech = meaningObj.partOfSpeech || '';
-                                    if (meaningObj.definitions) {
-                                        meaningObj.definitions.forEach((def, idx) => {
-                                            if (idx === 0 && !meaning) {
-                                                meaning = `${partOfSpeech ? partOfSpeech + '. ' : ''}${def.definition || '暂无释义'}`;
-                                                example = def.example || '';
-                                            }
-                                            allMeanings.push({
-                                                partOfSpeech,
-                                                definition: def.definition,
-                                                example: def.example
-                                            });
-                                        });
-                                    }
-                                });
-                            }
-                            let audioUrl = '';
-                            if (entry.phonetics && entry.phonetics.length > 0) {
-                                const audioPhonetic = entry.phonetics.find(p => p.audio && p.audio.length > 0);
-                                if (audioPhonetic) {
-                                    audioUrl = audioPhonetic.audio;
-                                }
-                            }
-                            return {
-                                word: originalWord,
-                                phonetic: phonetic || `/${this.generatePhoneticFallback(originalWord)}/`,
-                                meaning: meaning || `${originalWord} 的释义`,
-                                example: example || '',
-                                allMeanings: allMeanings,
-                                audioUrl: audioUrl,
-                                rawData: entry
-                            };
-                        },
-                        
-                        generatePhoneticFallback(word) {
-                            const simpleRules = {
-                                'a': 'æ', 'e': 'ɛ', 'i': 'ɪ', 'o': 'ɒ', 'u': 'ʌ',
-                                'ay': 'aɪ', 'ee': 'iː', 'oo': 'uː', 'th': 'θ'
-                            };
-                            let phonetic = word.toLowerCase();
-                            for (const [pattern, replacement] of Object.entries(simpleRules)) {
-                                phonetic = phonetic.replace(new RegExp(pattern, 'g'), replacement);
-                            }
-                            return phonetic;
-                        },
-                        
-                        getFallbackData(word) {
-                            return {
-                                word: word,
-                                phonetic: `/${this.generatePhoneticFallback(word)}/`,
-                                meaning: `${word} 的释义（网络查询失败）`,
-                                example: `This is an example for ${word}.`,
-                                allMeanings: [],
-                                audioUrl: '',
-                                rawData: null
-                            };
-                        }
-                    };
+					// ===== 1. 修改 Free Dictionary API 解析 =====
+					this.dictionaryAPI = {
+						baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
+						cache: new Map(),
+						async fetchWordData(word) {
+							if (this.cache.has(word)) { return this.cache.get(word); }
+							try {
+								console.log(`正在获取单词"${word}"的数据...`);
+								const response = await fetch(`${this.baseUrl}/${encodeURIComponent(word)}`);
+								if (!response.ok) {
+									if (response.status === 404) {
+										const fallbackData = this.getFallbackData(word);
+										this.cache.set(word, fallbackData);
+										return fallbackData;
+									}
+									throw new Error(`API请求失败: ${response.status}`);
+								}
+								const data = await response.json();
+								console.log(`单词"${word}"数据获取成功`);
+								const parsedData = this.parseApiData(data, word);
+								this.cache.set(word, parsedData);
+								return parsedData;
+							} catch (error) {
+								console.error(`获取单词"${word}"数据失败:`, error);
+								const fallbackData = this.getFallbackData(word);
+								this.cache.set(word, fallbackData);
+								return fallbackData;
+							}
+						},
+						parseApiData(apiData, originalWord) {
+							if (!apiData || !Array.isArray(apiData) || apiData.length === 0) {
+								return this.getFallbackData(originalWord);
+							}
+							const entry = apiData[0];
+							let phonetic = '';
+							if (entry.phonetic) { phonetic = entry.phonetic; }
+							else if (entry.phonetics && entry.phonetics.length > 0) {
+								const firstPhonetic = entry.phonetics.find(p => p.text);
+								if (firstPhonetic) { phonetic = firstPhonetic.text; }
+							}
+							let meaning = ''; let example = ''; let allMeanings = [];
+							if (entry.meanings && entry.meanings.length > 0) {
+								const firstMeaning = entry.meanings[0];
+								const partOfSpeech = firstMeaning.partOfSpeech || '';
+								if (firstMeaning.definitions && firstMeaning.definitions.length > 0) {
+									const firstDefinition = firstMeaning.definitions[0];
+									meaning = `${partOfSpeech ? partOfSpeech + '. ' : ''}${firstDefinition.definition || '暂无释义'}`;
+									example = firstDefinition.example || '';
+								}
+								// 遍历所有词性下的定义，提取同义词和反义词
+								entry.meanings.forEach(meaningObj => {
+									const partOfSpeech = meaningObj.partOfSpeech || '';
+									if (meaningObj.definitions) {
+										meaningObj.definitions.forEach((def) => {
+											allMeanings.push({
+												partOfSpeech,
+												definition: def.definition || '',
+												example: def.example || '',
+												synonyms: def.synonyms || [], // 提取同义词
+												antonyms: def.antonyms || []  // 提取反义词
+											});
+										});
+									}
+								});
+							}
+							let audioUrl = '';
+							if (entry.phonetics && entry.phonetics.length > 0) {
+								const audioPhonetic = entry.phonetics.find(p => p.audio && p.audio.length > 0);
+								if (audioPhonetic) { audioUrl = audioPhonetic.audio; }
+							}
+							return {
+								word: originalWord,
+								phonetic: phonetic || `/${this.generatePhoneticFallback(originalWord)}/`,
+								meaning: meaning || `${originalWord} 的释义`,
+								example: example || '',
+								allMeanings: allMeanings,
+								audioUrl: audioUrl,
+								rawData: entry
+							};
+						},
+						generatePhoneticFallback(word) {
+							const simpleRules = { 'a': 'æ', 'e': 'ɛ', 'i': 'ɪ', 'o': 'ɒ', 'u': 'ʌ', 'ay': 'aɪ', 'ee': 'iː', 'oo': 'uː', 'th': 'θ' };
+							let phonetic = word.toLowerCase();
+							for (const [pattern, replacement] of Object.entries(simpleRules)) { phonetic = phonetic.replace(new RegExp(pattern, 'g'), replacement); }
+							return phonetic;
+						},
+						getFallbackData(word) {
+							return {
+								word: word,
+								phonetic: `/${this.generatePhoneticFallback(word)}/`,
+								meaning: `${word} 的释义（网络查询失败）`,
+								example: `This is an example for ${word}.`,
+								allMeanings: [],
+								audioUrl: '',
+								rawData: null
+							};
+						}
+					};
                     
                     this.playAudio = async function(url, fallbackWord) {
                         if (url) {
@@ -4119,343 +4108,290 @@
                         this.speechSynthesis.speak(utterance);
                     };
                     
-                    this.mwAPI = {
-                        dictBase: 'https://www.dictionaryapi.com/api/v3/references/collegiate/json',
-                        thesBase: 'https://www.dictionaryapi.com/api/v3/references/thesaurus/json',
-
-                        cleanMWText(text) {
-                            if (!text) return '';
-                            return text.replace(/\{.*?\}/g, '').trim();
-                        },
-
-                        getAudioUrl(audioId) {
-                            if (!audioId) return null;
-                            const subdir = /^\d/.test(audioId) ? 'number' : audioId.charAt(0);
-                            return `https://media.merriam-webster.com/audio/prons/en/us/mp3/${subdir}/${audioId}.mp3`;
-                        },
-
-                        async lookupWord(word) {
-                            const dictKey = await window.wordDB.getSetting('mwDictKey');
-                            const thesKey = await window.wordDB.getSetting('mwThesKey');
-                            if (!dictKey && !thesKey) {
-                                throw new Error('请至少配置一个 Merriam-Webster API Key（词典或同义词）');
-                            }
-
-                            const promises = [];
-                            if (dictKey) {
-                                promises.push(
-                                    fetch(`${this.dictBase}/${encodeURIComponent(word)}?key=${dictKey}`)
-                                        .then(response => ({ type: 'dict', response }))
-                                );
-                            }
-                            if (thesKey) {
-                                promises.push(
-                                    fetch(`${this.thesBase}/${encodeURIComponent(word)}?key=${thesKey}`)
-                                        .then(response => ({ type: 'thes', response }))
-                                );
-                            }
-
-                            const results = await Promise.all(promises);
-                            let dictData = null;
-                            let thesData = null;
-
-                            for (const result of results) {
-                                const { type, response } = result;
-                                if (type === 'dict') {
-                                    if (response.ok) {
-                                        dictData = await response.json();
-                                    } else if (response.status !== 404) {
-                                        throw new Error(`词典API请求失败 (${response.status})`);
-                                    }
-                                } else if (type === 'thes') {
-                                    if (response.ok) {
-                                        thesData = await response.json();
-                                    } else if (response.status !== 404) {
-                                        throw new Error(`同义词API请求失败 (${response.status})`);
-                                    }
-                                }
-                            }
-
-                            return { dict: dictData, thesaurus: thesData };
-                        },
-
-                        parseDict(dictData) {
-                            if (!dictData || !Array.isArray(dictData) || dictData.length === 0) return null;
-                            if (typeof dictData[0] === 'string') return null;
-
-                            const entry = dictData[0];
-                            
-                            let audioId = '';
-                            if (entry.hwi?.prs) {
-                                const prs = entry.hwi.prs.find(p => p.sound && p.sound.audio);
-                                if (prs) audioId = prs.sound.audio;
-                            }
-
-                            const result = {
-                                word: this.cleanMWText(entry.hwi?.hw || ''),
-                                pronunciation: entry.hwi?.prs?.[0]?.mw ? this.cleanMWText(entry.hwi.prs[0].mw) : '',
-                                functionalLabel: this.cleanMWText(entry.fl || ''),
-                                definitions: [],
-								etymology: (() => {
-									if (!entry.et) return '';
-									let etText = '';
-									if (Array.isArray(entry.et)) {
-										// 遍历每个元素，如果是 ["text", "内容"] 则取内容，否则取字符串本身
-										const parts = entry.et.map(item => {
-											if (Array.isArray(item) && item.length === 2 && item[0] === 'text') {
-												return item[1];
-											} else if (typeof item === 'string') {
-												return item;
-											}
-											return '';
-										}).filter(Boolean);
-										etText = parts.join(' ');
-									} else if (typeof entry.et === 'string') {
-										etText = entry.et;
-									}
-									return this.cleanMWText(etText);
-								})(),
-                                //etymology: entry.et ? this.cleanMWText(Array.isArray(entry.et) ? entry.et.join(' ') : entry.et) : '',
-                                audioId: audioId,
-                                synonymsInfo: null,
-                                quotes: [],
-                                shortdef: entry.shortdef ? entry.shortdef.map(d => this.cleanMWText(d)) : []
-                            };
-
-                            const parseSense = (senseData, parentNumber = '') => {
-                                const definition = {
-                                    senseNumber: senseData.sn || parentNumber,
-                                    grammaticalLabel: senseData.sgram || '',
-                                    subjectStatusLabels: Array.isArray(senseData.sls) ? senseData.sls : (senseData.sls ? [senseData.sls] : []),
-                                    definitionText: '',
-                                    examples: [],
-                                    subsenses: []
-                                };
-
-                                if (senseData.dt && Array.isArray(senseData.dt)) {
-                                    senseData.dt.forEach(dtItem => {
-                                        if (Array.isArray(dtItem) && dtItem.length === 2) {
-                                            const type = dtItem[0];
-                                            const content = dtItem[1];
-                                            if (type === 'text') {
-                                                definition.definitionText = this.cleanMWText(content);
-                                            } else if (type === 'vis' && Array.isArray(content)) {
-                                                content.forEach(visItem => {
-                                                    if (visItem.t) {
-                                                        definition.examples.push(this.cleanMWText(visItem.t));
-                                                    }
-                                                });
-                                            }
-                                        }
-                                    });
-                                }
-
-                                if (senseData.sdsense) {
-                                    let subSense = senseData.sdsense;
-                                    if (Array.isArray(subSense) && subSense.length > 0) {
-                                        subSense = subSense[0];
-                                    }
-                                    const subDef = parseSense(subSense, definition.senseNumber);
-                                    definition.subsenses.push(subDef);
-                                }
-
-                                return definition;
-                            };
-
-                            if (entry.def && Array.isArray(entry.def)) {
-                                entry.def.forEach(defGroup => {
-                                    if (defGroup.sseq && Array.isArray(defGroup.sseq)) {
-                                        defGroup.sseq.forEach(sseqItem => {
-                                            if (Array.isArray(sseqItem) && sseqItem.length > 0) {
-                                                sseqItem.forEach(senseCandidate => {
-                                                    if (Array.isArray(senseCandidate) && senseCandidate[0] === 'sense' && senseCandidate[1]) {
-                                                        const sense = senseCandidate[1];
-                                                        const def = parseSense(sense);
-                                                        if (def.definitionText || def.examples.length > 0 || def.subsenses.length > 0) {
-                                                            result.definitions.push(def);
-                                                        }
-                                                    }
-                                                });
-                                            }
-                                        });
-                                    }
-                                });
-                            }
-
-                            if (result.definitions.length === 0 && entry.shortdef) {
-                                entry.shortdef.forEach(defText => {
-                                    result.definitions.push({
-                                        senseNumber: '',
-                                        grammaticalLabel: '',
-                                        subjectStatusLabels: [],
-                                        definitionText: this.cleanMWText(defText),
-                                        examples: [],
-                                        subsenses: []
-                                    });
-                                });
-                            }
-
-                            if (entry.syns) {
-                                const synInfo = {
-                                    paragraphs: [],
-                                    examples: []
-                                };
-                                if (entry.syns.pt && Array.isArray(entry.syns.pt)) {
-                                    entry.syns.pt.forEach(item => {
-                                        if (Array.isArray(item) && item.length === 2) {
-                                            const type = item[0];
-                                            const content = item[1];
-                                            if (type === 'text') {
-                                                synInfo.paragraphs.push(this.cleanMWText(content));
-                                            } else if (type === 'vis' && Array.isArray(content)) {
-                                                content.forEach(vis => {
-                                                    if (vis.t) {
-                                                        synInfo.examples.push(this.cleanMWText(vis.t));
-                                                    }
-                                                });
-                                            }
-                                        } else if (typeof item === 'string') {
-                                            synInfo.paragraphs.push(this.cleanMWText(item));
-                                        }
-                                    });
-                                }
-                                if (synInfo.paragraphs.length > 0 || synInfo.examples.length > 0) {
-                                    result.synonymsInfo = synInfo;
-                                }
-                            }
-
-							// 提取引文 (quotes)
-							if (entry.quotes && Array.isArray(entry.quotes)) {
-								entry.quotes.forEach(q => {
-									let quoteText = q.t ? this.cleanMWText(q.t) : '';
-									let source = '';
-									if (q.aq) {
-										const auth = this.cleanMWText(q.aq.auth || '');
-										const src = this.cleanMWText(q.aq.source || '');
-										const date = this.cleanMWText(q.aq.aqdate || '');
-										source = `${auth}${src ? ', ' + src : ''}${date ? ', ' + date : ''}`;
-									}
-									result.quotes.push({ text: quoteText, source: source });
-								});
+					// ===== 2. 全新升级的 Merriam-Webster API 解析与渲染 =====
+					this.mwAPI = {
+						dictBase: 'https://www.dictionaryapi.com/api/v3/references/collegiate/json',
+						thesBase: 'https://www.dictionaryapi.com/api/v3/references/thesaurus/json',
+						cleanMWText(text) {
+							if (!text) return '';
+							return text.replace(/\{.*?\}/g, '').trim();
+						},
+						getAudioUrl(audioId) {
+							if (!audioId) return null;
+							const subdir = /^\d/.test(audioId) ? 'number' : audioId.charAt(0);
+							return `https://media.merriam-webster.com/audio/prons/en/us/mp3/${subdir}/${audioId}.mp3`;
+						},
+						async lookupWord(word) {
+							const dictKey = await window.wordDB.getSetting('mwDictKey');
+							const thesKey = await window.wordDB.getSetting('mwThesKey');
+							if (!dictKey && !thesKey) { throw new Error('请至少配置一个 Merriam-Webster API Key（词典或同义词）'); }
+							const promises = [];
+							if (dictKey) { promises.push( fetch(`${this.dictBase}/${encodeURIComponent(word)}?key=${dictKey}`).then(response => ({ type: 'dict', response })) ); }
+							if (thesKey) { promises.push( fetch(`${this.thesBase}/${encodeURIComponent(word)}?key=${thesKey}`).then(response => ({ type: 'thes', response })) ); }
+							const results = await Promise.all(promises);
+							let dictData = null; let thesData = null;
+							for (const result of results) {
+								const { type, response } = result;
+								if (type === 'dict') { if (response.ok) { dictData = await response.json(); } else if (response.status !== 404) { throw new Error(`词典API请求失败 (${response.status})`); } }
+								else if (type === 'thes') { if (response.ok) { thesData = await response.json(); } else if (response.status !== 404) { throw new Error(`同义词API请求失败 (${response.status})`); } }
 							}
+							return { dict: dictData, thesaurus: thesData };
+						},
+						
+						// --- 词典解析 ---
+						parseDict(dictData) {
+							if (!dictData || !Array.isArray(dictData) || dictData.length === 0) return null;
+							if (typeof dictData[0] === 'string') return null;
 
-                            return result;
-                        },
+							const extractSynonyms = (text) => {
+								const syns = new Set();
+								if (!text) return [];
+								const scMatches = text.match(/\{sc\}([^{}]+)\{\/sc\}/g);
+								if (scMatches) scMatches.forEach(m => syns.add(m.replace(/\{sc\}|\{\/sc\}/g, '').trim()));
+								const sxMatches = text.match(/\{sx\|([^|]+)/g);
+								if (sxMatches) sxMatches.forEach(m => syns.add(m.replace(/\{sx\|/, '').trim()));
+								return Array.from(syns);
+							};
 
-                        parseThesaurus(thesData) {
-                            if (!thesData || !Array.isArray(thesData) || thesData.length === 0) return null;
-                            if (typeof thesData[0] === 'string') return null;
+							const cleanEtymology = (etData) => {
+								if (!etData) return '';
+								// 如果是字符串，直接清理
+								if (typeof etData === 'string') return this.cleanMWText(etData);
+								// 如果是数组
+								if (Array.isArray(etData)) {
+									// 处理常见格式 ["text", "内容"]
+									if (etData.length === 2 && etData[0] === 'text' && typeof etData[1] === 'string') {
+										return this.cleanMWText(etData[1]);
+									}
+									// 其他数组：递归处理每个元素，合并
+									let parts = etData.map(item => cleanEtymology(item)).filter(Boolean);
+									return parts.join(' ');
+								}
+								// 如果是对象
+								if (typeof etData === 'object') {
+									// 若对象有 text 属性，直接取 text
+									if (etData.text) return this.cleanMWText(etData.text);
+									// 否则遍历所有值递归
+									let parts = Object.values(etData).map(val => cleanEtymology(val)).filter(Boolean);
+									return parts.join(' ');
+								}
+								return '';
+							};
 
-                            const result = {
-                                synonyms: [],
-                                antonyms: [],
-                                related: [],
-                                nearSynonyms: [],
-                                nearAntonyms: []
-                            };
+							const parseSense = (senseData, parentLabel = '') => {
+								const def = {
+									senseNumber: senseData.sn || '',
+									grammaticalLabel: senseData.sgram || '',
+									definitionText: '',
+									examples: [],
+									subsenses: [],
+									vdLabel: parentLabel
+								};
+								if (senseData.dt && Array.isArray(senseData.dt)) {
+									senseData.dt.forEach(dtItem => {
+										if (Array.isArray(dtItem) && dtItem.length === 2) {
+											const type = dtItem[0]; const content = dtItem[1];
+											if (type === 'text') { def.definitionText = this.cleanMWText(content); }
+											else if (type === 'vis' && Array.isArray(content)) {
+												content.forEach(visItem => { if (visItem.t) def.examples.push(this.cleanMWText(visItem.t)); });
+											}
+										}
+									});
+								}
+								if (senseData.sdsense) {
+									let subSenseList = senseData.sdsense;
+									if (Array.isArray(subSenseList) && subSenseList.length > 0) { subSenseList = subSenseList[0]; }
+									const prefix = subSenseList.sd ? this.cleanMWText(subSenseList.sd) + ': ' : '';
+									const subDef = parseSense(subSenseList, parentLabel);
+									subDef.definitionText = prefix + subDef.definitionText;
+									def.subsenses.push(subDef);
+								}
+								return def;
+							};
 
-                            for (const entry of thesData) {
-                                if (entry.syns) {
-                                    entry.syns.forEach(synList => {
-                                        if (Array.isArray(synList)) {
-                                            synList.forEach(item => {
-                                                if (typeof item === 'string') {
-                                                    result.synonyms.push(this.cleanMWText(item));
-                                                } else if (item && item.wd) {
-                                                    result.synonyms.push(this.cleanMWText(item.wd));
-                                                }
-                                            });
-                                        }
-                                    });
-                                }
+							return dictData.map(entry => {
+								const result = {
+									functionalLabel: this.cleanMWText(entry.fl || ''),
+									pronunciation: this.cleanMWText(entry.hwi?.prs?.[0]?.mw || ''),
+									definitions: [],
+									synonymsList: [],
+									synonymsInfo: { paragraphs: [], examples: [] },
+									etymology: '',
+									inflections: [],
+									audioId: '',
+									// ===== 新增 quotes 字段 =====
+									quotes: []
+								};
+								if (entry.hwi?.prs) {
+									const prs = entry.hwi.prs.find(p => p.sound?.audio);
+									if (prs) result.audioId = prs.sound.audio;
+								}
+								if (entry.ins && Array.isArray(entry.ins)) { result.inflections = entry.ins.map(i => i.if).filter(Boolean); }
 
-                                if (entry.ants) {
-                                    entry.ants.forEach(antList => {
-                                        if (Array.isArray(antList)) {
-                                            antList.forEach(item => {
-                                                if (typeof item === 'string') {
-                                                    result.antonyms.push(this.cleanMWText(item));
-                                                } else if (item && item.wd) {
-                                                    result.antonyms.push(this.cleanMWText(item.wd));
-                                                }
-                                            });
-                                        }
-                                    });
-                                }
+								// 解析 definitions
+								if (entry.def && Array.isArray(entry.def)) {
+									entry.def.forEach(defGroup => {
+										const vdLabel = defGroup.vd ? this.cleanMWText(defGroup.vd) : '';
+										if (defGroup.sseq && Array.isArray(defGroup.sseq)) {
+											defGroup.sseq.forEach(sseqItem => {
+												if (Array.isArray(sseqItem) && sseqItem.length > 0) {
+													sseqItem.forEach(senseCandidate => {
+														const type = senseCandidate[0];
+														if ((type === 'sense' || type === 'bs') && senseCandidate[1]) {
+															const senseData = type === 'bs' ? senseCandidate[1].sense : senseCandidate[1];
+															if (senseData) { result.definitions.push(parseSense(senseData, vdLabel)); }
+														}
+													});
+												}
+											});
+										}
+										if (defGroup.bs && defGroup.bs.sense) { result.definitions.push(parseSense(defGroup.bs.sense, vdLabel)); }
+									});
+								}
 
-                                if (entry.def && Array.isArray(entry.def)) {
-                                    entry.def.forEach(defGroup => {
-                                        if (defGroup.sseq && Array.isArray(defGroup.sseq)) {
-                                            defGroup.sseq.forEach(sseqItem => {
-                                                if (Array.isArray(sseqItem) && sseqItem.length > 0) {
-                                                    sseqItem.forEach(senseCandidate => {
-                                                        if (Array.isArray(senseCandidate) && senseCandidate[0] === 'sense' && senseCandidate[1]) {
-                                                            const sense = senseCandidate[1];
-                                                            if (sense.sim_list && Array.isArray(sense.sim_list)) {
-                                                                sense.sim_list.forEach(simGroup => {
-                                                                    if (Array.isArray(simGroup)) {
-                                                                        simGroup.forEach(item => {
-                                                                            if (typeof item === 'string') {
-                                                                                result.nearSynonyms.push(this.cleanMWText(item));
-                                                                            } else if (item && item.wd) {
-                                                                                result.nearSynonyms.push(this.cleanMWText(item.wd));
-                                                                            }
-                                                                        });
-                                                                    }
-                                                                });
-                                                            }
-                                                            if (sense.opp_list && Array.isArray(sense.opp_list)) {
-                                                                sense.opp_list.forEach(oppGroup => {
-                                                                    if (Array.isArray(oppGroup)) {
-                                                                        oppGroup.forEach(item => {
-                                                                            if (typeof item === 'string') {
-                                                                                result.nearAntonyms.push(this.cleanMWText(item));
-                                                                            } else if (item && item.wd) {
-                                                                                result.nearAntonyms.push(this.cleanMWText(item.wd));
-                                                                            }
-                                                                        });
-                                                                    }
-                                                                });
-                                                            }
-                                                        }
-                                                    });
-                                                }
-                                            });
-                                        }
-                                    });
-                                }
+								// 解析同义词
+								if (entry.syns && Array.isArray(entry.syns)) {
+									const allSynonyms = new Set(); const paragraphs = []; const examples = [];
+									entry.syns.forEach(synBlock => {
+										if (synBlock.pl === 'synonyms' && Array.isArray(synBlock.pt)) {
+											synBlock.pt.forEach(item => {
+												if (Array.isArray(item) && item[0] === 'text') {
+													const text = item[1];
+													paragraphs.push(this.cleanMWText(text));
+													const extracted = extractSynonyms(text);
+													extracted.forEach(w => allSynonyms.add(w));
+												} else if (Array.isArray(item) && item[0] === 'vis' && Array.isArray(item[1])) {
+													item[1].forEach(vis => vis.t ? examples.push(this.cleanMWText(vis.t)) : null);
+												}
+											});
+										}
+									});
+									result.synonymsList = Array.from(allSynonyms);
+									result.synonymsInfo.paragraphs = paragraphs;
+									result.synonymsInfo.examples = examples;
+								}
 
-                                if (entry.rel_list && Array.isArray(entry.rel_list)) {
-                                    entry.rel_list.forEach(relGroup => {
-                                        if (Array.isArray(relGroup)) {
-                                            relGroup.forEach(relItem => {
-                                                if (relItem && relItem.wd) {
-                                                    result.related.push(this.cleanMWText(relItem.wd));
-                                                } else if (typeof relItem === 'string') {
-                                                    result.related.push(this.cleanMWText(relItem));
-                                                }
-                                            });
-                                        }
-                                    });
-                                }
-                            }
+								// 词源
+								if (entry.et) { result.etymology = cleanEtymology(entry.et); }
 
-                            result.synonyms = [...new Set(result.synonyms)];
-                            result.antonyms = [...new Set(result.antonyms)];
-                            result.related = [...new Set(result.related)];
-                            result.nearSynonyms = [...new Set(result.nearSynonyms)];
-                            result.nearAntonyms = [...new Set(result.nearAntonyms)];
+								// ===== 新增：提取引文 (quotes) =====
+								if (entry.quotes && Array.isArray(entry.quotes)) {
+									entry.quotes.forEach(q => {
+										let quoteText = q.t ? this.cleanMWText(q.t) : '';
+										let source = '';
+										if (q.aq) {
+											const auth = this.cleanMWText(q.aq.auth || '');
+											const src = this.cleanMWText(q.aq.source || '');
+											const date = this.cleanMWText(q.aq.aqdate || '');
+											source = `${auth}${src ? ', ' + src : ''}${date ? ', ' + date : ''}`;
+										}
+										result.quotes.push({ text: quoteText, source: source });
+									});
+								}
 
-                            return result;
-                        }
-                    };
-                    
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', () => this.init());
-                    } else {
-                        this.init();
-                    }
-                }
+								return result;
+							});
+						},
+
+						// --- 同义词解析 ---
+						parseThesaurus(thesData) {
+							if (!thesData || !Array.isArray(thesData) || thesData.length === 0) return null;
+							if (typeof thesData[0] === 'string') return null;
+							
+							const result = {
+								synonyms: [], antonyms: [], related: [], nearSynonyms: [], nearAntonyms: [],
+								synonymGroups: [], antonymGroups: [], relatedInfo: [], nearSynonymGroups: [], nearAntonymGroups: []
+							};
+
+							const extractDefinitionText = (dt) => {
+								if (!dt || !Array.isArray(dt)) return '';
+								let text = '';
+								dt.forEach(item => { if (Array.isArray(item) && item[0] === 'text') text += this.cleanMWText(item[1]) + ' '; });
+								return text.trim();
+							};
+
+							const parseWordItem = (item) => {
+								if (!item) return null;
+								if (typeof item === 'string') { return { word: this.cleanMWText(item), label: '', example: '' }; }
+								else if (item.wd) { return { word: this.cleanMWText(item.wd), label: Array.isArray(item.wls) ? item.wls.map(l => this.cleanMWText(l)).join(', ') : this.cleanMWText(item.wls || ''), example: '' }; }
+								return null;
+							};
+
+							for (const entry of thesData) {
+								if (entry.syns && Array.isArray(entry.syns)) {
+									entry.syns.forEach(synBlock => {
+										if (synBlock.pl === 'synonyms' && Array.isArray(synBlock.pt)) {
+											synBlock.pt.forEach(item => {
+												if (Array.isArray(item) && item[0] === 'text') {
+													const text = item[1];
+													result.synonymsInfo.paragraphs.push(this.cleanMWText(text));
+													const scMatches = text.match(/\{sc\}([^{}]+)\{\/sc\}/g);
+													if(scMatches) scMatches.forEach(m=>result.synonyms.push(m.replace(/\{sc\}|\{\/sc\}/g,'').trim()));
+													const sxMatches = text.match(/\{sx\|([^|]+)/g);
+													if(sxMatches) sxMatches.forEach(m=>result.synonyms.push(m.replace(/\{sx\|/,'').trim()));
+												}
+											});
+										}
+									});
+								}
+								if (entry.def && Array.isArray(entry.def)) {
+									entry.def.forEach(defGroup => {
+										if (defGroup.sseq && Array.isArray(defGroup.sseq)) {
+											defGroup.sseq.forEach(sseqItem => {
+												if (Array.isArray(sseqItem) && sseqItem.length > 0) {
+													sseqItem.forEach(senseCandidate => {
+														if (Array.isArray(senseCandidate) && senseCandidate[0] === 'sense' && senseCandidate[1]) {
+															const sense = senseCandidate[1];
+															const senseNumber = sense.sn || '';
+															const senseDefinition = extractDefinitionText(sense.dt) || '';
+
+															if (sense.sim_list && Array.isArray(sense.sim_list)) {
+																const nearSynonymGroup = { sn: senseNumber, definition: senseDefinition, nearSynonyms: [] };
+																sense.sim_list.forEach(simGroup => {
+																	if (Array.isArray(simGroup)) { simGroup.forEach(simItem => { const wd = parseWordItem(simItem); if(wd) nearSynonymGroup.nearSynonyms.push(wd); }); }
+																});
+																if (nearSynonymGroup.nearSynonyms.length > 0) {
+																	result.nearSynonymGroups.push(nearSynonymGroup);
+																	nearSynonymGroup.nearSynonyms.forEach(ns => result.nearSynonyms.push(ns.word));
+																}
+															}
+															if (sense.opp_list && Array.isArray(sense.opp_list)) {
+																const nearAntonymGroup = { sn: senseNumber, definition: senseDefinition, nearAntonyms: [] };
+																sense.opp_list.forEach(oppGroup => {
+																	if (Array.isArray(oppGroup)) { oppGroup.forEach(oppItem => { const wd = parseWordItem(oppItem); if(wd) nearAntonymGroup.nearAntonyms.push(wd); }); }
+																});
+																if (nearAntonymGroup.nearAntonyms.length > 0) {
+																	result.nearAntonymGroups.push(nearAntonymGroup);
+																	nearAntonymGroup.nearAntonyms.forEach(na => result.nearAntonyms.push(na.word));
+																}
+															}
+														}
+													});
+												}
+											});
+										}
+									});
+								}
+								if (entry.rel_list && Array.isArray(entry.rel_list)) {
+									entry.rel_list.forEach(relGroup => {
+										if (Array.isArray(relGroup)) {
+											const relatedGroup = { type: relGroup[0] || 'related', words: [] };
+											relGroup.forEach(relItem => { const wd = parseWordItem(relItem); if(wd) { relatedGroup.words.push(wd.word); result.related.push(wd.word); } });
+											if (relatedGroup.words.length > 0) result.relatedInfo.push(relatedGroup);
+										}
+									});
+								}
+							}
+							result.synonyms = [...new Set(result.synonyms)];
+							result.nearSynonyms = [...new Set(result.nearSynonyms)];
+							result.nearAntonyms = [...new Set(result.nearAntonyms)];
+							return result;
+						}
+					};
+
+					if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => this.init()); }
+					else { this.init(); }
+				}
 
                 async init() {
                     console.log('应用初始化开始');
@@ -5170,26 +5106,43 @@
                 }
 
                 // 参数化版本：可向任意容器渲染 free dict 详细释义，供学习卡片与查词弹窗复用
-                renderDictDetails(wordData, containerEl) {
-                    if (!containerEl) return;
-                    if (wordData.allMeanings && wordData.allMeanings.length > 0) {
-                        let html = '<div class="dictionary-details">';
-                        wordData.allMeanings.slice(0, 3).forEach((meaning) => {
-                            html += `
-                                <div class="meaning-item">
-                                    <div class="part-of-speech">${meaning.partOfSpeech || '未知'}</div>
-                                    <div class="definition">${meaning.definition || '无定义'}</div>
-                                    ${meaning.example ? `<div class="example"><em>例句:</em> ${meaning.example}</div>` : ''}
-                                </div>
-                            `;
-                        });
-                        html += '</div>';
-                        containerEl.innerHTML = html;
-                    } else {
-                        containerEl.innerHTML = '<p class="empty-state">暂无详细词典数据</p>';
-                    }
-                    this.makeClickable(containerEl);
-                }
+				// ===== 修改：Free Dict 渲染 =====
+				renderDictDetails(wordData, containerEl) {
+					if (!containerEl) return;
+					if (wordData.allMeanings && wordData.allMeanings.length > 0) {
+						let html = '<div class="dictionary-details">';
+						wordData.allMeanings.slice(0, 3).forEach((meaning) => {
+							html += `<div class="meaning-item" style="margin-bottom: 15px;">`;
+							if (meaning.partOfSpeech) html += `<div class="part-of-speech">${meaning.partOfSpeech}</div>`;
+							if (meaning.definition) html += `<div class="definition">${meaning.definition}</div>`;
+							if (meaning.example) html += `<div class="example"><em>例句:</em> ${meaning.example}</div>`;
+							
+							// 新增：同义词
+							if (meaning.synonyms && meaning.synonyms.length > 0) {
+								html += `<div style="margin-top: 6px; font-size: 0.9rem;">`;
+								html += `<span style="color: var(--gray-color); font-weight: 500;">同义词：</span>`;
+								meaning.synonyms.forEach(syn => {
+									html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${syn}">${syn}</span>`;
+								});
+								html += `</div>`;
+							}
+							// 新增：反义词
+							if (meaning.antonyms && meaning.antonyms.length > 0) {
+								html += `<div style="margin-top: 4px; font-size: 0.9rem;">`;
+								html += `<span style="color: var(--gray-color); font-weight: 500;">反义词：</span>`;
+								meaning.antonyms.forEach(ant => {
+									html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${ant}">${ant}</span>`;
+								});
+								html += `</div>`;
+							}
+							html += `</div>`;
+						});
+						html += '</div>';
+						containerEl.innerHTML = html;
+					} else { containerEl.innerHTML = '<p class="empty-state">暂无详细词典数据</p>'; }
+					this.makeClickable(containerEl);
+				}
+
 
                 async handleAnswer(correct) {
                     if (this.isProcessing) return;
@@ -6947,189 +6900,210 @@
                 }
 
                 // 参数化版本：把韦氏查询结果渲染到指定容器，供学习卡片与查词弹窗复用
-                async renderMwResult(word, containerEl) {
-                    if (!containerEl) return;
-                    containerEl.style.display = 'block';
-                    containerEl.innerHTML = '<div class="mw-loading"><i class="fas fa-spinner fa-spin"></i> 正在查询韦氏词典...</div>';
-                    try {
-                        const result = await this.mwAPI.lookupWord(word);
-                        const dictData = this.mwAPI.parseDict(result.dict);
-                        const thesData = this.mwAPI.parseThesaurus(result.thesaurus);
-                        let html = '<div class="mw-result-section">';
+				async renderMwResult(word, containerEl) {
+					if (!containerEl) return;
+					containerEl.style.display = 'block';
+					containerEl.innerHTML = '<div class="mw-loading"><i class="fas fa-spinner fa-spin"></i> 正在查询韦氏词典...</div>';
+					try {
+						const result = await this.mwAPI.lookupWord(word);
+						const dictData = this.mwAPI.parseDict(result.dict);  // 现在是一个数组
+						const thesData = this.mwAPI.parseThesaurus(result.thesaurus);
+						let html = '<div class="mw-result-section">';
 
-                        if (dictData && dictData.definitions.length > 0) {
-                            html += '<h4 style="margin: 10px 0 6px;">📖 韦氏词典 (Collegiate Dictionary)</h4>';
+						// --- 词典部分：支持多词条 ---
+						if (dictData && dictData.length > 0) {
+							// 遍历所有词条（如形容词、动词、名词）
+							dictData.forEach((entry, index) => {
+								// 如果词条没有定义，跳过
+								if (!entry.definitions || entry.definitions.length === 0) return;
 
-                            if (dictData.functionalLabel) {
-                                html += `<div style="font-size:0.9rem; color:var(--secondary-color); margin-bottom:6px;">
-                                            <strong>词性：</strong> ${dictData.functionalLabel}
-                                        </div>`;
-                            }
+								// 词条分隔线（多个词条时添加）
+								if (index > 0) {
+									html += `<hr style="margin: 20px 0; border-color: var(--border-color);">`;
+								}
 
-                            if (dictData.etymology) {
-                                html += `<div style="font-size:0.9rem; color:var(--gray-color); margin-bottom:6px;">
-                                            <strong>词源：</strong> ${dictData.etymology}
-                                        </div>`;
-                            }
+								html += `<h4 style="margin: 10px 0 6px;">📖 韦氏词典 (Collegiate Dictionary)`;
+								// 显示词性（如果有）
+								if (entry.functionalLabel) {
+									html += ` — <span style="color: var(--secondary-color);">${entry.functionalLabel}</span>`;
+								}
+								html += `</h4>`;
 
-                            if (dictData.audioId) {
-                                const audioUrl = this.mwAPI.getAudioUrl(dictData.audioId);
-                                html += `<button class="icon-btn small" onclick="window.app.playAudio('${audioUrl}', '${dictData.word}')">
-                                            <i class="fas fa-volume-up"></i> 发音
-                                        </button>`;
-                            } else {
-                                html += `<button class="icon-btn small" onclick="window.app.speakWord('${dictData.word}')">
-                                            <i class="fas fa-volume-up"></i> 发音
-                                        </button>`;
-                            }
+								// 发音（仅第一个词条显示，或每个词条都显示，这里选择显示第一个有发音的）
+								// 为每个词条显示自己的发音，但按钮可能重复，这里简化为只显示第一个词的发音
+								// 但更合理的是每个词条都显示，但为了避免按钮重复，可以只在第一个词条显示
+								if (index === 0 && dictData.some(e => e.audioId)) {
+									const firstAudio = dictData.find(e => e.audioId);
+									if (firstAudio) {
+										const audioUrl = this.mwAPI.getAudioUrl(firstAudio.audioId);
+										html += `<button class="icon-btn small" onclick="window.app.playAudio('${audioUrl}', '${word}')">
+													<i class="fas fa-volume-up"></i> 发音
+												</button>`;
+									} else {
+										html += `<button class="icon-btn small" onclick="window.app.speakWord('${word}')">
+													<i class="fas fa-volume-up"></i> 发音
+												</button>`;
+									}
+								}
 
-                            const renderDef = (def, depth = 0) => {
-                                const indent = depth * 20;
-                                let block = `<div style="margin-bottom:12px; padding-left:${indent}px; border-left: ${depth === 0 ? '3px solid var(--primary-color)' : '2px solid var(--gray-color)'};">`;
+								// 词源
+								if (entry.etymology) {
+									html += `<div style="font-size:0.9rem; color:var(--gray-color); margin-bottom:6px;">
+												<strong>词源：</strong> ${entry.etymology}
+											</div>`;
+								}
 
-                                let senseHeader = '';
-                                if (def.senseNumber) senseHeader += `<strong>${def.senseNumber}.</strong> `;
-                                if (def.grammaticalLabel) senseHeader += `<span style="color:var(--gray-color);">[${def.grammaticalLabel}]</span> `;
-                                if (def.subjectStatusLabels && def.subjectStatusLabels.length > 0) {
-                                    senseHeader += `<span style="color:var(--gray-color); font-style:italic;">(${def.subjectStatusLabels.join(', ')})</span> `;
-                                }
-                                if (senseHeader) block += `<div style="margin-bottom:4px;">${senseHeader}</div>`;
+								// 定义递归渲染函数
+								const renderDef = (def, depth = 0) => {
+									const indent = depth * 20;
+									let block = `<div style="margin-bottom:12px; padding-left:${indent}px; border-left: ${depth === 0 ? '3px solid var(--primary-color)' : '2px solid var(--gray-color)'};">`;
 
-                                if (def.definitionText) {
-                                    block += `<div class="def-text">${def.definitionText}</div>`;
-                                }
-                                if (def.examples && def.examples.length > 0) {
-                                    block += `<div style="margin-top:4px; margin-left:12px; font-style:italic; color:var(--gray-color); font-size:0.95rem;">`;
-                                    def.examples.forEach(ex => {
-                                        block += `<div>“${ex}”</div>`;
-                                    });
-                                    block += `</div>`;
-                                }
+									let senseHeader = '';
+									if (def.senseNumber) senseHeader += `<strong>${def.senseNumber}.</strong> `;
+									if (def.grammaticalLabel) senseHeader += `<span style="color:var(--gray-color);">[${def.grammaticalLabel}]</span> `;
+									if (def.subjectStatusLabels && def.subjectStatusLabels.length > 0) {
+										senseHeader += `<span style="color:var(--gray-color); font-style:italic;">(${def.subjectStatusLabels.join(', ')})</span> `;
+									}
+									if (senseHeader) block += `<div style="margin-bottom:4px;">${senseHeader}</div>`;
 
-                                if (def.subsenses && def.subsenses.length > 0) {
-                                    def.subsenses.forEach(sub => {
-                                        block += renderDef(sub, depth + 1);
-                                    });
-                                }
+									if (def.definitionText) {
+										block += `<div class="def-text">${def.definitionText}</div>`;
+									}
+									if (def.examples && def.examples.length > 0) {
+										block += `<div style="margin-top:4px; margin-left:12px; font-style:italic; color:var(--gray-color); font-size:0.95rem;">`;
+										def.examples.forEach(ex => {
+											block += `<div>“${ex}”</div>`;
+										});
+										block += `</div>`;
+									}
 
-                                block += '</div>';
-                                return block;
-                            };
+									if (def.subsenses && def.subsenses.length > 0) {
+										def.subsenses.forEach(sub => {
+											block += renderDef(sub, depth + 1);
+										});
+									}
 
-                            dictData.definitions.forEach(def => {
-                                html += renderDef(def, 0);
-                            });
+									block += '</div>';
+									return block;
+								};
 
-                            if (dictData.synonymsInfo) {
-                                html += '<div style="margin: 12px 0; padding: 10px; background: var(--light-color); border-radius: 6px;">';
-                                html += '<div style="font-weight:600; margin-bottom:6px;">📌 同义词辨析</div>';
-                                dictData.synonymsInfo.paragraphs.forEach(p => {
-                                    html += `<p style="margin:4px 0;">${p}</p>`;
-                                });
-                                dictData.synonymsInfo.examples.forEach(ex => {
-                                    html += `<div style="font-style:italic; color:var(--gray-color); margin-left:8px;">“${ex}”</div>`;
-                                });
-                                html += '</div>';
-                            }
+								// 渲染当前词条的所有定义
+								entry.definitions.forEach(def => {
+									html += renderDef(def, 0);
+								});
 
-                            if (dictData.quotes && dictData.quotes.length > 0) {
-                                html += '<div style="margin: 12px 0;">';
-                                html += '<div style="font-weight:600; margin-bottom:6px;">📝 引文示例</div>';
-                                dictData.quotes.forEach(q => {
-                                    html += `<div style="margin-bottom:8px; padding-left:8px; border-left: 2px solid var(--secondary-color);">`;
-                                    html += `<div style="font-style:italic;">“${q.text}”</div>`;
-                                    if (q.source) {
-                                        html += `<div style="font-size:0.85rem; color:var(--gray-color);">— ${q.source}</div>`;
-                                    }
-                                    html += `</div>`;
-                                });
-                                html += '</div>';
-                            }
-                        } else {
-                            const dictKey = await window.wordDB.getSetting('mwDictKey');
-                            if (!dictKey) {
-                                html += '<p class="mw-info">未配置词典 API Key，如需查看词典释义请配置。</p>';
-                            } else {
-                                html += '<p class="mw-error">未找到词典释义，可能单词拼写有误。</p>';
-                            }
-                        }
+								// 同义词辨析（如果有）
+								if (entry.synonymsInfo) {
+									html += '<div style="margin: 12px 0; padding: 10px; background: var(--light-color); border-radius: 6px;">';
+									html += '<div style="font-weight:600; margin-bottom:6px;">📌 同义词辨析</div>';
+									entry.synonymsInfo.paragraphs.forEach(p => {
+										html += `<p style="margin:4px 0;">${p}</p>`;
+									});
+									entry.synonymsInfo.examples.forEach(ex => {
+										html += `<div style="font-style:italic; color:var(--gray-color); margin-left:8px;">“${ex}”</div>`;
+									});
+									html += '</div>';
+								}
 
-                        if (thesData) {
-                            let hasThesData = false;
-                            if (thesData.synonyms.length > 0) {
-                                hasThesData = true;
-                                html += `<div class="mw-synonyms"><span class="label">同义词：</span><div class="syn-list">`;
-                                thesData.synonyms.slice(0, 20).forEach(syn => {
-                                    html += `<span>${syn}</span>`;
-                                });
-                                html += `</div></div>`;
-                            }
-                            if (thesData.nearSynonyms.length > 0) {
-                                hasThesData = true;
-                                html += `<div class="mw-synonyms"><span class="label">近义词：</span><div class="syn-list">`;
-                                thesData.nearSynonyms.slice(0, 20).forEach(syn => {
-                                    html += `<span>${syn}</span>`;
-                                });
-                                html += `</div></div>`;
-                            }
-                            if (thesData.antonyms.length > 0) {
-                                hasThesData = true;
-                                html += `<div class="mw-synonyms"><span class="label">反义词：</span><div class="syn-list">`;
-                                thesData.antonyms.slice(0, 10).forEach(ant => {
-                                    html += `<span>${ant}</span>`;
-                                });
-                                html += `</div></div>`;
-                            }
-                            if (thesData.nearAntonyms.length > 0) {
-                                hasThesData = true;
-                                html += `<div class="mw-synonyms"><span class="label">近反义词：</span><div class="syn-list">`;
-                                thesData.nearAntonyms.slice(0, 10).forEach(ant => {
-                                    html += `<span>${ant}</span>`;
-                                });
-                                html += `</div></div>`;
-                            }
-                            if (thesData.related.length > 0) {
-                                hasThesData = true;
-                                html += `<div class="mw-synonyms"><span class="label">相关词：</span><div class="syn-list">`;
-                                thesData.related.slice(0, 15).forEach(rel => {
-                                    html += `<span>${rel}</span>`;
-                                });
-                                html += `</div></div>`;
-                            }
-                            if (!hasThesData) {
-                                const thesKey = await window.wordDB.getSetting('mwThesKey');
-                                if (!thesKey) {
-                                    html += '<p class="mw-info">未配置同义词 API Key，如需查看同义词请配置。</p>';
-                                } else {
-                                    html += '<p class="mw-error">未找到同义词数据。</p>';
-                                }
-                            }
-                        } else {
-                            const thesKey = await window.wordDB.getSetting('mwThesKey');
-                            if (!thesKey) {
-                                html += '<p class="mw-info">未配置同义词 API Key，如需查看同义词请配置。</p>';
-                            } else {
-                                html += '<p class="mw-error">同义词数据获取失败。</p>';
-                            }
-                        }
+								// 引文
+								if (entry.quotes && entry.quotes.length > 0) {
+									html += '<div style="margin: 12px 0;">';
+									html += '<div style="font-weight:600; margin-bottom:6px;">📝 引文示例</div>';
+									entry.quotes.forEach(q => {
+										html += `<div style="margin-bottom:8px; padding-left:8px; border-left: 2px solid var(--secondary-color);">`;
+										html += `<div style="font-style:italic;">“${q.text}”</div>`;
+										if (q.source) {
+											html += `<div style="font-size:0.85rem; color:var(--gray-color);">— ${q.source}</div>`;
+										}
+										html += `</div>`;
+									});
+									html += '</div>';
+								}
+							});
+						} else {
+							const dictKey = await window.wordDB.getSetting('mwDictKey');
+							if (!dictKey) {
+								html += '<p class="mw-info">未配置词典 API Key，如需查看词典释义请配置。</p>';
+							} else {
+								html += '<p class="mw-error">未找到词典释义，可能单词拼写有误。</p>';
+							}
+						}
 
-                        html += '</div>';
-                        containerEl.innerHTML = html;
+						// --- 同义词部分（与词条无关，放在最后） ---
+						if (thesData) {
+							let hasThesData = false;
+							if (thesData.synonyms.length > 0) {
+								hasThesData = true;
+								html += `<div class="mw-synonyms"><span class="label">同义词：</span><div class="syn-list">`;
+								thesData.synonyms.slice(0, 20).forEach(syn => {
+									html += `<span>${syn}</span>`;
+								});
+								html += `</div></div>`;
+							}
+							if (thesData.nearSynonyms.length > 0) {
+								hasThesData = true;
+								html += `<div class="mw-synonyms"><span class="label">近义词：</span><div class="syn-list">`;
+								thesData.nearSynonyms.slice(0, 20).forEach(syn => {
+									html += `<span>${syn}</span>`;
+								});
+								html += `</div></div>`;
+							}
+							if (thesData.antonyms.length > 0) {
+								hasThesData = true;
+								html += `<div class="mw-synonyms"><span class="label">反义词：</span><div class="syn-list">`;
+								thesData.antonyms.slice(0, 10).forEach(ant => {
+									html += `<span>${ant}</span>`;
+								});
+								html += `</div></div>`;
+							}
+							if (thesData.nearAntonyms.length > 0) {
+								hasThesData = true;
+								html += `<div class="mw-synonyms"><span class="label">近反义词：</span><div class="syn-list">`;
+								thesData.nearAntonyms.slice(0, 10).forEach(ant => {
+									html += `<span>${ant}</span>`;
+								});
+								html += `</div></div>`;
+							}
+							if (thesData.related.length > 0) {
+								hasThesData = true;
+								html += `<div class="mw-synonyms"><span class="label">相关词：</span><div class="syn-list">`;
+								thesData.related.slice(0, 15).forEach(rel => {
+									html += `<span>${rel}</span>`;
+								});
+								html += `</div></div>`;
+							}
+							if (!hasThesData) {
+								const thesKey = await window.wordDB.getSetting('mwThesKey');
+								if (!thesKey) {
+									html += '<p class="mw-info">未配置同义词 API Key，如需查看同义词请配置。</p>';
+								} else {
+									html += '<p class="mw-error">未找到同义词数据。</p>';
+								}
+							}
+						} else {
+							const thesKey = await window.wordDB.getSetting('mwThesKey');
+							if (!thesKey) {
+								html += '<p class="mw-info">未配置同义词 API Key，如需查看同义词请配置。</p>';
+							} else {
+								html += '<p class="mw-error">同义词数据获取失败。</p>';
+							}
+						}
 
-                        if (!dictData && !thesData) {
-                            containerEl.innerHTML = '<p class="mw-error">未找到任何韦氏数据，请检查单词拼写或 API Key 是否有效。</p>';
-                        }
-                        // 让韦氏结果里的英文单词（释义/例句/同反义词）可点击查词
-                        this.makeClickable(containerEl);
+						html += '</div>';
+						containerEl.innerHTML = html;
+						this.makeClickable(containerEl);
 
-                    } catch (error) {
-                        console.error('韦氏查询失败:', error);
-                        containerEl.innerHTML = `<p class="mw-error">查询失败：${error.message}</p>`;
-                        if (error.message.includes('API Key')) {
-                            this.showNotification('请至少配置一个 Merriam-Webster API Key', 'warning');
-                        }
-                    }
-                }
+						if (!dictData || dictData.length === 0) {
+							// 如果没有任何词典数据，但错误信息已经显示
+						}
+					} catch (error) {
+						console.error('韦氏查询失败:', error);
+						containerEl.innerHTML = `<p class="mw-error">查询失败：${error.message}</p>`;
+						if (error.message.includes('API Key')) {
+							this.showNotification('请至少配置一个 Merriam-Webster API Key', 'warning');
+						}
+					}
+				}
 
                 // ===== 查词弹窗（学习卡片点击单词 / 例句单词）=====
                 async openWordLookup(word) {
