@@ -2916,11 +2916,22 @@
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.WORDS], 'readonly');
                         const store = transaction.objectStore(STORES.WORDS);
-                        const index = store.index('word_list');
-                        const range = IDBKeyRange.only([normalizedWord, targetListId]);
-                        const request = index.get(range);
-                        request.onsuccess = () => resolve(request.result);
-                        request.onerror = () => reject(request.error);
+                        if (targetListId != null) {
+                            // 有具体词库：用复合索引精确查 [word, listId]
+                            const index = store.index('word_list');
+                            const range = IDBKeyRange.only([normalizedWord, targetListId]);
+                            const request = index.get(range);
+                            request.onsuccess = () => resolve(request.result);
+                            request.onerror = () => reject(request.error);
+                        } else {
+                            // 未分类（listId=null）：复合索引不含 null 键，回退全表扫描过滤
+                            const request = store.getAll();
+                            request.onsuccess = () => {
+                                const all = request.result || [];
+                                resolve(all.find(w => w.word === normalizedWord && (w.listId == null)) || null);
+                            };
+                            request.onerror = () => reject(request.error);
+                        }
                     });
                 }
 
@@ -4605,7 +4616,7 @@
                         });
                     }
 
-                    // 查词弹窗：主单词点击 + 例句单词委托 + 弹窗按钮
+                    // 查词弹窗：主单词点击 + 全局单词委托 + 弹窗按钮
                     const currentWordEl = document.getElementById('currentWord');
                     if (currentWordEl) {
                         currentWordEl.addEventListener('click', () => {
@@ -4613,15 +4624,13 @@
                             if (w) this.openWordLookup(w);
                         });
                     }
-                    const wordExampleEl = document.getElementById('wordExample');
-                    if (wordExampleEl) {
-                        wordExampleEl.addEventListener('click', (e) => {
-                            const target = e.target;
-                            if (target.classList && target.classList.contains('clickable-word')) {
-                                this.openWordLookup(target.dataset.word);
-                            }
-                        });
-                    }
+                    // 全局委托：任何 .clickable-word（释义/例句/词典详情/韦氏/词库列表/生词本/复习列表/最近活动）点击均打开查词弹窗
+                    document.addEventListener('click', (e) => {
+                        const target = e.target.closest && e.target.closest('.clickable-word');
+                        if (target && target.dataset.word) {
+                            this.openWordLookup(target.dataset.word);
+                        }
+                    });
                     document.getElementById('lookupModalClose')?.addEventListener('click', () => this.closeWordLookup());
                     document.getElementById('wordLookupModal')?.addEventListener('click', (e) => {
                         if (e.target.id === 'wordLookupModal') this.closeWordLookup();
@@ -4906,6 +4915,8 @@
                             }
                         }
                         recentList.innerHTML = html;
+                        // 让首页最近活动里的单词可点击查词
+                        this.makeClickable(recentList);
                     } catch (error) {
                         console.error('加载最近活动失败:', error);
                     }
@@ -5057,7 +5068,7 @@
                         if (currentWord) currentWord.textContent = freshData.word;
                         if (wordPhonetic) wordPhonetic.textContent = freshData.phonetic;
                         if (wordMeaning) wordMeaning.textContent = freshData.meaning;
-                        if (wordExample) wordExample.innerHTML = this.renderClickableExample(freshData.example || '暂无例句');
+                        if (wordExample) wordExample.textContent = freshData.example || '暂无例句';
                         this.updateDictionaryDetails(freshData);
                         this.currentAudioUrl = freshData.audioUrl;
                         const autoPlay = await this.db.getSetting('autoPlaySound');
@@ -5073,7 +5084,7 @@
                         if (currentWord) currentWord.textContent = wordData.word;
                         if (wordPhonetic) wordPhonetic.textContent = wordData.phonetic || '/ˈwɜːd/';
                         if (wordMeaning) wordMeaning.textContent = wordData.meaning || '暂无释义';
-                        if (wordExample) wordExample.innerHTML = this.renderClickableExample(wordData.example || '暂无例句');
+                        if (wordExample) wordExample.textContent = wordData.example || '暂无例句';
                     }
                     const difficultyBadge = document.getElementById('difficultyBadge');
                     if (difficultyBadge) {
@@ -5110,6 +5121,8 @@
                         mwResult.style.display = 'none';
                         mwResult.innerHTML = '';
                     }
+                    // 让释义/例句/词典详情里的所有英文单词可点击查词
+                    this.makeClickable(document.getElementById('wordDetails'));
                     this.applyLearningModeLayout();
                     this.hideLoader();
                 }
@@ -5175,6 +5188,7 @@
                     } else {
                         containerEl.innerHTML = '<p class="empty-state">暂无详细词典数据</p>';
                     }
+                    this.makeClickable(containerEl);
                 }
 
                 async handleAnswer(correct) {
@@ -5826,6 +5840,8 @@
                             } else {
                                 wordsList.insertAdjacentHTML('beforeend', batchHtml.join(''));
                             }
+                            // 让本批新增单词文本/释义中的英文单词可点击查词
+                            this.makeClickable(wordsList);
                             await new Promise(resolve => setTimeout(resolve, 10));
                         }
                     } catch (error) {
@@ -5914,6 +5930,8 @@
                             `;
                         }
                         newWordsList.innerHTML = html;
+                        // 让生词本里的单词文本/释义可点击查词
+                        this.makeClickable(newWordsList);
                     } catch (error) {
                         console.error('加载生词本失败:', error);
                         const newWordsList = document.getElementById('newWordsList');
@@ -6125,6 +6143,8 @@
                             html += `<p class="empty-state">还有 ${sortedWords.length - 50} 个单词待复习...</p>`;
                         }
                         reviewList.innerHTML = html;
+                        // 让复习列表里的单词文本/释义可点击查词
+                        this.makeClickable(reviewList);
                     } catch (error) {
                         console.error('加载复习页面失败:', error);
                         const reviewList = document.getElementById('reviewList');
@@ -7099,6 +7119,8 @@
                         if (!dictData && !thesData) {
                             containerEl.innerHTML = '<p class="mw-error">未找到任何韦氏数据，请检查单词拼写或 API Key 是否有效。</p>';
                         }
+                        // 让韦氏结果里的英文单词（释义/例句/同反义词）可点击查词
+                        this.makeClickable(containerEl);
 
                     } catch (error) {
                         console.error('韦氏查询失败:', error);
@@ -7140,6 +7162,8 @@
                         if (summary.length && freeDictEl) {
                             freeDictEl.insertAdjacentHTML('afterbegin', `<div style="margin-bottom:8px;">${summary.join(' ')}</div>`);
                         }
+                        // 让弹窗内 free dict 释义/音标/摘要中的英文单词可点击查词
+                        this.makeClickable(freeDictEl);
                         this.currentAudioUrl = data.audioUrl;
                     } catch (e) {
                         if (freeDictEl) freeDictEl.innerHTML = '<p class="empty-state">词典数据加载失败</p>';
@@ -7184,16 +7208,53 @@
                     await this.renderMwResult(word, mwResultEl);
                 }
 
-                // 把例句文本中的英文单词包成可点击 span（保留中文与标点）
-                renderClickableExample(text) {
-                    if (!text) return '暂无例句';
-                    const escaped = String(text)
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;');
-                    return escaped.replace(/([a-zA-Z][a-zA-Z'-]*)/g, (m) =>
-                        `<span class="clickable-word" data-word="${m}">${m}</span>`
+                // 通用：把容器内所有文本节点的英文单词包成可点击 span（保留中文/标点/HTML 结构）
+                // 跳过 button/a/input/textarea/script/style 及已包装的 .clickable-word 子树，避免破坏交互与重复包装
+                makeClickable(containerEl) {
+                    if (!containerEl || !document.createTreeWalker) return;
+                    const skipTags = { BUTTON: 1, A: 1, INPUT: 1, TEXTAREA: 1, SCRIPT: 1, STYLE: 1 };
+                    const walker = document.createTreeWalker(
+                        containerEl,
+                        NodeFilter.SHOW_TEXT,
+                        {
+                            acceptNode(node) {
+                                const parent = node.parentElement;
+                                if (!parent) return NodeFilter.FILTER_REJECT;
+                                if (skipTags[parent.tagName]) return NodeFilter.FILTER_REJECT;
+                                if (parent.closest('button, a, .clickable-word')) return NodeFilter.FILTER_REJECT;
+                                if (!/[a-zA-Z]/.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+                                return NodeFilter.FILTER_ACCEPT;
+                            }
+                        }
                     );
+                    const nodes = [];
+                    while (walker.nextNode()) nodes.push(walker.currentNode);
+                    const wordRe = /([a-zA-Z][a-zA-Z'-]*)/g;
+                    for (const node of nodes) {
+                        const text = node.nodeValue;
+                        wordRe.lastIndex = 0;
+                        let m;
+                        let hasMatch = false;
+                        const frag = document.createDocumentFragment();
+                        let lastIdx = 0;
+                        while ((m = wordRe.exec(text)) !== null) {
+                            hasMatch = true;
+                            if (m.index > lastIdx) {
+                                frag.appendChild(document.createTextNode(text.slice(lastIdx, m.index)));
+                            }
+                            const span = document.createElement('span');
+                            span.className = 'clickable-word';
+                            span.dataset.word = m[0];
+                            span.textContent = m[0];
+                            frag.appendChild(span);
+                            lastIdx = m.index + m[0].length;
+                        }
+                        if (!hasMatch) continue;
+                        if (lastIdx < text.length) {
+                            frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+                        }
+                        node.parentNode.replaceChild(frag, node);
+                    }
                 }
             }
 
