@@ -2468,7 +2468,7 @@
         // ==========================================
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 5;
+            const DB_VERSION = 6;
 
             const STORES = {
                 WORDS: 'words',
@@ -2657,6 +2657,13 @@
                                     }
                                 }
                             }
+							if (oldVersion < 6) {
+								console.log('迁移到版本 6：添加 word 索引');
+								const wordsStore = transaction.objectStore(STORES.WORDS);
+								if (!wordsStore.indexNames.contains('word')) {
+									wordsStore.createIndex('word', 'word', { unique: false });
+								}
+							}
                         };
                         
                         request.onblocked = () => {
@@ -4114,7 +4121,21 @@
 						thesBase: 'https://www.dictionaryapi.com/api/v3/references/thesaurus/json',
 						cleanMWText(text) {
 							if (!text) return '';
-							return text.replace(/\{.*?\}/g, '').trim();
+							// 处理 {d_link|word|...} => word
+							let cleaned = text.replace(/\{d_link\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
+							// 处理 {sx|word||} => word
+							cleaned = cleaned.replace(/\{sx\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
+							// 处理 {et_link|word|...} => word
+							cleaned = cleaned.replace(/\{et_link\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
+							// 移除其他 {....} 标签（如 {bc}, {it}, {/it}, {sc}, {ma}, {ds||1||} 等）
+							cleaned = cleaned.replace(/\{.*?\}/g, '');
+							// 清理多余的逗号和空格
+							cleaned = cleaned.replace(/\s*,\s*,/g, ',');   // 多个逗号合并
+							cleaned = cleaned.replace(/,\s*$/, '');        // 末尾逗号去除
+							// 清理空括号
+							cleaned = cleaned.replace(/\s*\(\s*,\s*\)/g, '');
+							cleaned = cleaned.replace(/\s*\(\s*see\s*\)/g, '');
+							return cleaned.trim();
 						},
 						getAudioUrl(audioId) {
 							if (!audioId) return null;
@@ -4155,23 +4176,30 @@
 
 							const cleanEtymology = (etData) => {
 								if (!etData) return '';
-								// 如果是字符串，直接清理
-								if (typeof etData === 'string') return this.cleanMWText(etData);
-								// 如果是数组
+								if (typeof etData === 'string') {
+									return this.cleanMWText(etData);
+								}
 								if (Array.isArray(etData)) {
-									// 处理常见格式 ["text", "内容"]
-									if (etData.length === 2 && etData[0] === 'text' && typeof etData[1] === 'string') {
-										return this.cleanMWText(etData[1]);
+									// 如果数组第一个元素是字符串键名（如 "text", "et_snote"），则忽略它，只处理后续部分
+									if (etData.length >= 2 && typeof etData[0] === 'string') {
+										// 从索引1开始递归处理
+										let parts = [];
+										for (let i = 1; i < etData.length; i++) {
+											let val = cleanEtymology(etData[i]);
+											if (val) parts.push(val);
+										}
+										return parts.join(' ');
 									}
-									// 其他数组：递归处理每个元素，合并
+									// 否则作为普通数组递归每个元素
 									let parts = etData.map(item => cleanEtymology(item)).filter(Boolean);
 									return parts.join(' ');
 								}
-								// 如果是对象
 								if (typeof etData === 'object') {
-									// 若对象有 text 属性，直接取 text
-									if (etData.text) return this.cleanMWText(etData.text);
-									// 否则遍历所有值递归
+									// 如果有 text 属性，取 text
+									if (etData.text) return cleanEtymology(etData.text);
+									// 如果有 et_snote，递归处理
+									if (etData.et_snote) return cleanEtymology(etData.et_snote);
+									// 其他：遍历所有值
 									let parts = Object.values(etData).map(val => cleanEtymology(val)).filter(Boolean);
 									return parts.join(' ');
 								}
@@ -4257,17 +4285,21 @@
 											synBlock.pt.forEach(item => {
 												if (Array.isArray(item) && item[0] === 'text') {
 													const text = item[1];
-													paragraphs.push(this.cleanMWText(text));
-													const extracted = extractSynonyms(text);
-													extracted.forEach(w => allSynonyms.add(w));
+													// 不要调用 cleanMWText，直接 push 原始文本
+													paragraphs.push(text);
+													// 提取词头用于 synonymsList
+													const scMatches = text.match(/\{sc\}([^{}]+)\{\/sc\}/g);
+													if (scMatches) scMatches.forEach(m => allSynonyms.add(m.replace(/\{sc\}|\{\/sc\}/g, '').trim()));
+													const sxMatches = text.match(/\{sx\|([^|]+)/g);
+													if (sxMatches) sxMatches.forEach(m => allSynonyms.add(m.replace(/\{sx\|/, '').trim()));
 												} else if (Array.isArray(item) && item[0] === 'vis' && Array.isArray(item[1])) {
-													item[1].forEach(vis => vis.t ? examples.push(this.cleanMWText(vis.t)) : null);
+													item[1].forEach(vis => vis.t ? examples.push(vis.t) : null);
 												}
 											});
 										}
 									});
 									result.synonymsList = Array.from(allSynonyms);
-									result.synonymsInfo.paragraphs = paragraphs;
+									result.synonymsInfo.paragraphs = paragraphs;   // 原始文本
 									result.synonymsInfo.examples = examples;
 								}
 
@@ -4502,7 +4534,7 @@
                             this.closeSidebar();
                         });
                     });
-
+					document.getElementById('lookupModalAddNewWordBtn')?.addEventListener('click', () => this.addLookupWordToNewWords());
                     document.getElementById('menuBtn').addEventListener('click', () => this.openSidebar());
                     document.getElementById('closeSidebar').addEventListener('click', () => this.closeSidebar());
                     document.getElementById('overlay').addEventListener('click', () => this.closeSidebar());
@@ -6966,6 +6998,7 @@
 									}
 									if (senseHeader) block += `<div style="margin-bottom:4px;">${senseHeader}</div>`;
 
+									// 只有有定义文本时才显示
 									if (def.definitionText) {
 										block += `<div class="def-text">${def.definitionText}</div>`;
 									}
@@ -6993,14 +7026,19 @@
 								});
 
 								// 同义词辨析（如果有）
-								if (entry.synonymsInfo) {
-									html += '<div style="margin: 12px 0; padding: 10px; background: var(--light-color); border-radius: 6px;">';
-									html += '<div style="font-weight:600; margin-bottom:6px;">📌 同义词辨析</div>';
+								if (entry.synonymsInfo && (entry.synonymsInfo.paragraphs.length > 0 || entry.synonymsInfo.examples.length > 0)) {
+									html += '<div style="margin: 16px 0; padding: 12px; background: var(--light-color); border-radius: 8px;">';
+									html += '<div style="font-weight:600; margin-bottom:10px; font-size:1rem;">📌 同义词辨析</div>';
 									entry.synonymsInfo.paragraphs.forEach(p => {
-										html += `<p style="margin:4px 0;">${p}</p>`;
+										// 将 {sc}...{/sc} 替换为加粗，并在此后添加换行（可选）
+										let pText = p.replace(/\{sc\}([^{}]+)\{\/sc\}/g, (match, word) => `<strong>${word}</strong>`);
+										// 将 {it}...{/it} 替换为斜体
+										pText = pText.replace(/\{it\}([^{}]+)\{\/it\}/g, '<i>$1</i>');
+										html += `<p style="margin: 8px 0; line-height:1.6;">${pText}</p>`;
 									});
 									entry.synonymsInfo.examples.forEach(ex => {
-										html += `<div style="font-style:italic; color:var(--gray-color); margin-left:8px;">“${ex}”</div>`;
+										let cleanEx = ex.replace(/\{.*?\}/g, '').trim();
+										html += `<div style="font-style:italic; color:var(--gray-color); margin:6px 0 6px 16px;">“${cleanEx}”</div>`;
 									});
 									html += '</div>';
 								}
@@ -7149,7 +7187,59 @@
                     if (modal) modal.style.display = 'none';
                     this.lookupModalWord = null;
                 }
+				async addLookupWordToNewWords() {
+					const word = this.lookupModalWord;
+					if (!word) {
+						this.showNotification('没有单词可添加', 'warning');
+						return;
+					}
 
+					try {
+						// 1. 查询单词是否已在库中
+						let wordData = await this.db.getWord(word);
+						let wordId;
+
+						if (wordData) {
+							wordId = wordData.id;
+						} else {
+							// 2. 不在库中，先加入默认单词库
+							const listId = await this.db.getSetting('currentListId');
+							const targetListId = (listId && listId !== 'all') ? parseInt(listId) : null;
+							wordId = await this.db.addWord({
+								word: word,
+								meaning: '',
+								source: 'lookup',
+								difficulty: 3,
+								listId: targetListId
+							});
+							if (!wordId) {
+								// 极少数并发冲突，再次查询
+								wordData = await this.db.getWord(word);
+								if (wordData) wordId = wordData.id;
+								else throw new Error('无法将单词加入词库');
+							}
+						}
+
+						// 3. 检查是否已在生词本
+						const inNewWords = await this.db.isInNewWords(wordId);
+						if (inNewWords) {
+							this.showNotification(`"${word}" 已在生词本中`, 'info');
+							return;
+						}
+
+						// 4. 加入生词本
+						await this.db.addToNewWords(wordId);
+						this.showNotification(`"${word}" 已加入生词本`, 'success');
+
+						// 可选：如果当前页面是生词本，刷新列表
+						if (this.currentPage === 'new-words') {
+							await this.loadNewWordsList();
+						}
+					} catch (e) {
+						console.error('加入生词本失败:', e);
+						this.showNotification('加入生词本失败', 'error');
+					}
+				}
                 async addLookupWordToDB() {
                     const word = this.lookupModalWord;
                     if (!word) return;
@@ -7247,6 +7337,9 @@
                 <button class="action-btn small primary" id="lookupModalAddBtn">
                     <i class="fas fa-plus-circle"></i> 加入词库
                 </button>
+				<button class="action-btn small" id="lookupModalAddNewWordBtn">
+					<i class="fas fa-star"></i> 加入生词本
+				</button>
                 <button class="action-btn small" id="lookupModalSpeakBtn">
                     <i class="fas fa-volume-up"></i> 发音
                 </button>
@@ -7259,4 +7352,4 @@
         </div>
     </div>
 </body>
-</html>
+	</html>
