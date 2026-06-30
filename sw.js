@@ -11,6 +11,7 @@ const CURRENT_ORIGIN = self.location.origin;  // https://unplage.github.io
 const STATIC_ASSETS = [
     `${CURRENT_PATH}/`,           // /kmword/
     `${CURRENT_PATH}/index.html`, // /kmword/index.html
+    `${CURRENT_PATH}/manifest.json`,
     // CDN 资源可以保留
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
@@ -83,8 +84,9 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // API 请求使用网络优先策略
-    if (url.hostname === 'api.dictionaryapi.dev') {
+    // 两种API 请求使用网络优先策略
+    const apiHosts = ['api.dictionaryapi.dev', 'www.dictionaryapi.com'];
+    if (apiHosts.includes(url.hostname)) {
         event.respondWith(
             fetch(request)
                 .then((response) => {
