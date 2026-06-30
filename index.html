@@ -4121,8 +4121,14 @@
 						thesBase: 'https://www.dictionaryapi.com/api/v3/references/thesaurus/json',
 						cleanMWText(text) {
 							if (!text) return '';
+							// 处理 {dx_ety}...{/dx_ety} 包裹，提取内部内容并递归清理
+							let cleaned = text.replace(/\{dx_ety\}(.*?)\{\/dx_ety\}/g, (match, content) => {
+								return this.cleanMWText(content);
+							});
+							// 处理 {dxt|word|...} => word
+							cleaned = cleaned.replace(/\{dxt\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
 							// 处理 {d_link|word|...} => word
-							let cleaned = text.replace(/\{d_link\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
+							cleaned = cleaned.replace(/\{d_link\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
 							// 处理 {sx|word||} => word
 							cleaned = cleaned.replace(/\{sx\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
 							// 处理 {et_link|word|...} => word
@@ -4135,6 +4141,8 @@
 							// 清理空括号
 							cleaned = cleaned.replace(/\s*\(\s*,\s*\)/g, '');
 							cleaned = cleaned.replace(/\s*\(\s*see\s*\)/g, '');
+							// 移除 :数字 后缀（如 compare:1）
+							//cleaned = cleaned.replace(/:\d+/g, '');
 							return cleaned.trim();
 						},
 						getAudioUrl(audioId) {
@@ -7352,4 +7360,4 @@
         </div>
     </div>
 </body>
-	</html>
+</html>
