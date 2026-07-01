@@ -4127,6 +4127,8 @@
 							});
 							// 处理 {dxt|word|...} => word
 							cleaned = cleaned.replace(/\{dxt\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
+							// 处理 {a_link|word|...} => word  ← 新增
+    						cleaned = cleaned.replace(/\{a_link\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
 							// 处理 {d_link|word|...} => word
 							cleaned = cleaned.replace(/\{d_link\|([^|]+)(?:\|[^}]*)?\}/g, '$1');
 							// 处理 {sx|word||} => word
