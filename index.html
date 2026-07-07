@@ -4258,7 +4258,14 @@
 									inflections: [],
 									audioId: '',
 									// ===== 新增 quotes 字段 =====
-									quotes: []
+									quotes: [],
+									stems: entry.meta?.stems ? entry.meta.stems.map(s => this.cleanMWText(s)) : [],
+									derivedWords: entry.uros ? entry.uros.map(u => ({
+										word: this.cleanMWText(u.ure || ''),
+										partOfSpeech: this.cleanMWText(u.fl || '')
+									})).filter(u => u.word): [],									
+									date: entry.date ? this.cleanMWText(entry.date) : '',
+									offensive: entry.meta?.offensive || false
 								};
 								if (entry.hwi?.prs) {
 									const prs = entry.hwi.prs.find(p => p.sound?.audio);
@@ -6992,6 +6999,37 @@
 								if (entry.etymology) {
 									html += `<div style="font-size:0.9rem; color:var(--gray-color); margin-bottom:6px;">
 												<strong>词源：</strong> ${entry.etymology}
+											</div>`;
+								}
+
+								// --- 新增：词形变化 (stems) ---
+								if (entry.stems && entry.stems.length > 0) {
+									html += `<div style="font-size:0.9rem; color:var(--gray-color); margin-bottom:6px;">
+												<strong>词形变化：</strong> ${entry.stems.join('、')}
+											</div>`;
+								}
+
+								// --- 新增：派生词 (derivedWords) ---
+								if (entry.derivedWords && entry.derivedWords.length > 0) {
+									const derivedText = entry.derivedWords.map(d => 
+										d.partOfSpeech ? `${d.word} (${d.partOfSpeech})` : d.word
+									).join('、');
+									html += `<div style="font-size:0.9rem; color:var(--gray-color); margin-bottom:6px;">
+												<strong>派生词：</strong> ${derivedText}
+											</div>`;
+								}
+
+								// --- 新增：年代 (date) ---
+								if (entry.date) {
+									html += `<div style="font-size:0.9rem; color:var(--gray-color); margin-bottom:6px;">
+												<strong>最早记录：</strong> ${entry.date}
+											</div>`;
+								}
+
+								// --- 新增：冒犯性标记 ---
+								if (entry.offensive) {
+									html += `<div style="font-size:0.9rem; color:var(--danger-color); margin-bottom:6px;">
+												⚠️ 本词可能具有冒犯性
 											</div>`;
 								}
 
