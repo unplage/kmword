@@ -342,20 +342,26 @@
 
         <!-- 阅读器页面 -->
         <section id="readerPage" class="page" aria-label="阅读器">
-            <div class="reader-toolbar">
+            <div class="reader-toolbar" id="readerToolbar">
                 <button class="reader-btn" id="readerBackBtn" title="返回">
                     <i class="fas fa-arrow-left"></i>
                 </button>
                 <span class="reader-title" id="readerTitle">加载中...</span>
+                <button class="reader-btn reader-toggle-btn" id="readerToggleBtn" title="折叠工具栏">
+                    <i class="fas fa-chevron-up"></i>
+                </button>
                 <div class="reader-controls">
                     <button class="reader-btn" id="readerFontMinus" title="缩小字体">A⁻</button>
                     <span class="reader-font-size" id="readerFontSize">18</span>
                     <button class="reader-btn" id="readerFontPlus" title="放大字体">A⁺</button>
-                    <button class="reader-btn" id="readerSpeakBtn" title="朗读">
-                        <i class="fas fa-volume-up"></i>
+                    <button class="reader-btn" id="readerPlayBtn" title="朗读全文">
+                        <i class="fas fa-play"></i>
                     </button>
-                    <button class="reader-btn" id="readerTranslateBtn" title="翻译选中文本">
-                        <i class="fas fa-language"></i> 翻译
+                    <button class="reader-btn" id="readerPauseBtn" title="暂停" style="display:none;">
+                        <i class="fas fa-pause"></i>
+                    </button>
+                    <button class="reader-btn" id="readerStopBtn" title="停止" style="display:none;">
+                        <i class="fas fa-stop"></i>
                     </button>
                     <button class="reader-btn" id="readerDeleteBtn" title="删除文章" style="color:var(--danger-color);">
                         <i class="fas fa-trash-alt"></i>
@@ -367,11 +373,6 @@
             </div>
             <div class="reader-progress" id="readerProgress">
                 <div class="reader-progress-bar" id="readerProgressBar"></div>
-            </div>
-            <!-- 翻译结果弹窗 -->
-            <div class="reader-translation" id="readerTranslation" style="display:none;">
-                <div class="reader-translation-close" id="readerTranslationClose">&times;</div>
-                <div class="reader-translation-text" id="readerTranslationText"></div>
             </div>
         </section>
 

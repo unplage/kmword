@@ -2092,10 +2092,24 @@
             border-radius: 12px;
             box-shadow: var(--card-shadow);
             margin-bottom: 16px;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             position: sticky;
             top: 70px;
             z-index: 10;
+            transition: all 0.25s ease;
+        }
+
+        .reader-toolbar.collapsed .reader-controls {
+            display: none;
+        }
+
+        .reader-toggle-btn {
+            flex-shrink: 0;
+            order: 10;
+        }
+
+        .reader-toolbar.collapsed .reader-toggle-btn i {
+            transform: rotate(180deg);
         }
 
         .reader-title {
@@ -2181,40 +2195,10 @@
             transition: width 0.3s ease;
         }
 
-        .reader-translation {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            max-width: 500px;
-            width: 90%;
-            background: white;
-            border-radius: 12px;
-            padding: 16px 20px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            z-index: 100;
-            animation: slideUp 0.3s ease;
-        }
-
-        .reader-translation-close {
-            position: absolute;
-            top: 8px;
-            right: 12px;
-            cursor: pointer;
-            font-size: 1.4rem;
-            color: var(--gray-color);
-            line-height: 1;
-        }
-
-        .reader-translation-close:hover {
-            color: var(--dark-color);
-        }
-
-        .reader-translation-text {
-            font-size: 1rem;
-            line-height: 1.6;
-            color: var(--dark-color);
-            padding-right: 20px;
+        .clickable-word.tts-temp-highlight {
+            background: rgba(255, 235, 59, 0.5);
+            border-radius: 2px;
+            transition: background 0.1s;
         }
 
         .mode-toggle {

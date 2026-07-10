@@ -645,22 +645,7 @@
                     document.addEventListener('click', (e) => {
                         const target = e.target.closest && e.target.closest('.clickable-word');
                         if (target && target.dataset.word) {
-                            const word = target.dataset.word;
-                            const isReader = this.currentPage === 'reader';
-                            let context = '';
-                            if (isReader) {
-                                const readerText = document.getElementById('readerText');
-                                if (readerText) {
-                                    const allText = readerText.textContent;
-                                    const idx = allText.toLowerCase().indexOf(word.toLowerCase());
-                                    if (idx >= 0) {
-                                        const start = Math.max(0, allText.lastIndexOf('\n', idx));
-                                        const end = allText.indexOf('\n', idx + word.length);
-                                        context = allText.slice(start, end > 0 ? end : idx + 200).trim();
-                                    }
-                                }
-                            }
-                            this.openWordLookup(word, context);
+                            this.openWordLookup(target.dataset.word);
                         }
                     });
                     document.getElementById('lookupModalClose')?.addEventListener('click', () => this.closeWordLookup());
@@ -1196,17 +1181,6 @@
                         if (wordPhonetic) wordPhonetic.textContent = freshData.phonetic;
                         if (wordMeaning) wordMeaning.textContent = freshData.meaning;
                         if (wordExample) wordExample.textContent = freshData.example || '暂无例句';
-                        // LLM 例句：若 API 例句为空或为占位符，且 LLM 已配置，异步生成
-                        const needsLLM = !freshData.example || freshData.example === '暂无例句' || freshData.example.includes('Example for') || freshData.example.includes('This is an example');
-                        if (needsLLM) {
-                            this.getOrGenerateExample(wordData.word, wordData.id).then(llmEx => {
-                                if (llmEx && document.getElementById('wordExample')) {
-                                    document.getElementById('wordExample').textContent = llmEx;
-                                }
-                            });
-                        } else if (wordData.llmExample) {
-                            wordExample.textContent = wordData.llmExample;
-                        }
                         this.updateDictionaryDetails(freshData);
                         this.currentAudioUrl = freshData.audioUrl;
                         const autoPlay = await this.db.getSetting('autoPlaySound');
@@ -1295,8 +1269,6 @@
                         if (exampleSection) exampleSection.style.display = 'none';        // 例句含目标词，隐藏
                         if (collinsSection) collinsSection.style.display = 'none';        // 词典区无需展示
                         if (showDetailsBtn) showDetailsBtn.style.display = 'none';        // 拼写模式下禁用详情切换
-                        // 显示 LLM cloze 提示
-                        this.updateSpellingClozeHint();
                         // 重置拼写输入
                         const inputEl = document.getElementById('spellingInput');
                         const feedbackEl = document.getElementById('spellingFeedback');
@@ -1348,23 +1320,6 @@
                         console.warn('SM-2 信息加载失败:', e);
                         el.style.display = 'none';
                     }
-                }
-
-                updateSpellingClozeHint() {
-                    const clozeEl = document.getElementById('spellingClozeHint');
-                    if (!clozeEl) return;
-                    const wordData = this.learningWords[this.currentWordIndex];
-                    if (!wordData) { clozeEl.style.display = 'none'; return; }
-                    const word = (wordData.word || '').toLowerCase().trim();
-                    if (!word) { clozeEl.style.display = 'none'; return; }
-                    const sentence = wordData.llmExample || '';
-                    if (!sentence || !sentence.toLowerCase().includes(word)) {
-                        clozeEl.style.display = 'none';
-                        return;
-                    }
-                    const re = new RegExp('(' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
-                    clozeEl.innerHTML = '💡 填空提示：' + sentence.replace(re, '<u>____</u>');
-                    clozeEl.style.display = 'block';
                 }
 
                 updateDictionaryDetails(wordData) {
@@ -2527,28 +2482,6 @@
                                 <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">请从 Merriam-Webster 开发者中心获取这两个 Key。</p>
                             </div>
                             <div class="settings-section">
-                                <h3>AI 大模型设置</h3>
-                                <div class="setting-item">
-                                    <label for="llmApiKey">API Key</label>
-                                    <div class="setting-control" style="flex: 1;">
-                                        <input type="password" id="llmApiKey" placeholder="智谱 GLM-4.7-Flash 免费申请" style="flex:1; min-width:200px;">
-                                    </div>
-                                </div>
-                                <div class="setting-item">
-                                    <label for="llmModel">模型名称</label>
-                                    <div class="setting-control" style="flex: 1;">
-                                        <input type="text" id="llmModel" placeholder="GLM-4.7-Flash" style="flex:1; min-width:200px;">
-                                    </div>
-                                </div>
-                                <div class="setting-item">
-                                    <label for="llmBaseUrl">接口地址</label>
-                                    <div class="setting-control" style="flex: 1;">
-                                        <input type="url" id="llmBaseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4/chat/completions" style="flex:1; min-width:200px;">
-                                    </div>
-                                </div>
-                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">默认使用智谱 GLM-4.7-Flash（128K 上下文，免费）。可在 <a href="https://bigmodel.cn" target="_blank">bigmodel.cn</a> 免费申请 API Key。支持兼容 OpenAI 格式的任意接口。</p>
-                            </div>
-                            <div class="settings-section">
                                 <h3>显示设置</h3>
                                 <div class="setting-item">
                                     <label for="theme">主题</label>
@@ -2653,9 +2586,6 @@
                         setSelect('fontSize', settings.fontSize);
                         setInputValue('mwDictKey', settings.mwDictKey);
                         setInputValue('mwThesKey', settings.mwThesKey);
-                        setInputValue('llmApiKey', settings.llmApiKey);
-                        setInputValue('llmModel', settings.llmModel || 'GLM-4.7-Flash');
-                        setInputValue('llmBaseUrl', settings.llmBaseUrl || 'https://open.bigmodel.cn/api/paas/v4/chat/completions');
                         this.applyTheme(settings.theme || 'light');
                     } catch (error) {
                         console.error('加载设置数据失败:', error);
@@ -2674,10 +2604,7 @@
                             theme: getSelect('theme'),
                             fontSize: getSelect('fontSize'),
                             mwDictKey: getInputValue('mwDictKey'),
-                            mwThesKey: getInputValue('mwThesKey'),
-                            llmApiKey: getInputValue('llmApiKey'),
-                            llmModel: getInputValue('llmModel') || 'GLM-4.7-Flash',
-                            llmBaseUrl: getInputValue('llmBaseUrl') || 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
+                            mwThesKey: getInputValue('mwThesKey')
                         };
                         for (const [key, value] of Object.entries(settings)) {
                             await this.db.saveSetting(key, value);
@@ -3507,7 +3434,7 @@
 				}
 
                 // ===== 查词弹窗（学习卡片点击单词 / 例句单词）=====
-                async openWordLookup(word, context = '') {
+                async openWordLookup(word) {
                     if (!word) return;
                     word = String(word).trim();
                     this.lookupModalWord = word;
@@ -3525,14 +3452,6 @@
                         mwResultEl.innerHTML = '';
                     }
                     modal.style.display = 'flex';
-                    // LLM 上下文释义（仅在 reader 中有 context 时）
-                    if (context && await this.hasLLMConfig()) {
-                        this.getContextualMeaning(word, context).then(ctxHtml => {
-                            if (ctxHtml && freeDictEl) {
-                                freeDictEl.insertAdjacentHTML('beforebegin', ctxHtml);
-                            }
-                        });
-                    }
                     // 拉取 free dict 并渲染
                     try {
                         const data = await this.dictionaryAPI.fetchWordData(word);
@@ -3542,23 +3461,8 @@
                         const summary = [];
                         if (data.phonetic) summary.push(`<span style="color:var(--gray-color);">${data.phonetic}</span>`);
                         if (data.meaning) summary.push(`<div style="margin-top:6px;">${data.meaning}</div>`);
-                        // LLM 例句补充（先检查配置，避免"加载中..."卡死）
-                        const llmConfigured = await this.hasLLMConfig();
-                        const needsLLM = llmConfigured && (!data.example || data.example === '暂无例句' || data.example.includes('Example for') || data.example.includes('This is an example'));
-                        if (needsLLM) {
-                            summary.push(`<div id="lookupLlExample" style="margin-top:6px;color:var(--green-color);font-style:italic;">例句：加载中...</div>`);
-                        }
-                        // 先插入 summary，确保 DOM 元素就绪，再调 LLM（避免竞态）
                         if (summary.length && freeDictEl) {
                             freeDictEl.insertAdjacentHTML('afterbegin', `<div style="margin-bottom:8px;">${summary.join(' ')}</div>`);
-                        }
-                        if (needsLLM) {
-                            this.getOrGenerateExample(word).then(llmEx => {
-                                const el = document.getElementById('lookupLlExample');
-                                if (el) {
-                                    el.innerHTML = llmEx ? `例句：${this.escapeHtml(llmEx)}` : '';
-                                }
-                            });
                         }
                         // 让弹窗内 free dict 释义/音标/摘要中的英文单词可点击查词
                         this.makeClickable(freeDictEl);
@@ -3762,16 +3666,19 @@
                     const backBtn = document.getElementById('readerBackBtn');
                     const fontMinus = document.getElementById('readerFontMinus');
                     const fontPlus = document.getElementById('readerFontPlus');
-                    const speakBtn = document.getElementById('readerSpeakBtn');
-                    const translateBtn = document.getElementById('readerTranslateBtn');
+                    const playBtn = document.getElementById('readerPlayBtn');
+                    const pauseBtn = document.getElementById('readerPauseBtn');
+                    const stopBtn = document.getElementById('readerStopBtn');
                     const deleteBtn = document.getElementById('readerDeleteBtn');
-                    const translationClose = document.getElementById('readerTranslationClose');
+                    const toggleBtn = document.getElementById('readerToggleBtn');
+                    const toolbar = document.getElementById('readerToolbar');
                     const content = document.getElementById('readerContent');
                     const textEl = document.getElementById('readerText');
                     const progressBar = document.getElementById('readerProgressBar');
 
                     // 返回
                     const goBack = () => {
+                        this.stopReaderTTS();
                         this.saveCurrentReadingPosition();
                         this.switchPage('reading');
                     };
@@ -3781,19 +3688,29 @@
                     fontMinus?.addEventListener('click', () => this.changeReaderFontSize(-2));
                     fontPlus?.addEventListener('click', () => this.changeReaderFontSize(2));
 
-                    // 朗读
-                    speakBtn?.addEventListener('click', () => {
-                        if (article.content) this.speakText(article.content.slice(0, 500));
+                    // 工具栏折叠/展开
+                    toggleBtn?.addEventListener('click', () => {
+                        toolbar?.classList.toggle('collapsed');
+                        const icon = toggleBtn.querySelector('i');
+                        if (icon) icon.className = toolbar?.classList.contains('collapsed') ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
                     });
 
-                    // 翻译
-                    translateBtn?.addEventListener('click', () => this.readerTranslate());
+                    // 全文 TTS 朗读
+                    playBtn?.addEventListener('click', () => this.readerPlay(article));
 
-                    // 翻译关闭
-                    translationClose?.addEventListener('click', () => {
-                        const el = document.getElementById('readerTranslation');
-                        if (el) el.style.display = 'none';
+                    pauseBtn?.addEventListener('click', () => {
+                        if (this.readerTTS?.paused) {
+                            this.speechSynthesis?.resume();
+                            this.readerTTS.paused = false;
+                            this.readerTTS.playing = true;
+                        } else {
+                            this.speechSynthesis?.pause();
+                            this.readerTTS.paused = true;
+                        }
+                        this.updateTTSBtnState();
                     });
+
+                    stopBtn?.addEventListener('click', () => this.stopReaderTTS());
 
                     // 删除
                     deleteBtn?.addEventListener('click', async () => {
@@ -3832,180 +3749,99 @@
                     await this.db.updateArticlePosition(article.id, this.currentReadingScrollPct);
                 }
 
-                async readerTranslate() {
-                    const selection = window.getSelection();
-                    let text = selection ? selection.toString().trim() : '';
-
-                    if (!text) {
-                        const node = selection?.focusNode;
-                        if (node) {
-                            const readerText = document.getElementById('readerText');
-                            if (readerText) {
-                                const fullText = readerText.textContent;
-                                const paragraphs = fullText.split(/\n\s*\n/);
-                                const clickableWord = node.nodeType === 3
-                                    ? node.parentElement?.closest?.('.clickable-word')
-                                    : node.closest?.('.clickable-word');
-                                const hintText = (clickableWord?.textContent || node.textContent || '').trim().slice(0, 30);
-                                if (paragraphs.length > 1 && hintText) {
-                                    for (const p of paragraphs) {
-                                        if (p.includes(hintText)) {
-                                            text = p.trim();
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (!text || text.length < 5) {
-                                    text = fullText.slice(0, 1000).trim();
-                                }
-                            }
-                        }
-                    }
-
-                    if (!text || text.length < 2) {
-                        this.showNotification('请先选中要翻译的文本', 'warning');
+                // ===== 阅读器 TTS =====
+                async readerPlay(article) {
+                    if (!article?.content || !this.speechSynthesis) {
+                        this.showNotification('语音合成不可用', 'warning');
                         return;
                     }
-                    const transEl = document.getElementById('readerTranslation');
-                    const textEl = document.getElementById('readerTranslationText');
-                    if (!transEl || !textEl) return;
-                    transEl.style.display = 'block';
-                    textEl.textContent = '翻译中...';
-                    try {
-                        const result = await this.llmTranslate(text);
-                        textEl.textContent = result;
-                    } catch (error) {
-                        textEl.textContent = '翻译失败: ' + (error.message || '未知错误');
+                    if (this.readerTTS?.playing) return;
+                    this.stopReaderTTS();
+                    this.clearTTSTempHighlight();
+                    const utterance = new SpeechSynthesisUtterance(article.content);
+                    utterance.rate = 0.9;
+                    const enVoice = this.voices.find(v => v.lang.startsWith('en'));
+                    if (enVoice) utterance.voice = enVoice;
+
+                    utterance.onboundary = (event) => {
+                        if (event.name === 'word' && event.charIndex != null) {
+                            const word = article.content.slice(event.charIndex, event.charIndex + (event.charLength || 8));
+                            this.highlightTTSWord(word);
+                            this.scrollToTTSCharIndex(event.charIndex, article.content.length);
+                        }
+                    };
+                    utterance.onend = () => {
+                        this.stopReaderTTS();
+                    };
+                    utterance.onpause = () => {
+                        this.readerTTS = { playing: false, paused: true };
+                        this.updateTTSBtnState();
+                    };
+                    utterance.onresume = () => {
+                        this.readerTTS = { playing: true, paused: false };
+                        this.updateTTSBtnState();
+                    };
+
+                    this.readerTTS = { playing: true, paused: false, utterance };
+                    this.updateTTSBtnState();
+                    this.speechSynthesis.speak(utterance);
+                }
+
+                stopReaderTTS() {
+                    if (this.speechSynthesis) {
+                        this.speechSynthesis.cancel();
                     }
+                    this.readerTTS = null;
+                    this.clearTTSTempHighlight();
+                    this.updateTTSBtnState();
+                }
+
+                updateTTSBtnState() {
+                    const playBtn = document.getElementById('readerPlayBtn');
+                    const pauseBtn = document.getElementById('readerPauseBtn');
+                    const stopBtn = document.getElementById('readerStopBtn');
+                    if (!this.readerTTS || !this.readerTTS.playing) {
+                        if (playBtn) playBtn.style.display = '';
+                        if (pauseBtn) pauseBtn.style.display = 'none';
+                        if (stopBtn) stopBtn.style.display = 'none';
+                    } else {
+                        if (playBtn) playBtn.style.display = 'none';
+                        if (pauseBtn) pauseBtn.style.display = '';
+                        if (stopBtn) stopBtn.style.display = '';
+                    }
+                }
+
+                highlightTTSWord(word) {
+                    this.clearTTSTempHighlight();
+                    const textEl = document.getElementById('readerText');
+                    if (!textEl || !word) return;
+                    const cleanWord = word.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
+                    if (!cleanWord) return;
+                    textEl.querySelectorAll('.clickable-word').forEach(el => {
+                        if (el.dataset.word?.toLowerCase() === cleanWord) {
+                            el.classList.add('tts-temp-highlight');
+                        }
+                    });
+                    setTimeout(() => this.clearTTSTempHighlight(), 800);
+                }
+
+                clearTTSTempHighlight() {
+                    document.querySelectorAll('.tts-temp-highlight').forEach(el => el.classList.remove('tts-temp-highlight'));
+                }
+
+                scrollToTTSCharIndex(charIndex, totalLength) {
+                    const content = document.getElementById('readerContent');
+                    if (!content || totalLength <= 0) return;
+                    const pct = Math.min(charIndex / totalLength, 1);
+                    content.scrollTop = pct * (content.scrollHeight - content.clientHeight);
+                    const bar = document.getElementById('readerProgressBar');
+                    if (bar) bar.style.width = (pct * 100) + '%';
                 }
 
                 escapeHtml(str) {
                     const div = document.createElement('div');
                     div.textContent = str;
                     return div.innerHTML;
-                }
-
-                // ===== LLM API 层（智谱 GLM-4.7-Flash）=====
-                async getLLMConfig() {
-                    const apiKey = await this.db.getSetting('llmApiKey');
-                    const model = await this.db.getSetting('llmModel', 'GLM-4.7-Flash');
-                    const baseUrl = await this.db.getSetting('llmBaseUrl', 'https://open.bigmodel.cn/api/paas/v4/chat/completions');
-                    return { apiKey, model, baseUrl };
-                }
-
-                async llmCall(messages, options = {}) {
-                    const config = await this.getLLMConfig();
-                    if (!config.apiKey) {
-                        throw new Error('请先在设置中配置 LLM API Key（智谱 GLM-4.7-Flash 免费申请）');
-                    }
-                    const response = await fetch(config.baseUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${config.apiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: config.model,
-                            messages,
-                            temperature: options.temperature ?? 0.3,
-                            max_tokens: options.maxTokens ?? 500
-                        })
-                    });
-                    if (!response.ok) {
-                        let msg = `API 请求失败 (${response.status})`;
-                        try {
-                            const errData = await response.json();
-                            if (errData.error?.message) msg += ': ' + errData.error.message;
-                        } catch(e) {}
-                        throw new Error(msg);
-                    }
-                    const data = await response.json();
-                    return data.choices?.[0]?.message?.content || '';
-                }
-
-                async llmTranslate(text) {
-                    const messages = [
-                        {
-                            role: 'system',
-                            content: '你是一个英文翻译助手。请将用户输入的英文翻译成中文。只返回翻译结果，不要任何额外说明。'
-                        },
-                        {
-                            role: 'user',
-                            content: text
-                        }
-                    ];
-                    const cacheKey = 'trans_' + text.slice(0, 100);
-                    const cached = sessionStorage.getItem(cacheKey);
-                    if (cached) return cached;
-                    const result = await this.llmCall(messages, { temperature: 0.1, maxTokens: 1000 });
-                    sessionStorage.setItem(cacheKey, result);
-                    return result;
-                }
-
-                async llmGenerateExample(word) {
-                    const messages = [
-                        {
-                            role: 'system',
-                            content: 'You are an English teacher. Generate one simple English sentence using the given word. Return only the sentence.'
-                        },
-                        { role: 'user', content: word }
-                    ];
-                    const cacheKey = 'ex_' + word;
-                    const cached = sessionStorage.getItem(cacheKey);
-                    if (cached) return cached;
-                    const result = await this.llmCall(messages, { temperature: 0.7, maxTokens: 100 });
-                    sessionStorage.setItem(cacheKey, result);
-                    return result;
-                }
-
-                async getOrGenerateExample(word, wordId = null) {
-                    if (!await this.hasLLMConfig()) return null;
-                    const cacheKey = 'ex_llm_' + word;
-                    const cached = sessionStorage.getItem(cacheKey);
-                    if (cached) return cached;
-                    try {
-                        const example = await this.llmGenerateExample(word);
-                        if (example && example.length > 5) {
-                            sessionStorage.setItem(cacheKey, example);
-                            if (wordId) {
-                                this.db.updateWord(wordId, { llmExample: example }).catch(() => {});
-                            }
-                            return example;
-                        }
-                    } catch(e) {
-                        console.warn('LLM 例句生成失败:', e.message);
-                    }
-                    return null;
-                }
-
-                async hasLLMConfig() {
-                    try {
-                        const config = await this.getLLMConfig();
-                        return !!config.apiKey;
-                    } catch { return false; }
-                }
-
-                async getContextualMeaning(word, context) {
-                    const cacheKey = 'ctx_' + word + '_' + context.slice(0, 50).replace(/\s+/g, '_');
-                    const cached = sessionStorage.getItem(cacheKey);
-                    if (cached) return cached;
-                    try {
-                        const result = await this.llmCall([
-                            { role: 'system', content: '你是英语学习助手。请解释给定单词在给定句子中的含义。返回格式：**文中释义**：简要中文解释\n**词性**：词性\n**例句**：一个简单例句' },
-                            { role: 'user', content: `单词：${word}\n句子：${context.slice(0, 500)}` }
-                        ], { temperature: 0.1, maxTokens: 300 });
-                        if (result && result.length > 10) {
-                            const html = `<div class="dictionary-details" style="margin-bottom:12px;padding:10px;background:var(--card-bg);border:1px solid var(--green-color);border-radius:8px;">
-                                <div style="font-weight:600;color:var(--green-color);margin-bottom:6px;"><i class="fas fa-robot"></i> AI 文中含义</div>
-                                ${result.replace(/\n/g, '<br>')}
-                            </div>`;
-                            sessionStorage.setItem(cacheKey, html);
-                            return html;
-                        }
-                    } catch (e) {
-                        console.warn('LLM 上下文释义失败:', e.message);
-                    }
-                    return '';
                 }
 
                 // 通用：把容器内所有文本节点的英文单词包成可点击 span（保留中文/标点/HTML 结构）
