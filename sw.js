@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v6-08193';  // 每次更新时递增
+const CACHE_VERSION = 'v7-split';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
@@ -11,6 +11,10 @@ const CURRENT_ORIGIN = self.location.origin;  // https://unplage.github.io
 const STATIC_ASSETS = [
     `${CURRENT_PATH}/`,           // /kmword/
     `${CURRENT_PATH}/index.html`, // /kmword/index.html
+    `${CURRENT_PATH}/styles.css`,
+    `${CURRENT_PATH}/js/db.js`,
+    `${CURRENT_PATH}/js/novel-processor.js`,
+    `${CURRENT_PATH}/js/app.js`,
     `${CURRENT_PATH}/manifest.json`,
     // CDN 资源可以保留
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
@@ -72,19 +76,7 @@ self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
 
-    // 只拦截当前 PWA 路径下的请求
-    const isMyPath = url.pathname.startsWith(`${CURRENT_PATH}/`) || 
-                       url.pathname === `${CURRENT_PATH}`;
-    
-    // CDN 资源也处理
-    const isCDN = url.hostname === 'cdnjs.cloudflare.com';
-    
-    if (!isMyPath && !isCDN) {
-        // 不拦截其他路径的请求
-        return;
-    }
-
-    // 两种API 请求使用网络优先策略
+    // API 请求使用网络优先策略（在 scope filter 之前，因为 API 是跨域）
     const apiHosts = ['api.dictionaryapi.dev', 'www.dictionaryapi.com'];
     if (apiHosts.includes(url.hostname)) {
         event.respondWith(
@@ -102,6 +94,18 @@ self.addEventListener('fetch', (event) => {
                     return caches.match(request);
                 })
         );
+        return;
+    }
+
+    // 只拦截当前 PWA 路径下的请求
+    const isMyPath = url.pathname.startsWith(`${CURRENT_PATH}/`) || 
+                       url.pathname === `${CURRENT_PATH}`;
+    
+    // CDN 资源也处理
+    const isCDN = url.hostname === 'cdnjs.cloudflare.com';
+    
+    if (!isMyPath && !isCDN) {
+        // 不拦截其他路径的请求
         return;
     }
 
