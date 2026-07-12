@@ -20,7 +20,7 @@
 
 - **Free Dictionary API** (`api.dictionaryapi.dev`) — used by default, no key.
 - **Merriam-Webster API** (`dictionaryapi.com`) — optional, configure `mwDictKey` + `mwThesKey` in Settings. Free registration at https://dictionaryapi.com/register/index.htm.
-- **VoiceRSS TTS API** (`api.voicerss.org`) — optional online TTS for the reading module. Configure `ttsApiKey` + `ttsVoice` in Settings. Free tier: 350 requests/day. Register at https://www.voicerss.org/registration.aspx. Falls back to browser `SpeechSynthesis` if unconfigured.
+- **Browser SpeechSynthesis** — built-in TTS used by the reading module. Configurable voice (named) and speed via Settings. No API key needed.
 
 ## Word list import
 

@@ -1,28 +1,4 @@
         (function() {
-            const TTS_VOICES = {
-                'en-us': [
-                    { value: '', label: '默认' },
-                    { value: 'Linda', label: 'Linda (女声)' },
-                    { value: 'Amy', label: 'Amy (女声)' },
-                    { value: 'Mary', label: 'Mary (女声)' },
-                    { value: 'John', label: 'John (男声)' },
-                    { value: 'Nancy', label: 'Nancy (女声)' }
-                ],
-                'en-uk': [
-                    { value: '', label: '默认' },
-                    { value: 'Alice', label: 'Alice (女声)' },
-                    { value: 'Nancy', label: 'Nancy (女声)' },
-                    { value: 'Lily', label: 'Lily (女声)' },
-                    { value: 'Harry', label: 'Harry (男声)' }
-                ],
-                'en-au': [
-                    { value: '', label: '默认' },
-                    { value: 'Zoe', label: 'Zoe (女声)' },
-                    { value: 'Isabella', label: 'Isabella (女声)' },
-                    { value: 'George', label: 'George (男声)' }
-                ]
-            };
-
             class WordLearnerApp {
                 constructor() {
                     this.db = window.wordDB;
@@ -1479,17 +1455,30 @@
                     // Android WebView 原生 TTS 桥接
                     if (typeof AndroidTTS !== 'undefined') {
                         this.voices = [];
+                        this._loadBridgeVoices();
+                        // 轮询等待（TTS 就绪后 getVoices 才会返回数据）
+                        if (this.voices.length === 0) {
+                            let attempts = 0;
+                            const poll = setInterval(() => {
+                                this._loadBridgeVoices();
+                                if (this.voices.length > 0 || ++attempts > 100) clearInterval(poll);
+                            }, 100);
+                        }
                         this.speechSynthesis = {
                             speak: (utterance) => {
                                 this._currentAndroidUtterance = utterance;
-                                AndroidTTS.speak(utterance.text);
+                                AndroidTTS.speak(
+                                    utterance.text,
+                                    utterance.rate || 1.0,
+                                    (utterance.voice && utterance.voice.name) || ''
+                                );
                             },
                             cancel: () => {
                                 AndroidTTS.stop();
                                 this._currentAndroidUtterance = null;
                             },
-                            pause: () => {},
-                            resume: () => {}
+                            pause: () => { AndroidTTS.pause(); },
+                            resume: () => { AndroidTTS.resume(); }
                         };
                         this._onAndroidTTSDone = () => {
                             const u = this._currentAndroidUtterance;
@@ -1502,17 +1491,84 @@
                     // 浏览器 speechSynthesis
                     if ('speechSynthesis' in window) {
                         this.speechSynthesis = window.speechSynthesis;
+                        this._speechSynthUtterance = null;
                         const loadVoices = () => {
                             this.voices = this.speechSynthesis.getVoices();
-                            console.log(`加载了 ${this.voices.length} 个语音`);
+                            console.log('加载了 ' + this.voices.length + ' 个语音');
                         };
                         if (this.speechSynthesis.onvoiceschanged !== undefined) {
                             this.speechSynthesis.onvoiceschanged = loadVoices;
                         }
                         loadVoices();
+                        if (this.voices.length === 0) {
+                            let attempts = 0;
+                            const poll = setInterval(() => {
+                                this.voices = this.speechSynthesis.getVoices();
+                                if (this.voices.length > 0 || ++attempts > 30) clearInterval(poll);
+                            }, 100);
+                        }
                     } else {
                         console.warn('浏览器不支持语音合成');
                     }
+                }
+
+                _onTTSReady() {
+                    console.log('Android TTS 就绪');
+                    this._loadBridgeVoices();
+                }
+
+                _onTTSFailed() {
+                    console.warn('Android TTS 初始化失败，尝试浏览器备选');
+                    // 清除桥接，降级到浏览器 speechSynthesis
+                    this.speechSynthesis = null;
+                    if ('speechSynthesis' in window) {
+                        this.speechSynthesis = window.speechSynthesis;
+                        this.voices = this.speechSynthesis.getVoices() || [];
+                        if (this.voices.length === 0) {
+                            let attempts = 0;
+                            const poll = setInterval(() => {
+                                this.voices = this.speechSynthesis.getVoices() || [];
+                                if (this.voices.length > 0 || ++attempts > 30) clearInterval(poll);
+                            }, 100);
+                        }
+                        console.log('降级到浏览器语音合成，已加载 ' + this.voices.length + ' 个语音');
+                    }
+                }
+
+                _loadBridgeVoices() {
+                    if (typeof AndroidTTS === 'undefined') return;
+                    try {
+                        const json = AndroidTTS.getVoices();
+                        if (json) {
+                            const parsed = JSON.parse(json);
+                            if (parsed && parsed.length > 0) {
+                                this.voices = parsed;
+                                console.log('从 Android TTS 加载了 ' + this.voices.length + ' 个语音');
+                                // 如果设置页已打开，刷新音色下拉框
+                                const select = document.getElementById('ttsSpeaker');
+                                const voiceSelect = document.getElementById('ttsVoice');
+                                if (select && voiceSelect) {
+                                    const targetLang = voiceSelect.value;
+                                    const matched = this.voices.filter(v =>
+                                        v.lang === targetLang || v.lang.startsWith(targetLang)
+                                    );
+                                    const fallback = this.voices.filter(v => v.lang.startsWith('en'));
+                                    const candidates = matched.length > 0 ? matched : fallback;
+                                    let html = '<option value="">系统默认</option>';
+                                    const seen = new Set();
+                                    candidates.forEach(v => {
+                                        const key = v.name + v.lang;
+                                        if (seen.has(key)) return;
+                                        seen.add(key);
+                                        html += '<option value="' + v.name + '">' + v.name + ' (' + v.lang + ')</option>';
+                                    });
+                                    select.innerHTML = html;
+                                    const saved = this._savedSpeaker;
+                                    if (saved) select.value = saved;
+                                }
+                            }
+                        }
+                    } catch (e) {}
                 }
 
                 async speakCurrentWord() {
@@ -2535,12 +2591,6 @@
                             <div class="settings-section">
                                 <h3>语音合成设置</h3>
                                 <div class="setting-item">
-                                    <label for="ttsApiKey">VoiceRSS API Key (免费在线 TTS)</label>
-                                    <div class="setting-control" style="flex: 1;">
-                                        <input type="text" id="ttsApiKey" placeholder="输入 VoiceRSS API Key" style="flex:1; min-width:200px;">
-                                    </div>
-                                </div>
-                                <div class="setting-item">
                                     <label for="ttsVoice">朗读语言</label>
                                     <div class="setting-control">
                                         <select id="ttsVoice">
@@ -2563,7 +2613,7 @@
                                         <span id="ttsSpeedValue" style="font-size:0.9rem; color:var(--gray-color); text-align:center;">0 (正常)</span>
                                     </div>
                                 </div>
-                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">免费注册获取 API Key：<a href="https://www.voicerss.org/registration.aspx" target="_blank" rel="noopener">voicerss.org</a>。配置后阅读模块将使用在线 TTS。</p>
+                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">使用浏览器内置语音合成，无需第三方服务。</p>
                             </div>
                             <div class="settings-section">
                                 <h3>显示设置</h3>
@@ -2647,19 +2697,36 @@
                     document.getElementById('showDebugInfo')?.addEventListener('click', () => this.showDebugInfo());
                     document.getElementById('saveSettings')?.addEventListener('click', () => this.saveSettings());
 
-                    // Dynamic TTS speaker list based on language
-                    const populateSpeakers = (lang) => {
+                    // Populate speaker list from browser voices filtered by language
+                    const populateSpeakers = () => {
                         const select = document.getElementById('ttsSpeaker');
-                        if (!select) return;
-                        const voices = TTS_VOICES[lang] || TTS_VOICES['en-us'];
-                        select.innerHTML = voices.map(v =>
-                            `<option value="${v.value}">${v.label}</option>`
-                        ).join('');
+                        const langSelect = document.getElementById('ttsVoice');
+                        if (!select || !langSelect) return;
+                        const targetLang = langSelect.value;
+                        const matched = this.voices.filter(v =>
+                            v.lang === targetLang || v.lang.startsWith(targetLang)
+                        );
+                        const fallback = this.voices.filter(v => v.lang.startsWith('en'));
+                        const candidates = matched.length > 0 ? matched : fallback;
+                        let html = '<option value="">系统默认</option>';
+                        const seen = new Set();
+                        candidates.forEach(v => {
+                            const key = v.name + v.lang;
+                            if (seen.has(key)) return;
+                            seen.add(key);
+                            const gender = v.name.match(/female|male/i)?.[0]?.toLowerCase() || '';
+                            const label = `${v.name} (${v.lang})${gender ? ' - ' + gender : ''}`;
+                            html += `<option value="${v.name}">${label}</option>`;
+                        });
+                        select.innerHTML = html;
+                        // restore saved selection if still available
+                        const saved = this._savedSpeaker;
+                        if (saved) select.value = saved;
                     };
                     const voiceSelect = document.getElementById('ttsVoice');
                     if (voiceSelect) {
-                        populateSpeakers(voiceSelect.value);
-                        voiceSelect.addEventListener('change', () => populateSpeakers(voiceSelect.value));
+                        populateSpeakers();
+                        voiceSelect.addEventListener('change', populateSpeakers);
                     }
 
                     // Speed slider label
@@ -2703,9 +2770,8 @@
                         setSelect('fontSize', settings.fontSize);
                         setInputValue('mwDictKey', settings.mwDictKey);
                         setInputValue('mwThesKey', settings.mwThesKey);
-                        setInputValue('ttsApiKey', settings.ttsApiKey);
+                        this._savedSpeaker = settings.ttsSpeaker || '';
                         setSelect('ttsVoice', settings.ttsVoice);
-                        setSelect('ttsSpeaker', settings.ttsSpeaker);
                         if (settings.ttsSpeed != null) {
                             const el = document.getElementById('ttsSpeed');
                             if (el) el.value = settings.ttsSpeed;
@@ -2729,7 +2795,6 @@
                             fontSize: getSelect('fontSize'),
                             mwDictKey: getInputValue('mwDictKey'),
                             mwThesKey: getInputValue('mwThesKey'),
-                            ttsApiKey: getInputValue('ttsApiKey'),
                             ttsVoice: getSelect('ttsVoice'),
                             ttsSpeaker: getInputValue('ttsSpeaker'),
                             ttsSpeed: parseInt(getInputValue('ttsSpeed')) || 0
@@ -3827,16 +3892,7 @@
                     playBtn?.addEventListener('click', () => this.readerPlay(article));
 
                     pauseBtn?.addEventListener('click', () => {
-                        if (this.readerTTS?.audio) {
-                            if (this.readerTTS.audio.paused) {
-                                this.readerTTS.audio.play();
-                                this.readerTTS.paused = false;
-                                this.readerTTS.playing = true;
-                            } else {
-                                this.readerTTS.audio.pause();
-                                this.readerTTS.paused = true;
-                            }
-                        } else if (this.readerTTS?.paused) {
+                        if (this.readerTTS?.paused) {
                             this.speechSynthesis?.resume();
                             this.readerTTS.paused = false;
                             this.readerTTS.playing = true;
@@ -3896,59 +3952,22 @@
                     this.stopReaderTTS();
                     this.clearTTSTempHighlight();
 
-                    // Try VoiceRSS online TTS first
-                    const ttsKey = await this.db.getSetting('ttsApiKey');
-                    if (ttsKey) {
-                        const lang = await this.db.getSetting('ttsVoice') || 'en-us';
-                        const speaker = await this.db.getSetting('ttsSpeaker') || '';
-                        const speed = await this.db.getSetting('ttsSpeed') || 0;
-                        let apiUrl = `https://api.voicerss.org/?key=${encodeURIComponent(ttsKey)}&hl=${encodeURIComponent(lang)}&src=${encodeURIComponent(article.content)}&f=48khz_16bit_stereo&c=MP3&r=${speed}`;
-                        if (speaker) apiUrl += `&v=${encodeURIComponent(speaker)}`;
-                        try {
-                            const response = await fetch(apiUrl);
-                            if (response.ok) {
-                                const blob = await response.blob();
-                                if (blob && blob.size > 0) {
-                                    const audioUrl = URL.createObjectURL(blob);
-                                    const audio = new Audio(audioUrl);
-                                    this.readerTTS = { playing: true, paused: false, audio, audioUrl };
-                                    this.updateTTSBtnState();
-
-                                    audio.onended = () => this.stopReaderTTS();
-                                    audio.onerror = () => {
-                                        URL.revokeObjectURL(audioUrl);
-                                        this.showNotification('语音播放失败', 'warning');
-                                        this.stopReaderTTS();
-                                    };
-
-                                    const totalLength = article.content.length;
-                                    const updateScroll = () => {
-                                        if (!this.readerTTS?.audio || this.readerTTS.audio.paused) return;
-                                        const pct = this.readerTTS.audio.currentTime / (this.readerTTS.audio.duration || 1);
-                                        this.scrollToTTSCharIndex(Math.floor(pct * totalLength), totalLength);
-                                        if (this.readerTTS?.playing) requestAnimationFrame(updateScroll);
-                                    };
-                                    audio.addEventListener('play', () => requestAnimationFrame(updateScroll));
-
-                                    await audio.play();
-                                    return;
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('VoiceRSS failed, falling back to SpeechSynthesis:', e);
-                        }
-                    }
-
-                    // Fallback to browser SpeechSynthesis
                     if (!this.speechSynthesis) {
-                        this.showNotification('语音合成不可用，请在设置中配置 VoiceRSS API Key', 'warning');
+                        this.showNotification('语音合成不可用', 'warning');
                         return;
                     }
                     const utterance = new SpeechSynthesisUtterance(article.content);
-                    utterance.rate = 0.9;
-                    const enVoice = this.voices.find(v => v.lang.startsWith('en'));
-                    if (enVoice) utterance.voice = enVoice;
-
+                    const speedSetting = (await this.db.getSetting('ttsSpeed')) || 0;
+                    utterance.rate = Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07));
+                    const speakerName = await this.db.getSetting('ttsSpeaker') || '';
+                    if (speakerName) {
+                        const match = this.voices.find(v => v.name === speakerName);
+                        if (match) utterance.voice = match;
+                    }
+                    if (!utterance.voice) {
+                        const enVoice = this.voices.find(v => v.lang.startsWith('en'));
+                        if (enVoice) utterance.voice = enVoice;
+                    }
                     utterance.onboundary = (event) => {
                         if (event.name === 'word' && event.charIndex != null) {
                             const word = article.content.slice(event.charIndex, event.charIndex + (event.charLength || 8));
@@ -3965,20 +3984,12 @@
                         this.readerTTS = { playing: true, paused: false };
                         this.updateTTSBtnState();
                     };
-
                     this.readerTTS = { playing: true, paused: false, utterance };
                     this.updateTTSBtnState();
                     this.speechSynthesis.speak(utterance);
                 }
 
                 stopReaderTTS() {
-                    if (this.readerTTS?.audio) {
-                        this.readerTTS.audio.pause();
-                        this.readerTTS.audio.src = '';
-                        if (this.readerTTS.audioUrl) {
-                            URL.revokeObjectURL(this.readerTTS.audioUrl);
-                        }
-                    }
                     if (this.speechSynthesis) {
                         this.speechSynthesis.cancel();
                     }

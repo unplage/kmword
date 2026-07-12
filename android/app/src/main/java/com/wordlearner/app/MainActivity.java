@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
+
 import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -19,10 +21,11 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AppCompatActivity;
+
 import java.util.HashMap;
 import java.util.Locale;
-
-import androidx.appcompat.app.AppCompatActivity;
+import java.util.Set;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -34,6 +37,14 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private boolean isPaused = false;
+    private String lastSpokenText = null;
+    private float lastSpokenRate = 1.0f;
+    private String lastSpokenVoice = null;
+    private String pendingSpeakText = null;
+    private float pendingSpeakRate = 1.0f;
+    private String pendingSpeakVoice = null;
     private static final int FILE_CHOOSER_REQUEST_CODE = 100;
     private static final String TTS_UTTERANCE_ID = "kmword_utterance";
 
@@ -114,6 +125,7 @@ public class MainActivity extends AppCompatActivity {
         // 初始化原生 TTS
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true;
                 tts.setLanguage(Locale.US);
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String utteranceId) {}
@@ -125,6 +137,20 @@ public class MainActivity extends AppCompatActivity {
                     }
                     @Override public void onError(String utteranceId) {}
                 });
+                // 通知 JS TTS 已就绪
+                webView.post(() -> webView.evaluateJavascript(
+                    "if(window.app) { window.app._onTTSReady(); }", null
+                ));
+                // 处理初始化前积压的朗读请求
+                if (pendingSpeakText != null) {
+                    doSpeak(pendingSpeakText, pendingSpeakRate, pendingSpeakVoice);
+                    pendingSpeakText = null;
+                }
+            } else {
+                // TTS 初始化失败，通知 JS 尝试浏览器备选
+                webView.post(() -> webView.evaluateJavascript(
+                    "if(window.app) { window.app._onTTSFailed(); }", null
+                ));
             }
         });
 
@@ -166,18 +192,103 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void doSpeak(String text, float rate, String voiceName) {
+        if (!ttsReady || text == null) return;
+        tts.stop();
+        // 设置语速 (1.0 = normal)
+        tts.setSpeechRate(Math.max(0.1f, Math.min(2.0f, rate)));
+        // 设置音色
+        if (voiceName != null && !voiceName.isEmpty()) {
+            try {
+                Set<Voice> voices = tts.getVoices();
+                if (voices != null) {
+                    for (Voice v : voices) {
+                        if (voiceName.equals(v.getName())) {
+                            tts.setVoice(v);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        HashMap<String, String> params = new HashMap<>();
+        params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, TTS_UTTERANCE_ID);
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, params);
+        lastSpokenText = text;
+        lastSpokenRate = rate;
+        lastSpokenVoice = voiceName;
+    }
+
     public class TTSInterface {
         @JavascriptInterface
-        public void speak(String text) {
-            if (tts == null) return;
-            HashMap<String, String> params = new HashMap<>();
-            params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, TTS_UTTERANCE_ID);
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, params);
+        public void speak(String text, double rate, String voiceName) {
+            if (!ttsReady) {
+                pendingSpeakText = text;
+                pendingSpeakRate = (float) rate;
+                pendingSpeakVoice = voiceName;
+                return;
+            }
+            doSpeak(text, (float) rate, voiceName);
         }
 
         @JavascriptInterface
         public void stop() {
-            if (tts != null) tts.stop();
+            if (ttsReady) {
+                tts.stop();
+                isPaused = false;
+            }
+        }
+
+        @JavascriptInterface
+        public void pause() {
+            if (ttsReady && tts.isSpeaking()) {
+                tts.stop();
+                isPaused = true;
+            }
+        }
+
+        @JavascriptInterface
+        public void resume() {
+            if (ttsReady && isPaused && lastSpokenText != null) {
+                doSpeak(lastSpokenText, lastSpokenRate, lastSpokenVoice);
+                isPaused = false;
+            }
+        }
+
+        @JavascriptInterface
+        public String getVoices() {
+            if (!ttsReady) return "[]";
+            try {
+                Set<Voice> voiceSet = tts.getVoices();
+                if (voiceSet == null) return "[]";
+                StringBuilder sb = new StringBuilder("[");
+                boolean first = true;
+                for (Voice v : voiceSet) {
+                    if (!first) sb.append(",");
+                    first = false;
+                    sb.append("{\"name\":\"");
+                    sb.append(escapeJson(v.getName()));
+                    sb.append("\",\"lang\":\"");
+                    Locale l = v.getLocale();
+                    String lang = l.getLanguage();
+                    if (!l.getCountry().isEmpty()) lang += "-" + l.getCountry().toLowerCase();
+                    sb.append(escapeJson(lang));
+                    sb.append("\"}");
+                }
+                sb.append("]");
+                return sb.toString();
+            } catch (Exception e) {
+                return "[]";
+            }
+        }
+
+        private String escapeJson(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t");
         }
     }
 
@@ -213,7 +324,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        if (tts != null) {
+        if (ttsReady && tts != null) {
             tts.stop();
             tts.shutdown();
         }
