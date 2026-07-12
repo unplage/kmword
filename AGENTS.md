@@ -37,7 +37,7 @@ TXT files in this repo follow a numbered-list format (header of "Level4_2 单词
 | `words` | auto-increment `id` | Unique constraint on `[word, listId]` |
 | `word_lists` | auto-increment `id` | `name` unique index |
 | `user_progress` | `wordId` | SM-2 fields: `easeFactor`, `repetition`, `interval`, `familiarity`, `nextReview` |
-| `new_words` | `wordId` | No unique constraint — dedup is manual in JS |
+| `new_words` | `wordId` | JS does manual dedup before `put()` to avoid overwriting existing entries |
 | `novels` | auto-increment `id` | `title`, `content`, `format`, `wordCount`, `currentPosition`, `createdAt`, `updatedAt` |
 
 ## SM-2 spaced repetition
@@ -68,7 +68,7 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Settings (IndexedDB keys)
 
-`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsApiKey`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`.
+`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`.
 
 ## Data export/import
 
@@ -88,4 +88,4 @@ In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 
 
 - **Timezone:** Learning streaks use `Asia/Shanghai` (Beijing time), not device local time (`js/db.js:896`).
 - **Word normalization:** All words lowercased + `.trim()`-ed before storage or lookup.
-- **`new_words` store:** No unique constraint; dedup handled manually in JS before insert.
+- **`new_words` store:** `wordId` primary key prevents true duplicates; JS does manual dedup before `put()` to avoid overwriting `addedAt`.

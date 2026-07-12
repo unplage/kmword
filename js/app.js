@@ -1,6 +1,7 @@
         (function() {
             class WordLearnerApp {
                 constructor() {
+                    this.AI_DEFAULT_PROMPT = '请分析英文单词 "{word}"，使用中文回答。请包含以下内容：\n\n1. 词性和基本释义\n2. 词根词缀分析\n3. 记忆技巧\n4. 常用搭配和短语\n5. 近义词辨析\n6. 例句';
                     this.db = window.wordDB;
                     this.novelProcessor = window.novelProcessor;
                     this.currentPage = 'home';
@@ -657,6 +658,7 @@
                         if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
                     });
                     document.getElementById('lookupModalMwBtn')?.addEventListener('click', () => this.lookupModalMw());
+                    document.getElementById('lookupModalAiBtn')?.addEventListener('click', () => this.lookupModalAi());
                     // 弹窗内单词标题也可点击发音
                     document.getElementById('lookupModalWord')?.addEventListener('click', () => {
                         if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
@@ -2616,6 +2618,33 @@
                                 <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">使用浏览器内置语音合成，无需第三方服务。</p>
                             </div>
                             <div class="settings-section">
+                                <h3>AI 分析设置</h3>
+                                <div class="setting-item">
+                                    <label for="llmApiKey">GLM API Key</label>
+                                    <div class="setting-control" style="flex: 1;">
+                                        <input type="password" id="llmApiKey" placeholder="输入 GLM API Key (以 0 开头)" style="flex:1; min-width:200px;">
+                                    </div>
+                                </div>
+                                <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:6px;">
+                                    <label for="llmPrompt">AI 提示词（使用 {word} 作为单词占位符）</label>
+                                    <textarea id="llmPrompt" rows="5" style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:8px; font-size:0.9rem; resize:vertical; box-sizing:border-box;"></textarea>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="llmTemperature">Temperature (随机性)</label>
+                                    <div class="setting-control" style="flex-direction:column; align-items:stretch; gap:4px;">
+                                        <input type="range" id="llmTemperature" min="0" max="2" step="0.1" value="0.7" style="width:100%;">
+                                        <span id="llmTemperatureValue" style="font-size:0.9rem; color:var(--gray-color); text-align:center;">0.7</span>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="llmTopP">Top P (多样性)</label>
+                                    <div class="setting-control" style="flex-direction:column; align-items:stretch; gap:4px;">
+                                        <input type="range" id="llmTopP" min="0" max="1" step="0.1" value="0.9" style="width:100%;">
+                                        <span id="llmTopPValue" style="font-size:0.9rem; color:var(--gray-color); text-align:center;">0.9</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-section">
                                 <h3>显示设置</h3>
                                 <div class="setting-item">
                                     <label for="theme">主题</label>
@@ -2746,6 +2775,22 @@
                         speedSlider.addEventListener('input', updateSpeedLabel);
                         updateSpeedLabel();
                     }
+
+                    const tempSlider = document.getElementById('llmTemperature');
+                    const tempLabel = document.getElementById('llmTemperatureValue');
+                    if (tempSlider && tempLabel) {
+                        const updateTemp = () => { tempLabel.textContent = parseFloat(tempSlider.value).toFixed(1); };
+                        tempSlider.addEventListener('input', updateTemp);
+                        updateTemp();
+                    }
+
+                    const topPSlider = document.getElementById('llmTopP');
+                    const topPLabel = document.getElementById('llmTopPValue');
+                    if (topPSlider && topPLabel) {
+                        const updateTopP = () => { topPLabel.textContent = parseFloat(topPSlider.value).toFixed(1); };
+                        topPSlider.addEventListener('input', updateTopP);
+                        updateTopP();
+                    }
                 }
 
                 async loadSettingsData() {
@@ -2776,6 +2821,17 @@
                             const el = document.getElementById('ttsSpeed');
                             if (el) el.value = settings.ttsSpeed;
                         }
+                        setInputValue('llmApiKey', settings.llmApiKey);
+                        const promptEl = document.getElementById('llmPrompt');
+                        if (promptEl) promptEl.value = settings.llmPrompt || this.AI_DEFAULT_PROMPT;
+                        if (settings.llmTemperature != null) {
+                            const el = document.getElementById('llmTemperature');
+                            if (el) el.value = settings.llmTemperature;
+                        }
+                        if (settings.llmTopP != null) {
+                            const el = document.getElementById('llmTopP');
+                            if (el) el.value = settings.llmTopP;
+                        }
                         this.applyTheme(settings.theme || 'light');
                     } catch (error) {
                         console.error('加载设置数据失败:', error);
@@ -2797,7 +2853,11 @@
                             mwThesKey: getInputValue('mwThesKey'),
                             ttsVoice: getSelect('ttsVoice'),
                             ttsSpeaker: getInputValue('ttsSpeaker'),
-                            ttsSpeed: parseInt(getInputValue('ttsSpeed')) || 0
+                            ttsSpeed: parseInt(getInputValue('ttsSpeed')) || 0,
+                            llmApiKey: getInputValue('llmApiKey'),
+                            llmPrompt: getInputValue('llmPrompt'),
+                            llmTemperature: parseFloat(getInputValue('llmTemperature')) || 0.7,
+                            llmTopP: parseFloat(getInputValue('llmTopP')) || 0.9
                         };
                         for (const [key, value] of Object.entries(settings)) {
                             await this.db.saveSetting(key, value);
@@ -3644,6 +3704,11 @@
                         mwResultEl.style.display = 'none';
                         mwResultEl.innerHTML = '';
                     }
+                    const aiResultEl = document.getElementById('lookupModalAiResult');
+                    if (aiResultEl) {
+                        aiResultEl.style.display = 'none';
+                        aiResultEl.innerHTML = '';
+                    }
                     modal.style.display = 'flex';
                     // 拉取 free dict 并渲染
                     try {
@@ -3669,6 +3734,11 @@
                     const modal = document.getElementById('wordLookupModal');
                     if (modal) modal.style.display = 'none';
                     this.lookupModalWord = null;
+                    const aiResultEl = document.getElementById('lookupModalAiResult');
+                    if (aiResultEl) {
+                        aiResultEl.style.display = 'none';
+                        aiResultEl.innerHTML = '';
+                    }
                 }
 				async addLookupWordToNewWords() {
 					const word = this.lookupModalWord;
@@ -3753,6 +3823,54 @@
                     if (!word) return;
                     const mwResultEl = document.getElementById('lookupModalMwResult');
                     await this.renderMwResult(word, mwResultEl);
+                }
+
+                async lookupModalAi() {
+                    const word = this.lookupModalWord;
+                    if (!word) return;
+                    const aiResultEl = document.getElementById('lookupModalAiResult');
+                    if (!aiResultEl) return;
+
+                    const apiKey = await this.db.getSetting('llmApiKey');
+                    if (!apiKey) {
+                        this.showNotification('请先在设置中配置 GLM API Key', 'warning');
+                        return;
+                    }
+
+                    const promptTemplate = (await this.db.getSetting('llmPrompt')) || this.AI_DEFAULT_PROMPT;
+                    const temperature = (await this.db.getSetting('llmTemperature')) ?? 0.7;
+                    const topP = (await this.db.getSetting('llmTopP')) ?? 0.9;
+                    const userMessage = promptTemplate.replace(/\{word\}/g, word);
+
+                    aiResultEl.style.display = 'block';
+                    aiResultEl.innerHTML = '<div class="ai-loading"><i class="fas fa-spinner fa-spin"></i> AI 分析中...</div>';
+
+                    try {
+                        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: 'glm-4-flash',
+                                messages: [{ role: 'user', content: userMessage }],
+                                temperature: temperature,
+                                top_p: topP
+                            })
+                        });
+
+                        if (!response.ok) {
+                            const errText = await response.text();
+                            throw new Error(`API 错误 (${response.status}): ${errText}`);
+                        }
+
+                        const data = await response.json();
+                        const content = data.choices?.[0]?.message?.content || '(无返回内容)';
+                        aiResultEl.innerHTML = `<div class="ai-result">${this.escapeHtml(content)}</div>`;
+                    } catch (e) {
+                        aiResultEl.innerHTML = `<div class="ai-error"><i class="fas fa-exclamation-triangle"></i> ${this.escapeHtml(e.message)}</div>`;
+                    }
                 }
 
                 // ===== 阅读模块 =====
