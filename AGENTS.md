@@ -4,39 +4,31 @@
 
 ## Architecture
 
-- **Entrypoint:** `index.html` (HTML only, ~600 lines).
-- **Styles:** `styles.css` (~2200 lines, extracted from the original inline `<style>`).
+- **Entrypoint:** `index.html` (HTML + all pages in one file).
+- **Styles:** `styles.css`.
 - **Scripts (IIFE, no module system):**
-  - `js/db.js` — WordDatabase class + `window.wordDB` instance (~1260 lines).
-  - `js/novel-processor.js` — NovelProcessor class + `window.novelProcessor` instance (~320 lines).
-  - `js/app.js` — WordLearnerApp class + `window.app` instance (~3900 lines).
-- **Load order:** `db.js` → `novel-processor.js` → `app.js` (handled by `<script>` order in `index.html`).
+  - `js/db.js` — WordDatabase class + `window.wordDB` instance.
+  - `js/novel-processor.js` — NovelProcessor class + `window.novelProcessor` instance.
+  - `js/app.js` — WordLearnerApp class + `window.app` instance.
+- **Load order (manifest in `<script>` tags):** `db.js` → `novel-processor.js` → `app.js`.
 - **Storage:** IndexedDB `WordLearnerDB` (v7), stores: `words`, `word_lists`, `user_progress`, `new_words`, `daily_plan`, `learning_history`, `novels`, `settings`.
-  - `novels` store (v6+) used by the reading module; v7 added `createdAt` index for sorting.
-- **PWA:** `sw.js` (cache-first static, network-first for API), `manifest.json` (scope `/kmword/`).
+- **PWA:** `sw.js` (cache-first static, network-first for Dictionary APIs), `manifest.json` (scope `/kmword/`).
 - **Deployment:** GitHub Pages at `https://unplage.github.io/kmword/`.
+- **Android wrapper:** `android/` is a separate Gradle/Kotlin project for a WebView-based Android app; not part of the PWA frontend.
 
 ## API dependencies
 
-- **Free Dictionary API** (`api.dictionaryapi.dev`) — used by default for word data. No key required.
-- **Merriam-Webster API** (`dictionaryapi.com`) — optional. Configure keys (`mwDictKey`, `mwThesKey`) in Settings page. Requires free registration at https://dictionaryapi.com/register/index.htm.
+- **Free Dictionary API** (`api.dictionaryapi.dev`) — used by default, no key.
+- **Merriam-Webster API** (`dictionaryapi.com`) — optional, configure `mwDictKey` + `mwThesKey` in Settings. Free registration at https://dictionaryapi.com/register/index.htm.
+- **VoiceRSS TTS API** (`api.voicerss.org`) — optional online TTS for the reading module. Configure `ttsApiKey` + `ttsVoice` in Settings. Free tier: 350 requests/day. Register at https://www.voicerss.org/registration.aspx. Falls back to browser `SpeechSynthesis` if unconfigured.
 
-## Word list import format (TXT)
+## Word list import
 
-Lines parsed via `extract_txt.py` pattern — numbered list with header:
+Upload supports `.txt`, `.md`, `.html`. Two modes:
+- **单词模式 (word)** — extracts words from text.
+- **阅读模式 (reading)** — saves file as-is for in-app reading with TTS + word lookup.
 
-```
-Level4_2 单词列表
-共 120 个单词
-============================================================
-
-   1. word1
-   2. word2
-```
-
-The upload page accepts `.txt`, `.md`, and `.html` formats. Two modes:
-- **单词模式** — extracts words from the text for vocabulary building (legacy flow).
-- **阅读模式** — saves the file as-is for in-app reading with TTS and word lookup.
+TXT files in this repo follow a numbered-list format (header of "Level4_2 单词列表", "共 N 个单词", `====` divider, then `   1. word`). Exception: `雅思260314-3427.txt` is one-word-per-line, no header.
 
 ## Key data model
 
@@ -45,54 +37,55 @@ The upload page accepts `.txt`, `.md`, and `.html` formats. Two modes:
 | `words` | auto-increment `id` | Unique constraint on `[word, listId]` |
 | `word_lists` | auto-increment `id` | `name` unique index |
 | `user_progress` | `wordId` | SM-2 fields: `easeFactor`, `repetition`, `interval`, `familiarity`, `nextReview` |
-| `new_words` | `wordId` | No constraint on uniqueness — manual dedup in code |
-| `novels` | auto-increment `id` | Fields: `title`, `content`, `format` (plain/markdown/html), `wordCount`, `currentPosition`, `createdAt`, `updatedAt` |
+| `new_words` | `wordId` | No unique constraint — dedup is manual in JS |
+| `novels` | auto-increment `id` | `title`, `content`, `format`, `wordCount`, `currentPosition`, `createdAt`, `updatedAt` |
 
 ## SM-2 spaced repetition
+
 - Recognition: correct = quality 5 (perfect), incorrect = quality 2 (reset).
 - Spelling: same logic, fed into `handleAnswer(correct)`.
-- Familiarity 0-5; ≥4 considered "mastered" (`familiarity >= 4`).
+- Familiarity 0–5; ≥4 considered "mastered".
 
 ## Learning session shortcuts
 
-On the learn page (not in input fields):
-- `1` or `ArrowLeft` = don't know
-- `2` or `ArrowRight` = know
+On learn page (not in input fields):
+- `1` / `ArrowLeft` = don't know
+- `2` / `ArrowRight` = know
 - `Space` = speak word
 - `d` / `D` = toggle details
 
 ## Learning modes
 
-Toggle between `recognition` (show word + buttons) and `spelling` (hide word, show input). Mode persists in IndexedDB settings. Spelling mode hides the word, shows meaning as hint, hides example sentences.
+Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meaning as hint, hide examples). Mode persists in IndexedDB settings.
 
 ## Reading module
 
 - **阅读** page lists saved articles (title, word count, date, progress bar, delete).
-- **Reader** view renders article content with collapsible toolbar: font size (+/-), TTS play/pause/stop, delete, collapse toggle.
-- Click any word in reader → opens word lookup modal.
-- Scroll position auto-saves when leaving reader.
-- Font size 12–32px (step 2), persisted in IndexedDB.
-- Full-article TTS with play/pause/stop and word-level highlight (`onboundary`).
+- **Reader** view: collapsible toolbar with font size (+/-), TTS play/pause/stop, delete.
+- Click any word → word lookup modal.
+- Scroll position auto-saves on leave. Font size 12–32px (step 2), persisted in IndexedDB.
+- Full-article TTS with word-level highlight (`onboundary`).
 
 ## Settings (IndexedDB keys)
-`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`.
+
+`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsApiKey`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`.
 
 ## Data export/import
 
-- Export via Settings → downloads JSON (`word-learner-backup-<date>.json`). Contains all stores including novels.
-- Import via Settings → overwrites all data (double confirm dialog).
+- Export via Settings → downloads JSON (`word-learner-backup-<date>.json`), includes all stores.
+- Import via Settings → overwrites all data (double confirm).
 - Clear data: `clear2.html` (scoped to `kmword` prefix) or `clear3.html` (scoped to current origin).
 
 ## Helper script
 
-`extract_txt.py` — extracts words from `kajweb/dict` JSONL format to numbered TXT. Run manually, edit filenames in the script itself.
+`extract_txt.py` — converts `kajweb/dict` JSONL to numbered TXT. Edit filenames in the script, then run manually.
 
 ## Word text files (reference data)
 
-In-repo TXT files: 专四 (4025), 专八 (12197), 托福 (4264), 雅思 (3427). Used as import sources.
+In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 (4264), 雅思 (3427).
 
 ## Quirks
 
-- **Timezone:** Learning streaks use `Asia/Shanghai` (Beijing time), not the device local time (`js/db.js:896`).
-- **Word normalization:** All words lowercased and `.trim()`-ed before storage or lookup.
-- **`new_words` store:** No unique constraint — dedup is handled manually in JS before insertion.
+- **Timezone:** Learning streaks use `Asia/Shanghai` (Beijing time), not device local time (`js/db.js:896`).
+- **Word normalization:** All words lowercased + `.trim()`-ed before storage or lookup.
+- **`new_words` store:** No unique constraint; dedup handled manually in JS before insert.

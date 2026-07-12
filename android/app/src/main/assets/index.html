@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#4CAF50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="WordLearner">
+    <meta name="description" content="一个功能强大的背单词 PWA 应用">
+    
+    <title>单词学习 - Word Learner</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    
+    <!-- Font Awesome 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- 备用图标样式 -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <!-- 离线指示器 -->
+    <div class="offline-indicator" id="offlineIndicator">
+        <i class="fas fa-wifi-slash"></i> 离线模式 - 部分功能可能受限
+    </div>
+
+    <!-- 顶部导航 -->
+    <nav class="navbar">
+        <div class="nav-left">
+            <button class="menu-btn" id="menuBtn" aria-label="打开菜单">
+                <i class="fas fa-bars"></i>
+            </button>
+            <h1 class="logo">WordLearner</h1>
+        </div>
+        <div class="nav-right">
+            <button class="nav-icon" id="statsBtn" aria-label="统计">
+                <i class="fas fa-chart-line"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- 侧边菜单 -->
+    <aside class="sidebar" id="sidebar" aria-label="侧边菜单">
+        <div class="sidebar-header">
+            <h2>菜单</h2>
+            <button class="close-sidebar" id="closeSidebar" aria-label="关闭菜单">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="user-info">
+            <div class="avatar">
+                <i class="fas fa-user"></i>
+            </div>
+            <div class="user-details">
+                <h3>学习者</h3>
+                <p>今日进度: <span id="todayProgress">0/0</span></p>
+            </div>
+        </div>
+        <ul class="menu-list" role="menu">
+            <li class="menu-item active" data-page="home" role="menuitem">
+                <i class="fas fa-home"></i> 首页
+            </li>
+            <li class="menu-item" data-page="learn" role="menuitem">
+                <i class="fas fa-book-open"></i> 开始学习
+            </li>
+            <li class="menu-item" data-page="novel" role="menuitem">
+                <i class="fas fa-file-upload"></i> 上传小说
+            </li>
+            <li class="menu-item" data-page="reading" role="menuitem">
+                <i class="fas fa-book"></i> 阅读
+            </li>
+            <li class="menu-item" data-page="words" role="menuitem">
+                <i class="fas fa-list"></i> 单词库
+            </li>
+            <li class="menu-item" data-page="new-words" role="menuitem">
+                <i class="fas fa-star"></i> 生词本
+            </li>
+            <li class="menu-item" data-page="plan" role="menuitem">
+                <i class="fas fa-calendar-alt"></i> 学习计划
+            </li>
+            <li class="menu-item" data-page="review" role="menuitem">
+                <i class="fas fa-history"></i> 复习
+            </li>
+            <li class="menu-item" data-page="settings" role="menuitem">
+                <i class="fas fa-cog"></i> 设置
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <button class="logout-btn" id="logoutBtn">
+                <i class="fas fa-sign-out-alt"></i> 退出
+            </button>
+        </div>
+    </aside>
+
+    <!-- 主内容区域 -->
+    <main class="main-content" id="mainContent">
+        <section id="homePage" class="page active" aria-label="首页">
+            <div class="daily-summary">
+                <div class="summary-card">
+                    <h3>今日目标</h3>
+                    <div class="progress-circle">
+                        <svg width="80" height="80" viewBox="0 0 36 36">
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                fill="none" stroke="#e0e0e0" stroke-width="3" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                fill="none" stroke="#4CAF50" stroke-width="3" stroke-dasharray="0, 100" id="todayCircle" />
+                        </svg>
+                        <div class="progress-text">
+                            <span id="todayCount">0</span>/<span id="totalGoal">20</span>
+                        </div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" id="todayProgressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h3>连续学习</h3>
+                    <div class="streak">
+                        <i class="fas fa-fire" style="color: #FF5722;"></i>
+                        <span id="streakDays">0</span>天
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h3>总词汇量</h3>
+                    <div class="total-words">
+                        <i class="fas fa-book" style="color: #2196F3;"></i>
+                        <span id="totalWords">0</span>个
+                    </div>
+                </div>
+            </div>
+
+            <div class="quick-actions">
+                <h3>快速开始</h3>
+                <div class="action-buttons">
+                    <button class="action-btn primary" id="startLearning">
+                        <i class="fas fa-play-circle"></i> 开始学习
+                    </button>
+                    <button class="action-btn secondary" id="quickReview">
+                        <i class="fas fa-redo"></i> 快速复习
+                    </button>
+                    <button class="action-btn secondary" id="addWords">
+                        <i class="fas fa-plus-circle"></i> 添加单词
+                    </button>
+                </div>
+				<div class="word-search-area" style="display: flex; gap: 10px; margin-top: 15px; align-items: center; flex-wrap: wrap;">
+					<input type="text" id="homeSearchInput" placeholder="输入要查询的单词..." style="flex: 1; min-width: 180px; padding: 10px 16px; border: 1px solid var(--border-color); border-radius: 25px; font-size: 1rem; outline: none; transition: var(--transition);">
+					<button class="action-btn primary" id="homeSearchBtn" style="width: auto; padding: 10px 24px; min-height: 44px; border-radius: 25px;">
+						<i class="fas fa-search"></i> 查询单词
+					</button>
+				</div>				
+            </div>
+
+            <div class="recent-activity">
+                <h3>最近学习</h3>
+                <div id="recentList" class="recent-list"></div>
+            </div>
+        </section>
+
+        <!-- 学习页面 -->
+        <section id="learnPage" class="page" aria-label="学习">
+            <div class="learning-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>单词学习</h2>
+                <div class="learning-header-right" style="display: flex; align-items: center; gap: 16px;">
+                    <div class="mode-toggle" role="group" aria-label="学习模式">
+                        <button class="mode-btn active" data-mode="recognition" type="button">认词</button>
+                        <button class="mode-btn" data-mode="spelling" type="button">拼写</button>
+                    </div>
+                    <div class="learning-progress">
+                        <span id="learnedCount">0</span>/<span id="totalToLearn">10</span>
+                    </div>
+                </div>
+            </div>
+            <div class="session-progress-bar"><div id="sessionProgress" class="session-progress-fill" style="width:0%;"></div></div>
+
+            <div class="learning-card" id="wordCard">
+                <div class="word-display">
+                    <h1 id="currentWord">Loading...</h1>
+                    <div class="word-info">
+                        <span id="wordPhonetic" class="phonetic">/ˈwɜːd/</span>
+                        <button class="speak-btn" id="speakBtn" aria-label="播放发音">
+                            <i class="fas fa-volume-up"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 拼写模式：隐藏单词，输入拼写 -->
+                <div class="spelling-section" id="spellingSection" style="display:none;">
+                    <div class="spelling-prompt">根据释义与发音拼写单词</div>
+                    <div id="spellingClozeHint" class="spelling-cloze-hint" style="display:none;"></div>
+                    <input type="text" id="spellingInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入拼写">
+                    <div class="spelling-actions">
+                        <button class="action-btn primary" id="spellingSubmit" type="button">
+                            <i class="fas fa-check"></i> 提交
+                        </button>
+                        <button class="action-btn small danger" id="spellingGiveUp" type="button">我不会</button>
+                    </div>
+                    <div id="spellingFeedback" class="spelling-feedback"></div>
+                </div>
+                
+                <div class="word-details" id="wordDetails" style="display: none;">
+                    <div class="difficulty-badge" id="difficultyBadge" data-level="3">中等</div>
+                    
+                    <div class="meaning-section">
+                        <h3>释义</h3>
+                        <p id="wordMeaning">加载中...</p>
+                    </div>
+                    
+                    <div class="example-section">
+                        <h3>例句</h3>
+                        <p id="wordExample">This is an example sentence.</p>
+                    </div>
+                    
+                    <div class="collins-section">
+                        <h3>词典详情</h3>
+                        <div id="collinsContent"></div>
+                        <button class="action-btn small secondary" id="mwLookupBtn" style="margin-top: 10px;">
+                            <i class="fas fa-book"></i> 查看韦氏词典释义
+                        </button>
+						<div id="mwResult" style="margin-top: 15px; display: none; background: #f9f9f9; padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto; width: 100%; box-sizing: border-box;"></div>
+                    </div>
+                </div>
+                <div id="sm2Info" class="sm2-info" style="display:none; margin-top:12px; border-top:1px solid var(--border-color); padding-top:10px; font-size:0.85rem; color:var(--gray-color);"></div>
+                <div id="wordContext" class="word-context" style="display:none; margin-top:8px; padding:8px 12px; background:var(--light-color); border-radius:8px; font-size:0.9rem; color:var(--gray-color); font-style:italic; text-align:center;"></div>
+                
+                <div class="learning-actions" id="recognitionActions">
+                    <button class="action-btn danger" id="notKnowBtn">
+                        <i class="fas fa-times"></i> 不认识
+                    </button>
+                    <button class="action-btn success" id="knowBtn">
+                        <i class="fas fa-check"></i> 认识
+                    </button>
+                </div>
+                
+                <div class="extra-actions">
+                    <button class="icon-btn" id="addToNewWords">
+                        <i class="far fa-star"></i> 加入生词本
+                    </button>
+                    <button class="icon-btn" id="showDetails">
+                        <i class="fas fa-info-circle"></i> 详细信息
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 上传小说页面 -->
+        <section id="novelPage" class="page" aria-label="上传小说">
+            <div class="upload-section">
+                <h2>上传</h2>
+                <p class="upload-hint">上传 txt / md / html 格式的英文内容</p>
+                
+                <div class="mode-toggle" style="margin-bottom:20px;">
+                    <button class="mode-btn active" data-upload-mode="word" type="button">单词模式</button>
+                    <button class="mode-btn" data-upload-mode="reading" type="button">阅读模式</button>
+                </div>
+                
+                <div class="upload-area" id="uploadArea" role="button" tabindex="0">
+                    <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                    <p>点击或拖拽文件到此区域</p>
+                    <input type="file" id="novelFile" accept=".txt,.md,.html" style="display: none;" aria-label="选择文件">
+                    <button class="upload-btn" id="selectFileBtn">选择文件</button>
+                </div>
+                
+                <div class="processing-options" id="wordModeOptions">
+                    <h3>处理选项</h3>
+                    <div class="option-group">
+                        <label>
+                            <input type="checkbox" id="excludeCommon" checked>
+                            排除常见简单单词
+                        </label>
+                        <label>
+                            <input type="checkbox" id="autoDifficulty" checked>
+                            自动难度分级
+                        </label>
+                        <label>
+                            <input type="checkbox" id="downloadData" checked>
+                            自动下载词典数据
+                        </label>
+                    </div>
+                    
+                    <div class="slider-group">
+                        <label>最低词频：<span id="minFreqValue">3</span></label>
+                        <input type="range" id="minFrequency" min="1" max="10" value="3" aria-label="最低词频">
+                    </div>
+                </div>
+                
+                <div class="process-btn-container">
+                    <button class="process-btn" id="processBtn" disabled>
+                        <i class="fas fa-cogs"></i> 开始处理
+                    </button>
+                </div>
+                
+                <div class="process-btn-container" id="readingSaveContainer" style="display:none;">
+                    <button class="process-btn" id="readingSaveBtn">
+                        <i class="fas fa-book"></i> 保存到阅读
+                    </button>
+                </div>
+                
+                <div class="processing-result" id="processingResult" style="display: none;">
+                    <h3>处理结果</h3>
+                    <div class="result-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">总单词数</span>
+                            <span class="stat-value" id="totalWordsCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">去重后</span>
+                            <span class="stat-value" id="uniqueWordsCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">有效生词</span>
+                            <span class="stat-value" id="validWordsCount">0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="difficulty-distribution">
+                        <h4>难度分布</h4>
+                        <div class="difficulty-bars" id="difficultyBars"></div>
+                    </div>
+                    
+                    <button class="save-btn" id="saveWordsBtn">
+                        <i class="fas fa-save"></i> 保存到新单词库
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 阅读页面 -->
+        <section id="readingPage" class="page" aria-label="阅读">
+            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <h2>阅读</h2>
+                <button class="action-btn small" id="readingUploadBtn">
+                    <i class="fas fa-upload"></i> 上传
+                </button>
+            </div>
+            <div class="reading-list" id="readingList">
+                <div class="loading">加载中...</div>
+            </div>
+        </section>
+
+        <!-- 阅读器页面 -->
+        <section id="readerPage" class="page" aria-label="阅读器">
+            <div class="reader-toolbar" id="readerToolbar">
+                <button class="reader-btn" id="readerBackBtn" title="返回">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <span class="reader-title" id="readerTitle">加载中...</span>
+                <button class="reader-btn reader-toggle-btn" id="readerToggleBtn" title="折叠工具栏">
+                    <i class="fas fa-chevron-up"></i>
+                </button>
+                <div class="reader-controls">
+                    <button class="reader-btn" id="readerFontMinus" title="缩小字体">A⁻</button>
+                    <span class="reader-font-size" id="readerFontSize">18</span>
+                    <button class="reader-btn" id="readerFontPlus" title="放大字体">A⁺</button>
+                    <button class="reader-btn" id="readerPlayBtn" title="朗读全文">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="reader-btn" id="readerPauseBtn" title="暂停" style="display:none;">
+                        <i class="fas fa-pause"></i>
+                    </button>
+                    <button class="reader-btn" id="readerStopBtn" title="停止" style="display:none;">
+                        <i class="fas fa-stop"></i>
+                    </button>
+                    <button class="reader-btn" id="readerDeleteBtn" title="删除文章" style="color:var(--danger-color);">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="reader-content" id="readerContent">
+                <div class="reader-text" id="readerText"></div>
+            </div>
+            <div class="reader-progress" id="readerProgress">
+                <div class="reader-progress-bar" id="readerProgressBar"></div>
+            </div>
+        </section>
+
+        <!-- 单词库页面 -->
+        <section id="wordsPage" class="page" aria-label="单词库">
+            <div class="words-header">
+                <h2>单词库</h2>
+                <div class="filter-controls">
+                    <select id="difficultyFilter" aria-label="难度筛选">
+                        <option value="all">全部难度</option>
+                        <option value="1">初级</option>
+                        <option value="2">中级</option>
+                        <option value="3">高级</option>
+                        <option value="4">专业</option>
+                        <option value="5">学术</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="wordSearch" placeholder="搜索单词..." aria-label="搜索单词">
+            </div>
+            
+            <div class="words-list" id="wordsList"></div>
+        </section>
+
+        <!-- 生词本页面 -->
+        <section id="new-wordsPage" class="page" aria-label="生词本">
+            <div class="new-words-header">
+                <h2>生词本</h2>
+                <div class="new-words-actions" style="display: flex; gap: 10px;">
+                    <button class="action-btn small" id="studyNewWords">
+                        <i class="fas fa-graduation-cap"></i> 学习生词
+                    </button>
+                    <button class="action-btn small secondary" id="clearNewWords">
+                        <i class="fas fa-trash-alt"></i> 清空
+                    </button>
+                </div>
+            </div>
+            
+            <div class="new-words-list" id="newWordsList"></div>
+        </section>
+
+        <!-- 学习计划页面 -->
+        <section id="planPage" class="page" aria-label="学习计划">
+            <div class="plan-header">
+                <h2>学习计划</h2>
+            </div>
+            
+            <div class="plan-settings">
+                <div class="setting-item">
+                    <label for="dailyGoal">每日新学单词数</label>
+                    <div class="setting-control">
+                        <input type="number" id="dailyGoal" min="5" max="100" value="20" aria-label="每日目标">
+                        <span>个/天</span>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="reviewGoal">每日复习单词数</label>
+                    <div class="setting-control">
+                        <input type="number" id="reviewGoal" min="10" max="200" value="50" aria-label="复习目标">
+                        <span>个/天</span>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="studyTime">学习时间</label>
+                    <div class="setting-control">
+                        <select id="studyTime" aria-label="学习时间">
+                            <option value="any">任意时间</option>
+                            <option value="morning">早晨 (6:00-10:00)</option>
+                            <option value="afternoon">下午 (14:00-18:00)</option>
+                            <option value="evening">晚上 (19:00-22:00)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="notification">学习提醒</label>
+                    <div class="setting-control">
+                        <label class="switch">
+                            <input type="checkbox" id="notification" aria-label="学习提醒">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="plan-summary">
+                <h3>计划统计</h3>
+                <div class="plan-stats">
+                    <div class="plan-stat">
+                        <div class="stat-value" id="planCompletion">0%</div>
+                        <div class="stat-label">完成率</div>
+                    </div>
+                    <div class="plan-stat">
+                        <div class="stat-value" id="planDays">0</div>
+                        <div class="stat-label">坚持天数</div>
+                    </div>
+                    <div class="plan-stat">
+                        <div class="stat-value" id="planLearned">0</div>
+                        <div class="stat-label">已学单词</div>
+                    </div>
+                </div>
+            </div>
+            
+            <button class="save-plan-btn" id="savePlanBtn">
+                <i class="fas fa-check-circle"></i> 保存计划
+            </button>
+        </section>
+
+        <!-- 复习页面 -->
+        <section id="reviewPage" class="page" aria-label="复习">
+            <div class="page-header">
+                <h2>复习</h2>
+                <div class="page-actions">
+                    <button class="action-btn small" id="startReviewSession">
+                        <i class="fas fa-play-circle"></i> 开始复习
+                    </button>
+                </div>
+            </div>
+            
+            <div class="review-summary">
+                <div class="summary-card">
+                    <h3>待复习单词</h3>
+                    <div class="summary-value" id="reviewCount">0</div>
+                </div>
+                <div class="summary-card">
+                    <h3>紧急复习</h3>
+                    <div class="summary-value" id="urgentCount">0</div>
+                </div>
+                <div class="summary-card">
+                    <h3>平均熟悉度</h3>
+                    <div class="summary-value" id="avgFamiliarity">0/5</div>
+                </div>
+            </div>
+            
+            <div class="review-list" id="reviewList">
+                <div class="loading">加载中...</div>
+            </div>
+        </section>
+
+        <!-- 设置页面 -->
+        <section id="settingsPage" class="page" aria-label="设置"></section>
+
+        <!-- 统计页面 -->
+        <section id="statsPage" class="page" aria-label="统计">
+            <div class="page-header">
+                <h2>统计</h2>
+            </div>
+            <div class="stats-container">
+                <!-- 顶部 4 张卡片 -->
+                <div class="daily-summary" id="statsContent">
+                    <div class="summary-card">
+                        <h3>连续学习</h3>
+                        <div class="streak" id="statStreak">0</div>
+                        <p class="summary-sub">天</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>今日学习</h3>
+                        <div class="streak" id="statToday">0</div>
+                        <p class="summary-sub">个</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>已掌握</h3>
+                        <div class="streak" id="statMastered">0</div>
+                        <p class="summary-sub">个</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>近30天正确率</h3>
+                        <div class="streak" id="statAccuracy">0%</div>
+                    </div>
+                </div>
+
+                <!-- 近 30 天活动柱状图 -->
+                <div class="stats-chart-card">
+                    <h3>近 30 天学习量</h3>
+                    <div id="activityChart" class="activity-chart"></div>
+                    <p class="empty-state" id="activityEmpty" style="display:none;">暂无学习记录</p>
+                </div>
+
+                <!-- 掌握度分布 -->
+                <div class="stats-chart-card">
+                    <h3>掌握度分布</h3>
+                    <div id="masteryDist" class="mastery-dist"></div>
+                </div>
+
+                <!-- 正确率趋势 -->
+                <div class="stats-chart-card">
+                    <h3>近 7 天正确率</h3>
+                    <div id="accuracyTrend" class="accuracy-trend"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 遮罩层 -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- 加载指示器 -->
+    <div class="loader" id="loader">
+        <div class="spinner"></div>
+        <p id="loaderText">加载中...</p>
+    </div>
+
+    <!-- ========== 脚本区 ========== -->
+
+    <!-- ========== 外部脚本 ========== -->
+    <script src="js/db.js"></script>
+    <script src="js/novel-processor.js"></script>
+    <script src="js/app.js"></script>
+
+<!-- 查词弹窗：学习卡片点击单词 / 例句单词时打开，可加入词库 + free dict + 韦氏 -->
+    <div class="modal-overlay" id="wordLookupModal" style="display:none;">
+        <div class="modal-content lookup-modal">
+            <div class="modal-header">
+                <h2 id="lookupModalWord"></h2>
+                <button class="modal-close" id="lookupModalClose" aria-label="关闭">×</button>
+            </div>
+            <div class="modal-actions">
+                <button class="action-btn small primary" id="lookupModalAddBtn">
+                    <i class="fas fa-plus-circle"></i> 加入词库
+                </button>
+				<button class="action-btn small" id="lookupModalAddNewWordBtn">
+					<i class="fas fa-star"></i> 加入生词本
+				</button>
+                <button class="action-btn small" id="lookupModalSpeakBtn">
+                    <i class="fas fa-volume-up"></i> 发音
+                </button>
+                <button class="action-btn small secondary" id="lookupModalMwBtn">
+                    <i class="fas fa-book"></i> 韦氏词典
+                </button>
+            </div>
+            <div id="lookupModalFreeDict" class="modal-section"></div>
+            <div id="lookupModalMwResult" class="modal-section" style="display:none;"></div>
+        </div>
+    </div>
+</body>
+</html>
