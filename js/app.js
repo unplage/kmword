@@ -2622,7 +2622,7 @@
                                 <div class="setting-item">
                                     <label for="llmApiKey">GLM API Key</label>
                                     <div class="setting-control" style="flex: 1;">
-                                        <input type="password" id="llmApiKey" placeholder="输入 GLM API Key (以 0 开头)" style="flex:1; min-width:200px;">
+                                        <input type="password" id="llmApiKey" placeholder="输入 GLM API Key" style="flex:1; min-width:200px;">
                                     </div>
                                 </div>
                                 <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:6px;">
@@ -3853,7 +3853,7 @@
                                 'Authorization': `Bearer ${apiKey}`
                             },
                             body: JSON.stringify({
-                                model: 'glm-4-flash',
+                                model: 'glm-4.7-flash',
                                 messages: [{ role: 'user', content: userMessage }],
                                 temperature: temperature,
                                 top_p: topP
