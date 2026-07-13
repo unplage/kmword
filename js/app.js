@@ -488,6 +488,8 @@
                         await this.testNetworkConnection();
                         this.learningMode = await this.db.getSetting('learningMode', 'recognition') || 'recognition';
                         this.syncModeToggleUI();
+                        const savedFontSize = await this.db.getSetting('fontSize', 'medium');
+                        this.applyFontSize(savedFontSize);
                         document.getElementById('mwLookupBtn')?.addEventListener('click', () => this.lookupMerriamWebster());
                         window.addEventListener('beforeunload', () => {
                             this.cleanup();
@@ -2833,6 +2835,7 @@
                             if (el) el.value = settings.llmTopP;
                         }
                         this.applyTheme(settings.theme || 'light');
+                        this.applyFontSize(settings.fontSize || 'medium');
                     } catch (error) {
                         console.error('加载设置数据失败:', error);
                     }
@@ -2936,15 +2939,20 @@
                             stats: stats
                         };
                         const dataStr = JSON.stringify(exportData, null, 2);
-                        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-                        const url = URL.createObjectURL(dataBlob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `word-learner-backup-${new Date().toISOString().split('T')[0]}.json`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
+                        const filename = `word-learner-backup-${new Date().toISOString().split('T')[0]}.json`;
+                        if (typeof Android !== 'undefined' && Android.saveFile) {
+                            Android.saveFile(filename, dataStr);
+                        } else {
+                            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                            const url = URL.createObjectURL(dataBlob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }
                         this.hideLoader();
                         this.showNotification('数据导出成功', 'success');
                     } catch (error) {
