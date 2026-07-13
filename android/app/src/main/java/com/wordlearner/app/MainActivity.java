@@ -1,12 +1,15 @@
 package com.wordlearner.app;
 
 import android.app.DownloadManager;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
@@ -29,6 +32,7 @@ import java.util.Set;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 
@@ -170,24 +174,52 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void saveFile(String filename, String content) {
             try {
-                File dir = new File(Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS), "WordLearner");
-                if (!dir.exists()) dir.mkdirs();
-                File file = new File(dir, filename);
-                FileOutputStream fos = new FileOutputStream(file);
-                OutputStreamWriter writer = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
-                writer.write(content);
-                writer.close();
-                fos.close();
+                byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Downloads.DISPLAY_NAME, filename);
+                    values.put(MediaStore.Downloads.MIME_TYPE, "application/json");
+                    values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/WordLearner");
+                    Uri uri = context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        OutputStream os = context.getContentResolver().openOutputStream(uri);
+                        if (os != null) {
+                            os.write(bytes);
+                            os.close();
+                        }
+                    } else {
+                        throw new Exception("Failed to create MediaStore entry");
+                    }
+                } else {
+                    File dir = new File(Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOWNLOADS), "WordLearner");
+                    if (!dir.exists()) dir.mkdirs();
+                    File file = new File(dir, filename);
+                    FileOutputStream fos = new FileOutputStream(file);
+                    fos.write(bytes);
+                    fos.close();
+                }
                 runOnUiThread(() ->
                     Toast.makeText(context,
                             "已导出到 Downloads/WordLearner/" + filename,
                             Toast.LENGTH_LONG).show()
                 );
             } catch (Exception e) {
-                runOnUiThread(() ->
-                    Toast.makeText(context, "导出失败: " + e.getMessage(), Toast.LENGTH_LONG).show()
-                );
+                // 尝试 fallback 到应用私有目录
+                try {
+                    File fallbackDir = new File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "WordLearner");
+                    if (!fallbackDir.exists()) fallbackDir.mkdirs();
+                    File fallbackFile = new File(fallbackDir, filename);
+                    FileOutputStream fos = new FileOutputStream(fallbackFile);
+                    fos.write(content.getBytes(StandardCharsets.UTF_8));
+                    fos.close();
+                    String msg = "已导出到 " + fallbackFile.getAbsolutePath();
+                    runOnUiThread(() -> Toast.makeText(context, msg, Toast.LENGTH_LONG).show());
+                } catch (Exception e2) {
+                    runOnUiThread(() ->
+                        Toast.makeText(context, "导出失败: " + e.getMessage(), Toast.LENGTH_LONG).show()
+                    );
+                }
             }
         }
     }

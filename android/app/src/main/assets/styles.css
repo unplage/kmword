@@ -1801,6 +1801,10 @@
         }
         .modal-section:first-of-type { border-top: none; padding-top: 0; }
 
+        .ai-loading { text-align: center; padding: 20px; color: var(--gray-color); }
+        .ai-error { color: var(--danger-color); padding: 12px; background: #fff0f0; border-radius: 8px; font-size: 0.9rem; }
+        .ai-result { line-height: 1.7; white-space: pre-wrap; font-size: 0.95rem; padding: 8px 0; }
+
         /* 可点击单词（学习卡片主词 + 例句内单词） */
         #currentWord { cursor: pointer; transition: var(--transition); }
         #currentWord:hover { color: var(--secondary-color); }

@@ -10,8 +10,8 @@ android {
         applicationId = "com.wordlearner.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.2.5"
+        versionCode = 8
+        versionName = "1.2.6"
     }
 
     buildTypes {
