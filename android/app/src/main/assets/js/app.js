@@ -3912,7 +3912,7 @@
 
                         const data = await response.json();
                         const content = data.choices?.[0]?.message?.content || '(无返回内容)';
-                        const renderFn = typeof marked === 'function' ? marked : null;
+                        const renderFn = typeof marked?.parse === 'function' ? marked : null;
                         if (renderFn) {
                             const html = renderFn.parse(content, { breaks: true });
                             aiResultEl.innerHTML = `<div class="ai-result">${DOMPurify.sanitize(html)}</div>`;
