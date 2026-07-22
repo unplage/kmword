@@ -2632,6 +2632,22 @@
                                     <textarea id="llmPrompt" rows="5" style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:8px; font-size:0.9rem; resize:vertical; box-sizing:border-box;"></textarea>
                                 </div>
                                 <div class="setting-item">
+                                    <label for="llmModel">GLM 模型</label>
+                                    <div class="setting-control" style="flex:1;">
+                                        <input type="text" id="llmModel" placeholder="glm-4.7-flash" style="flex:1; min-width:200px;">
+                                        <span style="font-size:0.8rem; color:var(--gray-color);">留空则使用默认 glm-4.7-flash</span>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="llmWebSearch">AI 联网搜索</label>
+                                    <div class="setting-control">
+                                        <label class="switch">
+                                            <input type="checkbox" id="llmWebSearch" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
                                     <label for="llmTemperature">Temperature (随机性)</label>
                                     <div class="setting-control" style="flex-direction:column; align-items:stretch; gap:4px;">
                                         <input type="range" id="llmTemperature" min="0" max="2" step="0.1" value="0.7" style="width:100%;">
@@ -2826,6 +2842,11 @@
                         setInputValue('llmApiKey', settings.llmApiKey);
                         const promptEl = document.getElementById('llmPrompt');
                         if (promptEl) promptEl.value = settings.llmPrompt || this.AI_DEFAULT_PROMPT;
+                        setInputValue('llmModel', settings.llmModel || '');
+                        const wsEl = document.getElementById('llmWebSearch');
+                        if (wsEl && settings.llmWebSearch != null) {
+                            wsEl.checked = settings.llmWebSearch;
+                        }
                         if (settings.llmTemperature != null) {
                             const el = document.getElementById('llmTemperature');
                             if (el) el.value = settings.llmTemperature;
@@ -2859,6 +2880,8 @@
                             ttsSpeed: parseInt(getInputValue('ttsSpeed')) || 0,
                             llmApiKey: getInputValue('llmApiKey'),
                             llmPrompt: getInputValue('llmPrompt'),
+                            llmModel: (getInputValue('llmModel') || '').trim(),
+                            llmWebSearch: document.getElementById('llmWebSearch')?.checked ?? true,
                             llmTemperature: parseFloat(getInputValue('llmTemperature')) || 0.7,
                             llmTopP: parseFloat(getInputValue('llmTopP')) || 0.9
                         };
@@ -3848,24 +3871,38 @@
                     const promptTemplate = (await this.db.getSetting('llmPrompt')) || this.AI_DEFAULT_PROMPT;
                     const temperature = (await this.db.getSetting('llmTemperature')) ?? 0.7;
                     const topP = (await this.db.getSetting('llmTopP')) ?? 0.9;
+                    const model = (await this.db.getSetting('llmModel') || 'glm-4.7-flash').trim();
+                    const webSearchEnabled = (await this.db.getSetting('llmWebSearch')) ?? true;
                     const userMessage = promptTemplate.replace(/\{word\}/g, word);
 
                     aiResultEl.style.display = 'block';
                     aiResultEl.innerHTML = '<div class="ai-loading"><i class="fas fa-spinner fa-spin"></i> AI 分析中...</div>';
 
                     try {
+                        const body = {
+                            model: model,
+                            messages: [{ role: 'user', content: userMessage }],
+                            temperature: temperature,
+                            top_p: topP
+                        };
+                        if (webSearchEnabled) {
+                            body.tools = [{
+                                type: 'web_search',
+                                web_search: {
+                                    enable: true,
+                                    search_result: true,
+                                    search_query: word,
+                                    count: 5
+                                }
+                            }];
+                        }
                         const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${apiKey}`
                             },
-                            body: JSON.stringify({
-                                model: 'glm-4.7-flash',
-                                messages: [{ role: 'user', content: userMessage }],
-                                temperature: temperature,
-                                top_p: topP
-                            })
+                            body: JSON.stringify(body)
                         });
 
                         if (!response.ok) {

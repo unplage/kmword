@@ -68,7 +68,10 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Settings (IndexedDB keys)
 
-`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`.
+`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `llmModel`, `llmWebSearch`.
+
+- `llmModel` — GLM model name (default `glm-4.7-flash`). User-configurable text input; empty = default.
+- `llmWebSearch` — Boolean toggle for AI web search via GLM `web_search` tool.
 
 ## Data export/import
 
