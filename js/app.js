@@ -3912,7 +3912,13 @@
 
                         const data = await response.json();
                         const content = data.choices?.[0]?.message?.content || '(无返回内容)';
-                        aiResultEl.innerHTML = `<div class="ai-result">${this.escapeHtml(content)}</div>`;
+                        const renderFn = typeof marked === 'function' ? marked : null;
+                        if (renderFn) {
+                            const html = renderFn.parse(content, { breaks: true });
+                            aiResultEl.innerHTML = `<div class="ai-result">${DOMPurify.sanitize(html)}</div>`;
+                        } else {
+                            aiResultEl.innerHTML = `<div class="ai-result">${this.escapeHtml(content)}</div>`;
+                        }
                     } catch (e) {
                         aiResultEl.innerHTML = `<div class="ai-error"><i class="fas fa-exclamation-triangle"></i> ${this.escapeHtml(e.message)}</div>`;
                     }

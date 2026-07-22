@@ -1803,7 +1803,24 @@
 
         .ai-loading { text-align: center; padding: 20px; color: var(--gray-color); }
         .ai-error { color: var(--danger-color); padding: 12px; background: #fff0f0; border-radius: 8px; font-size: 0.9rem; }
-        .ai-result { line-height: 1.7; white-space: pre-wrap; font-size: 0.95rem; padding: 8px 0; }
+        .ai-result { line-height: 1.7; font-size: 0.95rem; padding: 8px 0; }
+        .ai-result h1, .ai-result h2, .ai-result h3, .ai-result h4 { margin: 12px 0 6px; color: var(--primary-color); }
+        .ai-result h1 { font-size: 1.3rem; }
+        .ai-result h2 { font-size: 1.15rem; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; }
+        .ai-result h3 { font-size: 1.05rem; }
+        .ai-result p { margin: 6px 0; }
+        .ai-result ul, .ai-result ol { margin: 6px 0; padding-left: 24px; }
+        .ai-result li { margin: 3px 0; }
+        .ai-result strong { font-weight: 700; }
+        .ai-result em { font-style: italic; }
+        .ai-result code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; font-family: monospace; }
+        .ai-result pre { background: #f4f4f4; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+        .ai-result pre code { background: none; padding: 0; border-radius: 0; }
+        .ai-result blockquote { border-left: 4px solid var(--primary-color); margin: 8px 0; padding: 4px 12px; color: var(--gray-color); background: #f9f9f9; border-radius: 0 4px 4px 0; }
+        .ai-result table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.9rem; }
+        .ai-result th, .ai-result td { border: 1px solid var(--border-color); padding: 6px 10px; text-align: left; }
+        .ai-result th { background: var(--bg-secondary); font-weight: 600; }
+        .ai-result hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
 
         /* 可点击单词（学习卡片主词 + 例句内单词） */
         #currentWord { cursor: pointer; transition: var(--transition); }

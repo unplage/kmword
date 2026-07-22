@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v15';  // 每次更新时递增
+const CACHE_VERSION = 'v16';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
@@ -17,7 +17,9 @@ const STATIC_ASSETS = [
     `${CURRENT_PATH}/js/app.js`,
     `${CURRENT_PATH}/manifest.json`,
     // CDN 资源可以保留
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
+    'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js'
 ];
 
 // ==================== Service Worker 核心代码 ====================
