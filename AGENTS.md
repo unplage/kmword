@@ -87,6 +87,10 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 (4264), 雅思 (3427).
 
+## Cache versioning
+
+`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub.
+
 ## Quirks
 
 - **Timezone:** Learning streaks use `Asia/Shanghai` (Beijing time), not device local time (`js/db.js:896`).
