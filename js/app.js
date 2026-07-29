@@ -874,21 +874,26 @@
                     if (correct) {
                         feedbackEl.className = 'spelling-feedback correct';
                         feedbackEl.textContent = '✓ 正确！';
+                        if (currentWordEl) {
+                            currentWordEl.style.display = '';
+                            currentWordEl.textContent = wordData.word;
+                        }
+                        setTimeout(() => {
+                            this.handleAnswer(true);
+                        }, 1000);
                     } else {
                         feedbackEl.className = 'spelling-feedback wrong';
-                        feedbackEl.innerHTML = this.getLetterFeedback(input, target);
+                        feedbackEl.innerHTML = this.getLetterFeedback(input, target, false);
+                        setTimeout(() => {
+                            if (inputEl) { inputEl.value = ''; inputEl.disabled = false; }
+                            if (feedbackEl) { feedbackEl.className = 'spelling-feedback'; feedbackEl.textContent = ''; }
+                            this.spellingLocked = false;
+                            if (inputEl) inputEl.focus();
+                        }, 1000);
                     }
-                    // 揭示单词（拼写模式下 h1 被隐藏，需恢复显示）
-                    if (currentWordEl) {
-                        currentWordEl.style.display = '';
-                        currentWordEl.textContent = wordData.word;
-                    }
-                    setTimeout(() => {
-                        this.handleAnswer(correct);
-                    }, 1000);
                 }
 
-                getLetterFeedback(input, target) {
+                getLetterFeedback(input, target, showAnswer = true) {
                     const maxLen = Math.max(input.length, target.length);
                     const result = target.split('').map((ch, i) => {
                         if (i >= input.length) {
@@ -908,7 +913,11 @@
                             result.push(`<span class="letter-extra">${input[i]}</span>`);
                         }
                     }
-                    return '✗ ' + result.join('') + `<br><small style="color:var(--gray-color);">正确答案：${target}</small>`;
+                    let feedback = '✗ ' + result.join('');
+                    if (showAnswer) {
+                        feedback += `<br><small style="color:var(--gray-color);">正确答案：${target}</small>`;
+                    }
+                    return feedback;
                 }
 
                 giveUpSpelling() {
