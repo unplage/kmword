@@ -33,33 +33,64 @@
                     this._mimoSession = null;
                     this._mimoAborter = null;
 
+                    this.LLM_PROVIDERS = {
+                        zhipu: {
+                            name: '智谱 GLM',
+                            baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+                            defaultModel: 'glm-4.7-flash',
+                            webSearch: true
+                        },
+                        deepseek: {
+                            name: 'DeepSeek',
+                            baseUrl: 'https://api.deepseek.com/v1',
+                            defaultModel: 'deepseek-v4-flash',
+                            webSearch: false
+                        },
+                        mimo: {
+                            name: '小米 MiMo',
+                            baseUrl: 'https://api.xiaomimimo.com/v1',
+                            defaultModel: 'mimo-v2.5',
+                            webSearch: false
+                        },
+                        qwen: {
+                            name: '通义千问',
+                            baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                            defaultModel: 'qwen-plus',
+                            webSearch: false
+                        },
+                        custom: {
+                            name: '自定义 (OpenAI兼容)',
+                            baseUrl: '',
+                            defaultModel: '',
+                            webSearch: false
+                        }
+                    };
+
 					// ===== 1. 修改 Free Dictionary API 解析 =====
 					this.dictionaryAPI = {
 						baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
 						cache: new Map(),
 						async fetchWordData(word) {
-							if (this.cache.has(word)) { return this.cache.get(word); }
+							const cacheKey = (word || '').toLowerCase().trim();
+							if (!cacheKey) return this.getFallbackData(word);
+							if (this.cache.has(cacheKey)) { return this.cache.get(cacheKey); }
 							try {
 								console.log(`正在获取单词"${word}"的数据...`);
 								const response = await fetch(`${this.baseUrl}/${encodeURIComponent(word)}`);
 								if (!response.ok) {
 									if (response.status === 404) {
-										const fallbackData = this.getFallbackData(word);
-										this.cache.set(word, fallbackData);
-										return fallbackData;
+										return this.getFallbackData(word);
 									}
 									throw new Error(`API请求失败: ${response.status}`);
 								}
 								const data = await response.json();
 								console.log(`单词"${word}"数据获取成功`);
 								const parsedData = this.parseApiData(data, word);
-								this.cache.set(word, parsedData);
+								this.cache.set(cacheKey, parsedData);
 								return parsedData;
 							} catch (error) {
 								console.error(`获取单词"${word}"数据失败:`, error);
-								const fallbackData = this.getFallbackData(word);
-								this.cache.set(word, fallbackData);
-								return fallbackData;
+								return this.getFallbackData(word);
 							}
 						},
 						parseApiData(apiData, originalWord) {
@@ -907,21 +938,26 @@
                     if (correct) {
                         feedbackEl.className = 'spelling-feedback correct';
                         feedbackEl.textContent = '✓ 正确！';
+                        if (currentWordEl) {
+                            currentWordEl.style.display = '';
+                            currentWordEl.textContent = wordData.word;
+                        }
+                        setTimeout(() => {
+                            this.handleAnswer(true);
+                        }, 1000);
                     } else {
                         feedbackEl.className = 'spelling-feedback wrong';
-                        feedbackEl.innerHTML = this.getLetterFeedback(input, target);
+                        feedbackEl.innerHTML = this.getLetterFeedback(input, target, false);
+                        setTimeout(() => {
+                            if (inputEl) { inputEl.value = ''; inputEl.disabled = false; }
+                            if (feedbackEl) { feedbackEl.className = 'spelling-feedback'; feedbackEl.textContent = ''; }
+                            this.spellingLocked = false;
+                            if (inputEl) inputEl.focus();
+                        }, 1000);
                     }
-                    // 揭示单词（拼写模式下 h1 被隐藏，需恢复显示）
-                    if (currentWordEl) {
-                        currentWordEl.style.display = '';
-                        currentWordEl.textContent = wordData.word;
-                    }
-                    setTimeout(() => {
-                        this.handleAnswer(correct);
-                    }, 1000);
                 }
 
-                getLetterFeedback(input, target) {
+                getLetterFeedback(input, target, showAnswer = true) {
                     const maxLen = Math.max(input.length, target.length);
                     const result = target.split('').map((ch, i) => {
                         if (i >= input.length) {
@@ -941,7 +977,11 @@
                             result.push(`<span class="letter-extra">${input[i]}</span>`);
                         }
                     }
-                    return '✗ ' + result.join('') + `<br><small style="color:var(--gray-color);">正确答案：${target}</small>`;
+                    let feedback = '✗ ' + result.join('');
+                    if (showAnswer) {
+                        feedback += `<br><small style="color:var(--gray-color);">正确答案：${target}</small>`;
+                    }
+                    return feedback;
                 }
 
                 giveUpSpelling() {
@@ -2688,21 +2728,39 @@
                             <div class="settings-section">
                                 <h3>AI 分析设置</h3>
                                 <div class="setting-item">
-                                    <label for="llmApiKey">GLM API Key</label>
+                                    <label for="llmProvider">AI 提供商</label>
+                                    <div class="setting-control">
+                                        <select id="llmProvider">
+                                            <option value="zhipu">智谱 GLM</option>
+                                            <option value="deepseek">DeepSeek</option>
+                                            <option value="mimo">小米 MiMo</option>
+                                            <option value="qwen">通义千问</option>
+                                            <option value="custom">自定义 (OpenAI兼容)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="llmApiBase">API 地址</label>
+                                    <div class="setting-control" style="flex:1;">
+                                        <input type="text" id="llmApiBase" placeholder="留空使用提供商默认地址" style="flex:1; min-width:200px;">
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="llmApiKey">API Key</label>
                                     <div class="setting-control" style="flex: 1;">
-                                        <input type="password" id="llmApiKey" placeholder="输入 GLM API Key" style="flex:1; min-width:200px;">
+                                        <input type="password" id="llmApiKey" placeholder="输入 API Key" style="flex:1; min-width:200px;">
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="llmModel">模型</label>
+                                    <div class="setting-control" style="flex:1;">
+                                        <input type="text" id="llmModel" placeholder="留空使用提供商默认模型" style="flex:1; min-width:200px;">
+                                        <span id="llmModelHint" style="font-size:0.8rem; color:var(--gray-color);">默认: glm-4.7-flash</span>
                                     </div>
                                 </div>
                                 <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:6px;">
                                     <label for="llmPrompt">AI 提示词（使用 {word} 作为单词占位符）</label>
                                     <textarea id="llmPrompt" rows="5" style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:8px; font-size:0.9rem; resize:vertical; box-sizing:border-box;"></textarea>
-                                </div>
-                                <div class="setting-item">
-                                    <label for="llmModel">GLM 模型</label>
-                                    <div class="setting-control" style="flex:1;">
-                                        <input type="text" id="llmModel" placeholder="glm-4.7-flash" style="flex:1; min-width:200px;">
-                                        <span style="font-size:0.8rem; color:var(--gray-color);">留空则使用默认 glm-4.7-flash</span>
-                                    </div>
                                 </div>
                                 <div class="setting-item">
                                     <label for="llmWebSearch">AI 联网搜索</label>
@@ -2711,6 +2769,7 @@
                                             <input type="checkbox" id="llmWebSearch" checked>
                                             <span class="slider"></span>
                                         </label>
+                                        <span id="llmWebSearchHint" style="font-size:0.8rem; color:var(--gray-color); margin-left:8px;">仅智谱可用</span>
                                     </div>
                                 </div>
                                 <div class="setting-item">
@@ -2889,6 +2948,24 @@
                         topPSlider.addEventListener('input', updateTopP);
                         updateTopP();
                     }
+
+                    const providerSelect = document.getElementById('llmProvider');
+                    if (providerSelect) {
+                        const updateProviderFields = () => {
+                            const pk = providerSelect.value;
+                            const p = this.LLM_PROVIDERS[pk] || this.LLM_PROVIDERS.zhipu;
+                            const apiBaseInput = document.getElementById('llmApiBase');
+                            if (apiBaseInput) apiBaseInput.placeholder = p.baseUrl || '请输入API地址（必填）';
+                            const modelHint = document.getElementById('llmModelHint');
+                            if (modelHint) modelHint.textContent = p.defaultModel ? '默认: ' + p.defaultModel : '必填';
+                            const wsCb = document.getElementById('llmWebSearch');
+                            const wsHint = document.getElementById('llmWebSearchHint');
+                            if (wsCb) { wsCb.disabled = !p.webSearch; if (!p.webSearch) wsCb.checked = false; }
+                            if (wsHint) wsHint.style.display = p.webSearch ? 'none' : 'inline';
+                        };
+                        providerSelect.addEventListener('change', updateProviderFields);
+                        updateProviderFields();
+                    }
                 }
 
                 async loadSettingsData() {
@@ -2929,6 +3006,8 @@
                             const el = document.getElementById('ttsSpeed');
                             if (el) el.value = settings.ttsSpeed;
                         }
+                        setSelect('llmProvider', settings.llmProvider || 'zhipu');
+                        setInputValue('llmApiBase', settings.llmApiBase || '');
                         setInputValue('llmApiKey', settings.llmApiKey);
                         const promptEl = document.getElementById('llmPrompt');
                         if (promptEl) promptEl.value = settings.llmPrompt || this.AI_DEFAULT_PROMPT;
@@ -2937,6 +3016,8 @@
                         if (wsEl && settings.llmWebSearch != null) {
                             wsEl.checked = settings.llmWebSearch;
                         }
+                        const providerEl = document.getElementById('llmProvider');
+                        if (providerEl) providerEl.dispatchEvent(new Event('change'));
                         if (settings.llmTemperature != null) {
                             const el = document.getElementById('llmTemperature');
                             if (el) el.value = settings.llmTemperature;
@@ -2971,6 +3052,8 @@
                             ttsEngine: getSelect('ttsEngine') || 'system',
                             mimoApiKey: getInputValue('mimoApiKey'),
                             mimoVoice: getSelect('mimoVoice') || 'mimo_default',
+                            llmProvider: getSelect('llmProvider') || 'zhipu',
+                            llmApiBase: (getInputValue('llmApiBase') || '').trim(),
                             llmApiKey: getInputValue('llmApiKey'),
                             llmPrompt: getInputValue('llmPrompt'),
                             llmModel: (getInputValue('llmModel') || '').trim(),
@@ -3856,6 +3939,9 @@
                         // 让弹窗内 free dict 释义/音标/摘要中的英文单词可点击查词
                         this.makeClickable(freeDictEl);
                         this.currentAudioUrl = data.audioUrl;
+                        if (!data.audioUrl && data.meaning && !data.meaning.includes('网络查询失败')) {
+                            setTimeout(() => this.speakWord(word), 300);
+                        }
                     } catch (e) {
                         if (freeDictEl) freeDictEl.innerHTML = '<p class="empty-state">词典数据加载失败</p>';
                     }
@@ -3962,16 +4048,30 @@
                     const aiResultEl = document.getElementById('lookupModalAiResult');
                     if (!aiResultEl) return;
 
+                    const providerKey = (await this.db.getSetting('llmProvider')) || 'zhipu';
+                    const provider = this.LLM_PROVIDERS[providerKey] || this.LLM_PROVIDERS.zhipu;
                     const apiKey = await this.db.getSetting('llmApiKey');
                     if (!apiKey) {
-                        this.showNotification('请先在设置中配置 GLM API Key', 'warning');
+                        this.showNotification('请先在设置中配置 ' + provider.name + ' API Key', 'warning');
+                        return;
+                    }
+
+                    let apiBase = (await this.db.getSetting('llmApiBase')) || '';
+                    apiBase = apiBase.trim() || provider.baseUrl;
+                    if (!apiBase) {
+                        this.showNotification('请配置 API 地址', 'warning');
+                        return;
+                    }
+
+                    const model = (await this.db.getSetting('llmModel') || provider.defaultModel || '').trim();
+                    if (!model) {
+                        this.showNotification('请配置模型名称', 'warning');
                         return;
                     }
 
                     const promptTemplate = (await this.db.getSetting('llmPrompt')) || this.AI_DEFAULT_PROMPT;
                     const temperature = (await this.db.getSetting('llmTemperature')) ?? 0.7;
                     const topP = (await this.db.getSetting('llmTopP')) ?? 0.9;
-                    const model = (await this.db.getSetting('llmModel') || 'glm-4.7-flash').trim();
                     const webSearchEnabled = (await this.db.getSetting('llmWebSearch')) ?? true;
                     const userMessage = promptTemplate.replace(/\{word\}/g, word);
 
@@ -3985,7 +4085,7 @@
                             temperature: temperature,
                             top_p: topP
                         };
-                        if (webSearchEnabled) {
+                        if (webSearchEnabled && provider.webSearch) {
                             body.tools = [{
                                 type: 'web_search',
                                 web_search: {
@@ -3996,18 +4096,18 @@
                                 }
                             }];
                         }
-                        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+                        const response = await fetch(apiBase + '/chat/completions', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiKey}`
+                                'Authorization': 'Bearer ' + apiKey
                             },
                             body: JSON.stringify(body)
                         });
 
                         if (!response.ok) {
                             const errText = await response.text();
-                            throw new Error(`API 错误 (${response.status}): ${errText}`);
+                            throw new Error('API 错误 (' + response.status + '): ' + errText);
                         }
 
                         const data = await response.json();
@@ -4015,12 +4115,12 @@
                         const renderFn = typeof marked?.parse === 'function' ? marked : null;
                         if (renderFn) {
                             const html = renderFn.parse(content, { breaks: true });
-                            aiResultEl.innerHTML = `<div class="ai-result">${DOMPurify.sanitize(html)}</div>`;
+                            aiResultEl.innerHTML = '<div class="ai-result">' + DOMPurify.sanitize(html) + '</div>';
                         } else {
-                            aiResultEl.innerHTML = `<div class="ai-result">${this.escapeHtml(content)}</div>`;
+                            aiResultEl.innerHTML = '<div class="ai-result">' + this.escapeHtml(content) + '</div>';
                         }
                     } catch (e) {
-                        aiResultEl.innerHTML = `<div class="ai-error"><i class="fas fa-exclamation-triangle"></i> ${this.escapeHtml(e.message)}</div>`;
+                        aiResultEl.innerHTML = '<div class="ai-error"><i class="fas fa-exclamation-triangle"></i> ' + this.escapeHtml(e.message) + '</div>';
                     }
                 }
 
