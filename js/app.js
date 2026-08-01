@@ -23,6 +23,10 @@
                     this.currentReaderFontSize = 18;
                     this.uploadMode = 'word';
                     this.readerParagraphs = [];
+                    this._readerEventsBound = false;
+                    this._readerStarting = false;
+                    this._ttsStartTimer = null;
+                    this._isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
                     this.mimoConfig = { engine: 'system', apiKey: '', voice: 'mimo_default' };
                     this._mimoCtx = null;
                     this._mimoSources = [];
@@ -146,6 +150,7 @@
                             this.showNotification('语音合成不可用', 'warning');
                             return;
                         }
+                        if (this.readerTTS) this.stopReaderTTS();
                         this.speechSynthesis.cancel();
                         const utterance = new SpeechSynthesisUtterance(text);
                         utterance.rate = 0.9;
@@ -1638,6 +1643,7 @@
                         this.showNotification('您的浏览器不支持语音播放', 'warning');
                         return;
                     }
+                    if (this.readerTTS) this.stopReaderTTS();
                     this.speechSynthesis.cancel();
                     const utterance = new SpeechSynthesisUtterance(word);
                     utterance.rate = 0.8;
@@ -2682,7 +2688,7 @@
                                 <div class="setting-item">
                                     <label for="ttsSpeed">朗读语速</label>
                                     <div class="setting-control" style="flex-direction:column; align-items:stretch; gap:4px;">
-                                        <input type="range" id="ttsSpeed" min="-10" max="10" value="0" step="1" style="width:100%;">
+                                        <input type="range" id="ttsSpeed" min="-10" max="10" value="0" step="0.25" style="width:100%;">
                                         <span id="ttsSpeedValue" style="font-size:0.9rem; color:var(--gray-color); text-align:center;">0 (正常)</span>
                                     </div>
                                 </div>
@@ -2864,7 +2870,7 @@
                     const speedLabel = document.getElementById('ttsSpeedValue');
                     if (speedSlider && speedLabel) {
                         const updateSpeedLabel = () => {
-                            const v = parseInt(speedSlider.value);
+                            const v = parseFloat(speedSlider.value);
                             let label;
                             if (v <= -6) label = '很慢';
                             else if (v <= -2) label = '慢速';
@@ -2970,7 +2976,7 @@
                             mwThesKey: getInputValue('mwThesKey'),
                             ttsVoice: getSelect('ttsVoice'),
                             ttsSpeaker: getInputValue('ttsSpeaker'),
-                            ttsSpeed: parseInt(getInputValue('ttsSpeed')) || 0,
+                            ttsSpeed: parseFloat(getInputValue('ttsSpeed')) || 0,
                             ttsEngine: getSelect('ttsEngine') || 'system',
                             mimoApiKey: getInputValue('mimoApiKey'),
                             mimoVoice: getSelect('mimoVoice') || 'mimo_default',
@@ -3541,6 +3547,8 @@
                 speakWord(word) {
                     if (!word) return;
                     if (this.speechSynthesis) {
+                        if (this.readerTTS) this.stopReaderTTS();
+                        this.speechSynthesis.cancel();
                         const utterance = new SpeechSynthesisUtterance(word);
                         utterance.rate = 0.8;
                         this.speechSynthesis.speak(utterance);
@@ -4130,7 +4138,7 @@
                             }, 100);
                         }
                         // 绑定阅读器事件
-                        this.bindReaderEvents(article);
+                        this.bindReaderEvents();
                         // 加载字体设置
                         const savedSize = await this.db.getSetting('readerFontSize', 18);
                         this.currentReaderFontSize = savedSize;
@@ -4143,7 +4151,9 @@
                     }
                 }
 
-                bindReaderEvents(article) {
+                bindReaderEvents() {
+                    if (this._readerEventsBound) return;
+                    this._readerEventsBound = true;
                     const backBtn = document.getElementById('readerBackBtn');
                     const fontMinus = document.getElementById('readerFontMinus');
                     const fontPlus = document.getElementById('readerFontPlus');
@@ -4175,7 +4185,7 @@
                     });
 
                     // 全文 TTS 朗读
-                    playBtn?.addEventListener('click', () => this.readerPlay(article));
+                    playBtn?.addEventListener('click', () => this.readerPlay(this.currentReadingArticle));
 
                     pauseBtn?.addEventListener('click', () => {
                         const tts = this.readerTTS;
@@ -4198,6 +4208,20 @@
                             }
                             return;
                         }
+                        if (this._isAndroid) {
+                            if (tts.paused) {
+                                tts.paused = false;
+                                tts.playing = true;
+                                this.updateTTSBtnState();
+                                this.speakReaderChunk(tts.index);
+                            } else {
+                                tts.paused = true;
+                                tts.playing = false;
+                                this.speechSynthesis?.cancel();
+                                this.updateTTSBtnState();
+                            }
+                            return;
+                        }
                         if (tts.paused) {
                             this.speechSynthesis?.resume();
                             tts.paused = false;
@@ -4213,8 +4237,10 @@
 
                     // 删除
                     deleteBtn?.addEventListener('click', async () => {
-                        if (!confirm(`确定要删除"${article.title}"吗？`)) return;
-                        await this.db.deleteArticle(article.id);
+                        const cur = this.currentReadingArticle;
+                        if (!cur) return;
+                        if (!confirm(`确定要删除"${cur.title}"吗？`)) return;
+                        await this.db.deleteArticle(cur.id);
                         this.showNotification('文章已删除', 'success');
                         this.switchPage('reading');
                     });
@@ -4541,66 +4567,72 @@
                         return;
                     }
                     if (this.readerTTS?.playing) return;
-                    const engine = this.mimoConfig.engine;
-                    if (engine === 'mimo') this._mimoEnsureCtx();
-                    const speedSetting = (await this.db.getSetting('ttsSpeed')) || 0;
-                    const rate = Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07));
-                    this.stopReaderTTS();
-                    this.clearTTSTempHighlight();
-                    const readPct = this.currentReadingScrollPct || (this.currentReadingArticle && this.currentReadingArticle.currentPosition) || 0;
-                    if (engine === 'mimo') {
-                        if (!this.mimoConfig.apiKey) {
-                            this.showNotification('请先在设置中配置 MiMo API Key', 'warning');
+                    if (this._readerStarting) return;
+                    this._readerStarting = true;
+                    try {
+                        const engine = this.mimoConfig.engine;
+                        if (engine === 'mimo') this._mimoEnsureCtx();
+                        const speedSetting = (await this.db.getSetting('ttsSpeed')) || 0;
+                        const rate = Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07));
+                        this.stopReaderTTS();
+                        this.clearTTSTempHighlight();
+                        const readPct = this.currentReadingScrollPct || (this.currentReadingArticle && this.currentReadingArticle.currentPosition) || 0;
+                        if (engine === 'mimo') {
+                            if (!this.mimoConfig.apiKey) {
+                                this.showNotification('请先在设置中配置 MiMo API Key', 'warning');
+                                return;
+                            }
+                            const chunks = this.buildTTSChunks(article.content, 3000);
+                            if (chunks.length === 0) {
+                                this.showNotification('无内容可朗读', 'warning');
+                                return;
+                            }
+                            const startIndex = this._readerStartIndex(chunks, article.content.length, readPct);
+                            this.readerTTS = {
+                                engine: 'mimo',
+                                playing: true,
+                                paused: false,
+                                active: false,
+                                waitingIndex: null,
+                                chunks,
+                                index: startIndex,
+                                total: article.content.length,
+                                rate,
+                                failed: 0
+                            };
+                            this.updateTTSBtnState();
+                            this._mimoReadChunk(startIndex);
                             return;
                         }
-                        const chunks = this.buildTTSChunks(article.content, 3000);
+                        const chunks = this.buildTTSChunks(article.content);
                         if (chunks.length === 0) {
                             this.showNotification('无内容可朗读', 'warning');
                             return;
                         }
+                        if (!this.speechSynthesis) {
+                            this.showNotification('语音合成不可用', 'warning');
+                            return;
+                        }
+                        const speakerName = (await this.db.getSetting('ttsSpeaker')) || '';
+                        let voice = null;
+                        if (speakerName) voice = this.voices.find(v => v.name === speakerName) || null;
+                        if (!voice) voice = this.voices.find(v => v.lang.startsWith('en')) || null;
                         const startIndex = this._readerStartIndex(chunks, article.content.length, readPct);
                         this.readerTTS = {
-                            engine: 'mimo',
                             playing: true,
                             paused: false,
-                            active: false,
-                            waitingIndex: null,
                             chunks,
                             index: startIndex,
                             total: article.content.length,
                             rate,
+                            voice,
                             failed: 0
                         };
                         this.updateTTSBtnState();
-                        this._mimoReadChunk(startIndex);
-                        return;
+                        this.speakReaderChunk(startIndex);
+                    } finally {
+                        this._readerStarting = false;
                     }
-                    const chunks = this.buildTTSChunks(article.content);
-                    if (chunks.length === 0) {
-                        this.showNotification('无内容可朗读', 'warning');
-                        return;
-                    }
-                    if (!this.speechSynthesis) {
-                        this.showNotification('语音合成不可用', 'warning');
-                        return;
-                    }
-                    const speakerName = (await this.db.getSetting('ttsSpeaker')) || '';
-                    let voice = null;
-                    if (speakerName) voice = this.voices.find(v => v.name === speakerName) || null;
-                    if (!voice) voice = this.voices.find(v => v.lang.startsWith('en')) || null;
-                    const startIndex = this._readerStartIndex(chunks, article.content.length, readPct);
-                    this.readerTTS = {
-                        playing: true,
-                        paused: false,
-                        chunks,
-                        index: startIndex,
-                        total: article.content.length,
-                        rate,
-                        voice,
-                        failed: 0
-                    };
-                    this.updateTTSBtnState();
-                    this.speakReaderChunk(startIndex);
                 }
 
                 _readerStartIndex(chunks, total, pct) {
@@ -4628,16 +4660,37 @@
                     const utterance = new SpeechSynthesisUtterance(chunk.text);
                     utterance.rate = tts.rate;
                     if (tts.voice) utterance.voice = tts.voice;
+                    let started = false;
+                    if (this._ttsStartTimer) {
+                        clearTimeout(this._ttsStartTimer);
+                        this._ttsStartTimer = null;
+                    }
                     utterance.onstart = () => {
+                        if (this._ttsStartTimer) {
+                            clearTimeout(this._ttsStartTimer);
+                            this._ttsStartTimer = null;
+                        }
+                        started = true;
                         if (!this.readerTTS || this.readerTTS !== tts) return;
+                        if (tts.paused) return;
                         this._showReadingChunk(chunk, tts.total);
                     };
                     utterance.onend = () => {
+                        if (this._ttsStartTimer) {
+                            clearTimeout(this._ttsStartTimer);
+                            this._ttsStartTimer = null;
+                        }
                         if (!this.readerTTS || this.readerTTS !== tts) return;
+                        if (tts.paused) return;
                         this.speakReaderChunk(index + 1);
                     };
                     utterance.onerror = () => {
+                        if (this._ttsStartTimer) {
+                            clearTimeout(this._ttsStartTimer);
+                            this._ttsStartTimer = null;
+                        }
                         if (!this.readerTTS || this.readerTTS !== tts) return;
+                        if (tts.paused) return;
                         tts.failed++;
                         this.speakReaderChunk(index + 1);
                     };
@@ -4655,9 +4708,23 @@
                     };
                     tts.index = index;
                     this.speechSynthesis.speak(utterance);
+                    if (!started) {
+                        this._ttsStartTimer = setTimeout(() => {
+                            this._ttsStartTimer = null;
+                            if (!this.readerTTS || this.readerTTS !== tts) return;
+                            if (tts.paused || started) return;
+                            tts.failed++;
+                            this.speechSynthesis.cancel();
+                            this.speakReaderChunk(index + 1);
+                        }, 4000);
+                    }
                 }
 
                 stopReaderTTS() {
+                    if (this._ttsStartTimer) {
+                        clearTimeout(this._ttsStartTimer);
+                        this._ttsStartTimer = null;
+                    }
                     if (this.speechSynthesis) {
                         this.speechSynthesis.cancel();
                     }
