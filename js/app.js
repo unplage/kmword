@@ -4533,6 +4533,7 @@
                     const rate = Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07));
                     this.stopReaderTTS();
                     this.clearTTSTempHighlight();
+                    const readPct = this.currentReadingScrollPct || (this.currentReadingArticle && this.currentReadingArticle.currentPosition) || 0;
                     if (engine === 'mimo') {
                         if (!this.mimoConfig.apiKey) {
                             this.showNotification('请先在设置中配置 MiMo API Key', 'warning');
@@ -4543,6 +4544,7 @@
                             this.showNotification('无内容可朗读', 'warning');
                             return;
                         }
+                        const startIndex = this._readerStartIndex(chunks, article.content.length, readPct);
                         this.readerTTS = {
                             engine: 'mimo',
                             playing: true,
@@ -4550,13 +4552,13 @@
                             active: false,
                             waitingIndex: null,
                             chunks,
-                            index: 0,
+                            index: startIndex,
                             total: article.content.length,
                             rate,
                             failed: 0
                         };
                         this.updateTTSBtnState();
-                        this._mimoReadChunk(0);
+                        this._mimoReadChunk(startIndex);
                         return;
                     }
                     const chunks = this.buildTTSChunks(article.content);
@@ -4572,18 +4574,28 @@
                     let voice = null;
                     if (speakerName) voice = this.voices.find(v => v.name === speakerName) || null;
                     if (!voice) voice = this.voices.find(v => v.lang.startsWith('en')) || null;
+                    const startIndex = this._readerStartIndex(chunks, article.content.length, readPct);
                     this.readerTTS = {
                         playing: true,
                         paused: false,
                         chunks,
-                        index: 0,
+                        index: startIndex,
                         total: article.content.length,
                         rate,
                         voice,
                         failed: 0
                     };
                     this.updateTTSBtnState();
-                    this.speakReaderChunk(0);
+                    this.speakReaderChunk(startIndex);
+                }
+
+                _readerStartIndex(chunks, total, pct) {
+                    if (!pct || pct <= 0.001) return 0;
+                    const target = pct * total;
+                    for (let i = 0; i < chunks.length; i++) {
+                        if (target < chunks[i].offset + chunks[i].text.length) return i;
+                    }
+                    return chunks.length - 1;
                 }
 
                 speakReaderChunk(index) {
