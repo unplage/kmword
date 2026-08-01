@@ -577,6 +577,22 @@
 
                 bindEvents() {
                     console.log('开始绑定事件...');
+                    window.addEventListener('scroll', () => {
+                        if (this.currentPage !== 'reader') return;
+                        const bar = document.getElementById('readerProgressBar');
+                        const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+                        const pct = maxScroll > 0 ? window.scrollY / maxScroll : 0;
+                        this.currentReadingScrollPct = pct;
+                        if (bar) bar.style.width = (pct * 100) + '%';
+                    });
+                    window.addEventListener('pagehide', () => {
+                        if (this.currentPage === 'reader') this.saveCurrentReadingPosition();
+                    });
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState === 'hidden' && this.currentPage === 'reader') {
+                            this.saveCurrentReadingPosition();
+                        }
+                    });
                     document.querySelectorAll('.menu-item').forEach(item => {
                         item.addEventListener('click', (e) => {
                             e.preventDefault();
@@ -4004,12 +4020,16 @@
                         }
                         // 恢复上次阅读位置
                         const pct = article.currentPosition || 0;
-                        setTimeout(() => {
-                            const content = document.getElementById('readerContent');
-                            if (content && content.scrollHeight) {
-                                content.scrollTop = pct * content.scrollHeight;
-                            }
-                        }, 100);
+                        if (pct > 0) {
+                            setTimeout(() => {
+                                const restore = () => {
+                                    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+                                    if (maxScroll > 0) window.scrollTo(0, pct * maxScroll);
+                                };
+                                restore();
+                                requestAnimationFrame(restore);
+                            }, 100);
+                        }
                         // 绑定阅读器事件
                         this.bindReaderEvents(article);
                         // 加载字体设置
@@ -4034,9 +4054,7 @@
                     const deleteBtn = document.getElementById('readerDeleteBtn');
                     const toggleBtn = document.getElementById('readerToggleBtn');
                     const toolbar = document.getElementById('readerToolbar');
-                    const content = document.getElementById('readerContent');
                     const textEl = document.getElementById('readerText');
-                    const progressBar = document.getElementById('readerProgressBar');
 
                     // 返回
                     const goBack = () => {
@@ -4082,15 +4100,6 @@
                         this.switchPage('reading');
                     });
 
-                    // 滚动进度
-                    const saveProgress = () => {
-                        if (!content) return;
-                        const pct = content.scrollHeight > 0 ? content.scrollTop / content.scrollHeight : 0;
-                        if (progressBar) progressBar.style.width = (pct * 100) + '%';
-                        this.currentReadingScrollPct = pct;
-                    };
-                    content?.addEventListener('scroll', saveProgress);
-
                     // 点击单词查词（通过全局 click 委托实现，见 bindEvents）
                 }
 
@@ -4112,49 +4121,124 @@
                 }
 
                 // ===== 阅读器 TTS =====
+                buildTTSChunks(content) {
+                    const MAX = 400;
+                    const chunks = [];
+                    let pos = 0;
+                    const total = content.length;
+                    while (pos < total) {
+                        const newline = content.indexOf('\n', pos);
+                        const paraEnd = newline === -1 ? total : newline;
+                        const para = content.slice(pos, paraEnd);
+                        if (para.trim()) {
+                            let start = 0;
+                            const len = para.length;
+                            while (start < len) {
+                                let end = Math.min(start + MAX, len);
+                                if (end < len) {
+                                    const period = para.lastIndexOf('. ', end - 1);
+                                    if (period > start) {
+                                        end = period + 1;
+                                    } else {
+                                        const space = para.lastIndexOf(' ', end);
+                                        if (space > start) end = space;
+                                    }
+                                }
+                                const text = para.slice(start, end);
+                                if (text.trim()) {
+                                    chunks.push({ text, offset: pos + start });
+                                }
+                                if (end === start) break;
+                                start = end;
+                            }
+                        }
+                        pos = paraEnd + 1;
+                    }
+                    return chunks;
+                }
+
                 async readerPlay(article) {
                     if (!article?.content) {
                         this.showNotification('无内容可朗读', 'warning');
                         return;
                     }
                     if (this.readerTTS?.playing) return;
-                    this.stopReaderTTS();
-                    this.clearTTSTempHighlight();
-
                     if (!this.speechSynthesis) {
                         this.showNotification('语音合成不可用', 'warning');
                         return;
                     }
-                    const utterance = new SpeechSynthesisUtterance(article.content);
                     const speedSetting = (await this.db.getSetting('ttsSpeed')) || 0;
-                    utterance.rate = Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07));
-                    const speakerName = await this.db.getSetting('ttsSpeaker') || '';
-                    if (speakerName) {
-                        const match = this.voices.find(v => v.name === speakerName);
-                        if (match) utterance.voice = match;
+                    const speakerName = (await this.db.getSetting('ttsSpeaker')) || '';
+                    this.stopReaderTTS();
+                    this.clearTTSTempHighlight();
+                    const chunks = this.buildTTSChunks(article.content);
+                    if (chunks.length === 0) {
+                        this.showNotification('无内容可朗读', 'warning');
+                        return;
                     }
-                    if (!utterance.voice) {
-                        const enVoice = this.voices.find(v => v.lang.startsWith('en'));
-                        if (enVoice) utterance.voice = enVoice;
+                    let voice = null;
+                    if (speakerName) voice = this.voices.find(v => v.name === speakerName) || null;
+                    if (!voice) voice = this.voices.find(v => v.lang.startsWith('en')) || null;
+                    this.readerTTS = {
+                        playing: true,
+                        paused: false,
+                        chunks,
+                        index: 0,
+                        total: article.content.length,
+                        rate: Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07)),
+                        voice,
+                        failed: 0
+                    };
+                    this.updateTTSBtnState();
+                    this.speakReaderChunk(0);
+                }
+
+                speakReaderChunk(index) {
+                    const tts = this.readerTTS;
+                    if (!tts) return;
+                    if (index >= tts.chunks.length) {
+                        const allFailed = tts.failed > 0 && tts.failed >= tts.chunks.length;
+                        this.stopReaderTTS();
+                        if (allFailed) {
+                            this.showNotification('设备 TTS 朗读失败，请检查系统语音设置', 'error');
+                        }
+                        return;
                     }
+                    if (tts.paused) return;
+                    const chunk = tts.chunks[index];
+                    const utterance = new SpeechSynthesisUtterance(chunk.text);
+                    utterance.rate = tts.rate;
+                    if (tts.voice) utterance.voice = tts.voice;
                     utterance.onboundary = (event) => {
+                        if (!this.readerTTS || this.readerTTS !== tts) return;
                         if (event.name === 'word' && event.charIndex != null) {
-                            const word = article.content.slice(event.charIndex, event.charIndex + (event.charLength || 8));
+                            const word = chunk.text.slice(event.charIndex, event.charIndex + (event.charLength || 8));
                             this.highlightTTSWord(word);
-                            this.scrollToTTSCharIndex(event.charIndex, article.content.length);
+                            this.scrollToTTSCharIndex(chunk.offset + event.charIndex, tts.total);
                         }
                     };
-                    utterance.onend = () => this.stopReaderTTS();
+                    utterance.onend = () => {
+                        if (!this.readerTTS || this.readerTTS !== tts) return;
+                        this.speakReaderChunk(index + 1);
+                    };
+                    utterance.onerror = () => {
+                        if (!this.readerTTS || this.readerTTS !== tts) return;
+                        tts.failed++;
+                        this.speakReaderChunk(index + 1);
+                    };
                     utterance.onpause = () => {
-                        this.readerTTS = { playing: false, paused: true };
+                        if (!this.readerTTS || this.readerTTS !== tts) return;
+                        tts.paused = true;
+                        tts.playing = false;
                         this.updateTTSBtnState();
                     };
                     utterance.onresume = () => {
-                        this.readerTTS = { playing: true, paused: false };
+                        if (!this.readerTTS || this.readerTTS !== tts) return;
+                        tts.paused = false;
+                        tts.playing = true;
                         this.updateTTSBtnState();
                     };
-                    this.readerTTS = { playing: true, paused: false, utterance };
-                    this.updateTTSBtnState();
+                    tts.index = index;
                     this.speechSynthesis.speak(utterance);
                 }
 
@@ -4201,10 +4285,10 @@
                 }
 
                 scrollToTTSCharIndex(charIndex, totalLength) {
-                    const content = document.getElementById('readerContent');
-                    if (!content || totalLength <= 0) return;
+                    if (!totalLength || totalLength <= 0) return;
                     const pct = Math.min(charIndex / totalLength, 1);
-                    content.scrollTop = pct * (content.scrollHeight - content.clientHeight);
+                    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+                    if (maxScroll > 0) window.scrollTo(0, pct * maxScroll);
                     const bar = document.getElementById('readerProgressBar');
                     if (bar) bar.style.width = (pct * 100) + '%';
                 }
