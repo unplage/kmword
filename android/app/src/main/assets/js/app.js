@@ -22,6 +22,11 @@
                     this.currentReadingScrollPct = 0;
                     this.currentReaderFontSize = 18;
                     this.uploadMode = 'word';
+                    this.mimoConfig = { engine: 'system', apiKey: '', voice: 'mimo_default' };
+                    this._mimoCtx = null;
+                    this._mimoSources = [];
+                    this._mimoSession = null;
+                    this._mimoAborter = null;
 
 					// ===== 1. 修改 Free Dictionary API 解析 =====
 					this.dictionaryAPI = {
@@ -488,6 +493,11 @@
                         await this.testNetworkConnection();
                         this.learningMode = await this.db.getSetting('learningMode', 'recognition') || 'recognition';
                         this.syncModeToggleUI();
+                        this.mimoConfig = {
+                            engine: (await this.db.getSetting('ttsEngine')) || 'system',
+                            apiKey: (await this.db.getSetting('mimoApiKey')) || '',
+                            voice: (await this.db.getSetting('mimoVoice')) || 'mimo_default'
+                        };
                         const savedFontSize = await this.db.getSetting('fontSize', 'medium');
                         this.applyFontSize(savedFontSize);
                         document.getElementById('mwLookupBtn')?.addEventListener('click', () => this.lookupMerriamWebster());
@@ -551,6 +561,7 @@
                     if (this.speechSynthesis) {
                         this.speechSynthesis.cancel();
                     }
+                    this.mimoStop();
                 }
 
                 async testNetworkConnection() {
@@ -1062,9 +1073,10 @@
                         // 阅读器模式下无内边距
                         document.querySelector('.main-content')
                             .classList.toggle('reader-mode', pageName === 'reader');
-                        // 离开阅读器时保存进度
+                        // 离开阅读器时保存进度并停止朗读
                     if (this.currentPage === 'reader' && pageName !== 'reader') {
                         this.saveCurrentReadingPosition();
+                        this.stopReaderTTS();
                     }
                     this.currentPage = pageName;
                         window.scrollTo(0, 0);
@@ -2611,6 +2623,37 @@
                             <div class="settings-section">
                                 <h3>语音合成设置</h3>
                                 <div class="setting-item">
+                                    <label for="ttsEngine">全文朗读引擎</label>
+                                    <div class="setting-control">
+                                        <select id="ttsEngine">
+                                            <option value="system">系统语音</option>
+                                            <option value="mimo">MiMo 云端 (mimo-v2.5-tts)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="setting-item" id="mimoApiKeyItem">
+                                    <label for="mimoApiKey">MiMo API Key</label>
+                                    <div class="setting-control" style="flex: 1;">
+                                        <input type="password" id="mimoApiKey" placeholder="输入 MiMo API Key" style="flex:1; min-width:200px;">
+                                    </div>
+                                </div>
+                                <div class="setting-item" id="mimoVoiceItem">
+                                    <label for="mimoVoice">MiMo 音色</label>
+                                    <div class="setting-control">
+                                        <select id="mimoVoice">
+                                            <option value="mimo_default">MiMo 默认</option>
+                                            <option value="冰糖">冰糖 (中文·女)</option>
+                                            <option value="茉莉">茉莉 (中文·女)</option>
+                                            <option value="苏打">苏打 (中文·男)</option>
+                                            <option value="白桦">白桦 (中文·男)</option>
+                                            <option value="Mia">Mia (英文·女)</option>
+                                            <option value="Chloe">Chloe (英文·女)</option>
+                                            <option value="Milo">Milo (英文·男)</option>
+                                            <option value="Dean">Dean (英文·男)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
                                     <label for="ttsVoice">朗读语言</label>
                                     <div class="setting-control">
                                         <select id="ttsVoice">
@@ -2633,7 +2676,7 @@
                                         <span id="ttsSpeedValue" style="font-size:0.9rem; color:var(--gray-color); text-align:center;">0 (正常)</span>
                                     </div>
                                 </div>
-                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">使用浏览器内置语音合成，无需第三方服务。</p>
+                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">引擎仅影响阅读器全文朗读；单词发音仍使用系统语音或词典音频。MiMo API Key 请到 Xiaomi MiMo 开放平台获取。</p>
                             </div>
                             <div class="settings-section">
                                 <h3>AI 分析设置</h3>
@@ -2792,6 +2835,20 @@
                         voiceSelect.addEventListener('change', populateSpeakers);
                     }
 
+                    const toggleMimoFields = () => {
+                        const engine = document.getElementById('ttsEngine')?.value;
+                        const keyItem = document.getElementById('mimoApiKeyItem');
+                        const voiceItem = document.getElementById('mimoVoiceItem');
+                        const isMimo = engine === 'mimo';
+                        if (keyItem) keyItem.style.display = isMimo ? '' : 'none';
+                        if (voiceItem) voiceItem.style.display = isMimo ? '' : 'none';
+                    };
+                    const engineSelect = document.getElementById('ttsEngine');
+                    if (engineSelect) {
+                        engineSelect.addEventListener('change', toggleMimoFields);
+                        toggleMimoFields();
+                    }
+
                     // Speed slider label
                     const speedSlider = document.getElementById('ttsSpeed');
                     const speedLabel = document.getElementById('ttsSpeedValue');
@@ -2849,6 +2906,16 @@
                         setSelect('fontSize', settings.fontSize);
                         setInputValue('mwDictKey', settings.mwDictKey);
                         setInputValue('mwThesKey', settings.mwThesKey);
+                        setSelect('ttsEngine', settings.ttsEngine || 'system');
+                        const ttsEngineEl = document.getElementById('ttsEngine');
+                        if (ttsEngineEl) ttsEngineEl.dispatchEvent(new Event('change'));
+                        setInputValue('mimoApiKey', settings.mimoApiKey);
+                        setSelect('mimoVoice', settings.mimoVoice || 'mimo_default');
+                        this.mimoConfig = {
+                            engine: settings.ttsEngine || 'system',
+                            apiKey: settings.mimoApiKey || '',
+                            voice: settings.mimoVoice || 'mimo_default'
+                        };
                         this._savedSpeaker = settings.ttsSpeaker || '';
                         setSelect('ttsVoice', settings.ttsVoice);
                         if (settings.ttsSpeed != null) {
@@ -2894,6 +2961,9 @@
                             ttsVoice: getSelect('ttsVoice'),
                             ttsSpeaker: getInputValue('ttsSpeaker'),
                             ttsSpeed: parseInt(getInputValue('ttsSpeed')) || 0,
+                            ttsEngine: getSelect('ttsEngine') || 'system',
+                            mimoApiKey: getInputValue('mimoApiKey'),
+                            mimoVoice: getSelect('mimoVoice') || 'mimo_default',
                             llmApiKey: getInputValue('llmApiKey'),
                             llmPrompt: getInputValue('llmPrompt'),
                             llmModel: (getInputValue('llmModel') || '').trim(),
@@ -2904,6 +2974,11 @@
                         for (const [key, value] of Object.entries(settings)) {
                             await this.db.saveSetting(key, value);
                         }
+                        this.mimoConfig = {
+                            engine: settings.ttsEngine || 'system',
+                            apiKey: settings.mimoApiKey || '',
+                            voice: settings.mimoVoice || 'mimo_default'
+                        };
                         this.showNotification('设置已保存', 'success');
                         this.applyTheme(settings.theme);
                         this.applyFontSize(settings.fontSize);
@@ -4079,13 +4154,33 @@
                     playBtn?.addEventListener('click', () => this.readerPlay(article));
 
                     pauseBtn?.addEventListener('click', () => {
-                        if (this.readerTTS?.paused) {
+                        const tts = this.readerTTS;
+                        if (!tts) return;
+                        if (tts.engine === 'mimo') {
+                            if (tts.paused) {
+                                this.mimoResume();
+                                tts.paused = false;
+                                tts.playing = true;
+                                this.updateTTSBtnState();
+                                this._startMimoProgressLoop();
+                                if (!tts.active) {
+                                    this._mimoReadChunk(tts.waitingIndex != null ? tts.waitingIndex : tts.index + 1);
+                                }
+                            } else {
+                                this.mimoPause();
+                                tts.paused = true;
+                                tts.playing = false;
+                                this.updateTTSBtnState();
+                            }
+                            return;
+                        }
+                        if (tts.paused) {
                             this.speechSynthesis?.resume();
-                            this.readerTTS.paused = false;
-                            this.readerTTS.playing = true;
+                            tts.paused = false;
+                            tts.playing = true;
                         } else {
                             this.speechSynthesis?.pause();
-                            this.readerTTS.paused = true;
+                            tts.paused = true;
                         }
                         this.updateTTSBtnState();
                     });
@@ -4120,9 +4215,269 @@
                     await this.db.updateArticlePosition(article.id, this.currentReadingScrollPct);
                 }
 
+                // ===== MiMo 云端 TTS (mimo-v2.5-tts) =====
+                _mimoEnsureCtx() {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (!AC) return null;
+                    if (!this._mimoCtx) {
+                        this._mimoCtx = new AC();
+                    }
+                    if (this._mimoCtx.state === 'suspended') {
+                        this._mimoCtx.resume();
+                    }
+                    return this._mimoCtx;
+                }
+
+                _decodePCM16(base64) {
+                    try {
+                        const raw = atob(base64);
+                        const n = raw.length - (raw.length % 2);
+                        if (n <= 0) return null;
+                        const buf = new ArrayBuffer(n);
+                        const u8 = new Uint8Array(buf);
+                        for (let i = 0; i < n; i++) u8[i] = raw.charCodeAt(i);
+                        const i16 = new Int16Array(buf);
+                        const out = new Float32Array(i16.length);
+                        for (let i = 0; i < i16.length; i++) out[i] = i16[i] / 32768;
+                        return out;
+                    } catch (e) {
+                        return null;
+                    }
+                }
+
+                async _mimoStream(text, voice) {
+                    const apiKey = this.mimoConfig.apiKey;
+                    if (!apiKey) throw new Error('未配置 MiMo API Key');
+                    const body = {
+                        model: 'mimo-v2.5-tts',
+                        messages: [{ role: 'assistant', content: text }],
+                        audio: { format: 'pcm16', voice: voice || 'mimo_default' },
+                        stream: true
+                    };
+                    const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'api-key': apiKey,
+                            'Authorization': 'Bearer ' + apiKey
+                        },
+                        body: JSON.stringify(body),
+                        signal: this._mimoAborter ? this._mimoAborter.signal : undefined
+                    });
+                    if (!res.ok) {
+                        let msg = 'HTTP ' + res.status;
+                        try {
+                            const j = await res.json();
+                            msg = (j && j.error && j.error.message) || msg;
+                        } catch (e) {}
+                        throw new Error(msg);
+                    }
+                    return res;
+                }
+
+                mimoSpeak({ text, voice, rate, onStart, onEnd, onError }) {
+                    const ctx = this._mimoEnsureCtx();
+                    if (!ctx) {
+                        if (onError) onError('当前浏览器不支持 Web Audio');
+                        return;
+                    }
+                    this.mimoStop();
+                    this._mimoAborter = new AbortController();
+                    const sources = [];
+                    this._mimoSources = sources;
+                    this._mimoSession = null;
+                    let started = false;
+                    let nextTime = 0;
+                    const schedulePCM = (pcmBase64) => {
+                        const float32 = this._decodePCM16(pcmBase64);
+                        if (!float32 || float32.length === 0) return;
+                        const buffer = ctx.createBuffer(1, float32.length, 24000);
+                        buffer.copyToChannel(float32, 0);
+                        const src = ctx.createBufferSource();
+                        src.buffer = buffer;
+                        src.playbackRate.value = rate || 1;
+                        src.connect(ctx.destination);
+                        if (!started) {
+                            started = true;
+                            nextTime = Math.max(ctx.currentTime + 0.05, nextTime);
+                            this._mimoSession = { started: true, startedAt: nextTime, endAt: nextTime };
+                            if (onStart) onStart();
+                        } else {
+                            nextTime = Math.max(ctx.currentTime, nextTime);
+                            if (this._mimoSession) this._mimoSession.endAt = nextTime;
+                        }
+                        src.start(nextTime);
+                        nextTime += buffer.duration;
+                        if (this._mimoSession) this._mimoSession.endAt = nextTime;
+                        sources.push(src);
+                    };
+                    this._mimoStream(text, voice).then((res) => {
+                        const reader = res.body.getReader();
+                        const decoder = new TextDecoder('utf-8');
+                        let buf = '';
+                        const flushLine = (line) => {
+                            const t = line.trim();
+                            if (!t || !t.startsWith('data:')) return;
+                            const data = t.slice(5).trim();
+                            if (!data || data === '[DONE]') return;
+                            try {
+                                const json = JSON.parse(data);
+                                const delta = json && json.choices && json.choices[0] && json.choices[0].delta;
+                                const audio = delta && delta.audio;
+                                if (audio && typeof audio === 'object' && audio.data) {
+                                    schedulePCM(audio.data);
+                                }
+                            } catch (e) {}
+                        };
+                        const pump = () => {
+                            return reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    if (buf.trim()) flushLine(buf);
+                                    return;
+                                }
+                                buf += decoder.decode(value, { stream: true });
+                                const lines = buf.split('\n');
+                                buf = lines.pop();
+                                lines.forEach(flushLine);
+                                return pump();
+                            });
+                        };
+                        return pump();
+                    }).then(() => {
+                        this._mimoAborter = null;
+                        if (onEnd) {
+                            if (started && this._mimoSession) {
+                                const last = sources[sources.length - 1];
+                                if (last) {
+                                    last.onended = () => {
+                                        const idx = sources.indexOf(last);
+                                        if (idx !== -1) sources.splice(idx, 1);
+                                        if (onEnd) onEnd();
+                                    };
+                                } else {
+                                    if (onEnd) onEnd();
+                                }
+                            } else {
+                                if (onEnd) onEnd();
+                            }
+                        }
+                    }).catch((err) => {
+                        this._mimoAborter = null;
+                        if (err && err.name === 'AbortError') return;
+                        sources.forEach(src => {
+                            try { src.stop(); } catch (e) {}
+                            try { src.disconnect(); } catch (e) {}
+                        });
+                        if (onError) onError((err && err.message) || String(err));
+                    });
+                }
+
+                mimoStop() {
+                    if (this._mimoAborter) {
+                        try { this._mimoAborter.abort(); } catch (e) {}
+                        this._mimoAborter = null;
+                    }
+                    this._mimoSources.forEach(src => {
+                        try { src.onended = null; } catch (e) {}
+                        try { src.stop(); } catch (e) {}
+                        try { src.disconnect(); } catch (e) {}
+                    });
+                    this._mimoSources = [];
+                    this._mimoSession = null;
+                }
+
+                mimoPause() {
+                    if (this._mimoCtx && this._mimoCtx.state === 'running') {
+                        this._mimoCtx.suspend();
+                    }
+                }
+
+                mimoResume() {
+                    if (this._mimoCtx && this._mimoCtx.state === 'suspended') {
+                        this._mimoCtx.resume();
+                    }
+                }
+
+                mimoProgress() {
+                    const session = this._mimoSession;
+                    if (!session || !session.started || !session.startedAt || !this._mimoCtx) return null;
+                    const dur = session.endAt - session.startedAt;
+                    if (dur <= 0) return null;
+                    const pct = (this._mimoCtx.currentTime - session.startedAt) / dur;
+                    return Math.max(0, Math.min(1, pct));
+                }
+
+                async _mimoReadChunk(index) {
+                    const tts = this.readerTTS;
+                    if (!tts || tts.engine !== 'mimo') return;
+                    if (index >= tts.chunks.length) {
+                        this.stopReaderTTS();
+                        return;
+                    }
+                    if (tts.paused) {
+                        tts.waitingIndex = index;
+                        return;
+                    }
+                    const chunk = tts.chunks[index];
+                    tts.index = index;
+                    tts.waitingIndex = null;
+                    tts.active = true;
+                    tts.playing = true;
+                    this.updateTTSBtnState();
+                    this._startMimoProgressLoop();
+                    await this.mimoSpeak({
+                        text: chunk.text,
+                        voice: this.mimoConfig.voice,
+                        rate: tts.rate,
+                        onStart: () => {
+                            const cur = this.readerTTS;
+                            if (!cur || cur !== tts) return;
+                            cur.active = true;
+                            cur.playing = true;
+                            this.updateTTSBtnState();
+                            this._startMimoProgressLoop();
+                        },
+                        onEnd: () => {
+                            const cur = this.readerTTS;
+                            if (!cur || cur !== tts) return;
+                            cur.active = false;
+                            this._mimoReadChunk(index + 1);
+                        },
+                        onError: (msg) => {
+                            const cur = this.readerTTS;
+                            if (!cur || cur !== tts) return;
+                            cur.active = false;
+                            cur.failed = (cur.failed || 0) + 1;
+                            this.showNotification('MiMo 朗读失败: ' + msg, 'error');
+                            this._mimoReadChunk(index + 1);
+                        }
+                    });
+                }
+
+                _startMimoProgressLoop() {
+                    if (this._mimoProgressRaf) return;
+                    const tick = () => {
+                        this._mimoProgressRaf = null;
+                        const tts = this.readerTTS;
+                        if (!tts || tts.engine !== 'mimo' || !tts.playing) return;
+                        const chunkPct = this.mimoProgress();
+                        if (chunkPct != null) {
+                            const chunk = tts.chunks[tts.index];
+                            const totalLen = tts.total || 1;
+                            const pct = chunk ? (chunk.offset + chunkPct * chunk.text.length) / totalLen : chunkPct;
+                            const bar = document.getElementById('readerProgressBar');
+                            if (bar) bar.style.width = (pct * 100) + '%';
+                            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+                            if (maxScroll > 0) window.scrollTo(0, pct * maxScroll);
+                        }
+                        this._mimoProgressRaf = requestAnimationFrame(tick);
+                    };
+                    this._mimoProgressRaf = requestAnimationFrame(tick);
+                }
+
                 // ===== 阅读器 TTS =====
-                buildTTSChunks(content) {
-                    const MAX = 400;
+                buildTTSChunks(content, maxChars) {
+                    const MAX = maxChars || 400;
                     const chunks = [];
                     let pos = 0;
                     const total = content.length;
@@ -4163,19 +4518,48 @@
                         return;
                     }
                     if (this.readerTTS?.playing) return;
-                    if (!this.speechSynthesis) {
-                        this.showNotification('语音合成不可用', 'warning');
-                        return;
-                    }
+                    const engine = this.mimoConfig.engine;
+                    if (engine === 'mimo') this._mimoEnsureCtx();
                     const speedSetting = (await this.db.getSetting('ttsSpeed')) || 0;
-                    const speakerName = (await this.db.getSetting('ttsSpeaker')) || '';
+                    const rate = Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07));
                     this.stopReaderTTS();
                     this.clearTTSTempHighlight();
+                    if (engine === 'mimo') {
+                        if (!this.mimoConfig.apiKey) {
+                            this.showNotification('请先在设置中配置 MiMo API Key', 'warning');
+                            return;
+                        }
+                        const chunks = this.buildTTSChunks(article.content, 3000);
+                        if (chunks.length === 0) {
+                            this.showNotification('无内容可朗读', 'warning');
+                            return;
+                        }
+                        this.readerTTS = {
+                            engine: 'mimo',
+                            playing: true,
+                            paused: false,
+                            active: false,
+                            waitingIndex: null,
+                            chunks,
+                            index: 0,
+                            total: article.content.length,
+                            rate,
+                            failed: 0
+                        };
+                        this.updateTTSBtnState();
+                        this._mimoReadChunk(0);
+                        return;
+                    }
                     const chunks = this.buildTTSChunks(article.content);
                     if (chunks.length === 0) {
                         this.showNotification('无内容可朗读', 'warning');
                         return;
                     }
+                    if (!this.speechSynthesis) {
+                        this.showNotification('语音合成不可用', 'warning');
+                        return;
+                    }
+                    const speakerName = (await this.db.getSetting('ttsSpeaker')) || '';
                     let voice = null;
                     if (speakerName) voice = this.voices.find(v => v.name === speakerName) || null;
                     if (!voice) voice = this.voices.find(v => v.lang.startsWith('en')) || null;
@@ -4185,7 +4569,7 @@
                         chunks,
                         index: 0,
                         total: article.content.length,
-                        rate: Math.max(0.3, Math.min(2, 1 + speedSetting * 0.07)),
+                        rate,
                         voice,
                         failed: 0
                     };
@@ -4245,6 +4629,11 @@
                 stopReaderTTS() {
                     if (this.speechSynthesis) {
                         this.speechSynthesis.cancel();
+                    }
+                    this.mimoStop();
+                    if (this._mimoProgressRaf) {
+                        cancelAnimationFrame(this._mimoProgressRaf);
+                        this._mimoProgressRaf = null;
                     }
                     this.readerTTS = null;
                     this.clearTTSTempHighlight();

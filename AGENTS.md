@@ -21,6 +21,7 @@
 - **Free Dictionary API** (`api.dictionaryapi.dev`) — used by default, no key.
 - **Merriam-Webster API** (`dictionaryapi.com`) — optional, configure `mwDictKey` + `mwThesKey` in Settings. Free registration at https://dictionaryapi.com/register/index.htm.
 - **Browser SpeechSynthesis** — built-in TTS used by the reading module. Configurable voice (named) and speed via Settings. No API key needed.
+- **Xiaomi MiMo TTS API** (`api.xiaomimimo.com`, model `mimo-v2.5-tts`) — optional streaming cloud TTS for the reader (full-article reading). Configure `ttsEngine = mimo` + `mimoApiKey` + `mimoVoice` in Settings. Streaming returns base64 PCM16 (24 kHz mono), played via Web Audio API.
 
 ## Word list import
 
@@ -68,10 +69,13 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Settings (IndexedDB keys)
 
-`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `llmModel`, `llmWebSearch`.
+`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `ttsEngine`, `mimoApiKey`, `mimoVoice`, `llmModel`, `llmWebSearch`.
 
 - `llmModel` — GLM model name (default `glm-4.7-flash`). User-configurable text input; empty = default.
 - `llmWebSearch` — Boolean toggle for AI web search via GLM `web_search` tool.
+- `ttsEngine` — reader full-article TTS engine: `system` (browser) or `mimo` (MiMo cloud). Word pronunciation always uses system TTS / dictionary audio.
+- `mimoApiKey` — Xiaomi MiMo API key for `mimo-v2.5-tts`.
+- `mimoVoice` — MiMo preset voice ID (`mimo_default`, 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean).
 
 ## Data export/import
 
