@@ -22,6 +22,7 @@
                     this.currentReadingScrollPct = 0;
                     this.currentReaderFontSize = 18;
                     this.uploadMode = 'word';
+                    this.readerParagraphs = [];
                     this.mimoConfig = { engine: 'system', apiKey: '', voice: 'mimo_default' };
                     this._mimoCtx = null;
                     this._mimoSources = [];
@@ -4090,8 +4091,22 @@
                         const progressBar = document.getElementById('readerProgressBar');
                         if (titleEl) titleEl.textContent = article.title;
                         if (textEl) {
-                            textEl.textContent = displayText;
-                            this.makeClickable(textEl);
+                            this.readerParagraphs = [];
+                            let charPos = 0;
+                            const lines = displayText.split('\n');
+                            textEl.innerHTML = '';
+                            for (const line of lines) {
+                                const len = line.length;
+                                if (line.trim()) {
+                                    const p = document.createElement('p');
+                                    p.dataset.para = this.readerParagraphs.length;
+                                    p.textContent = line;
+                                    textEl.appendChild(p);
+                                    this.makeClickable(p);
+                                    this.readerParagraphs.push({ el: p, start: charPos, end: charPos + len });
+                                }
+                                charPos += len + 1;
+                            }
                         }
                         // 恢复上次阅读位置
                         const pct = article.currentPosition || 0;
@@ -4435,6 +4450,7 @@
                             cur.active = true;
                             cur.playing = true;
                             this.updateTTSBtnState();
+                            this._showReadingChunk(chunk, tts.total);
                             this._startMimoProgressLoop();
                         },
                         onEnd: () => {
@@ -4467,8 +4483,6 @@
                             const pct = chunk ? (chunk.offset + chunkPct * chunk.text.length) / totalLen : chunkPct;
                             const bar = document.getElementById('readerProgressBar');
                             if (bar) bar.style.width = (pct * 100) + '%';
-                            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-                            if (maxScroll > 0) window.scrollTo(0, pct * maxScroll);
                         }
                         this._mimoProgressRaf = requestAnimationFrame(tick);
                     };
@@ -4605,13 +4619,9 @@
                     const utterance = new SpeechSynthesisUtterance(chunk.text);
                     utterance.rate = tts.rate;
                     if (tts.voice) utterance.voice = tts.voice;
-                    utterance.onboundary = (event) => {
+                    utterance.onstart = () => {
                         if (!this.readerTTS || this.readerTTS !== tts) return;
-                        if (event.name === 'word' && event.charIndex != null) {
-                            const word = chunk.text.slice(event.charIndex, event.charIndex + (event.charLength || 8));
-                            this.highlightTTSWord(word);
-                            this.scrollToTTSCharIndex(chunk.offset + event.charIndex, tts.total);
-                        }
+                        this._showReadingChunk(chunk, tts.total);
                     };
                     utterance.onend = () => {
                         if (!this.readerTTS || this.readerTTS !== tts) return;
@@ -4667,31 +4677,36 @@
                     }
                 }
 
-                highlightTTSWord(word) {
-                    this.clearTTSTempHighlight();
-                    const textEl = document.getElementById('readerText');
-                    if (!textEl || !word) return;
-                    const cleanWord = word.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
-                    if (!cleanWord) return;
-                    textEl.querySelectorAll('.clickable-word').forEach(el => {
-                        if (el.dataset.word?.toLowerCase() === cleanWord) {
-                            el.classList.add('tts-temp-highlight');
-                        }
-                    });
-                    setTimeout(() => this.clearTTSTempHighlight(), 800);
-                }
-
                 clearTTSTempHighlight() {
                     document.querySelectorAll('.tts-temp-highlight').forEach(el => el.classList.remove('tts-temp-highlight'));
+                    document.querySelectorAll('#readerText > p.reader-speaking').forEach(el => el.classList.remove('reader-speaking'));
                 }
 
-                scrollToTTSCharIndex(charIndex, totalLength) {
-                    if (!totalLength || totalLength <= 0) return;
-                    const pct = Math.min(charIndex / totalLength, 1);
-                    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-                    if (maxScroll > 0) window.scrollTo(0, pct * maxScroll);
+                _paraForOffset(offset) {
+                    const paras = this.readerParagraphs;
+                    if (!paras || paras.length === 0) return null;
+                    for (let i = 0; i < paras.length; i++) {
+                        if (offset < paras[i].end) return paras[i];
+                    }
+                    return paras[paras.length - 1];
+                }
+
+                _showReadingChunk(chunk, total) {
+                    document.querySelectorAll('#readerText > p.reader-speaking').forEach(el => el.classList.remove('reader-speaking'));
+                    const para = this._paraForOffset(chunk.offset);
+                    if (para && para.el) {
+                        para.el.classList.add('reader-speaking');
+                        const rect = para.el.getBoundingClientRect();
+                        const vh = window.innerHeight || 600;
+                        if (rect.top < 0 || rect.bottom > vh) {
+                            para.el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        }
+                    }
                     const bar = document.getElementById('readerProgressBar');
-                    if (bar) bar.style.width = (pct * 100) + '%';
+                    if (bar) {
+                        const pct = Math.min((chunk.offset + chunk.text.length) / (total || 1), 1);
+                        bar.style.width = (pct * 100) + '%';
+                    }
                 }
 
                 escapeHtml(str) {

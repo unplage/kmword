@@ -2206,8 +2206,14 @@
         }
 
         .reader-text p {
-            text-indent: 2em;
-            margin-bottom: 1em;
+            text-indent: 0;
+            margin: 0 0 0.5em;
+            border-radius: 6px;
+            transition: background-color 0.2s ease;
+        }
+
+        .reader-text p.reader-speaking {
+            background-color: rgba(76, 175, 80, 0.13);
         }
 
         .reader-progress {
@@ -2262,6 +2268,10 @@
         .theme-dark .reader-toolbar,
         .theme-dark .reader-content {
             background: #2d2d2d;
+        }
+
+        .theme-dark .reader-text p.reader-speaking {
+            background-color: rgba(76, 175, 80, 0.28);
         }
 
         @media (max-width: 768px) {
