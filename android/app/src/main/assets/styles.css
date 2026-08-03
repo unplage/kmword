@@ -2289,3 +2289,241 @@
                 border-top: 1px solid var(--border-color);
             }
         }
+
+        /* ===== 听力模块 ===== */
+        .listening-card .reading-card-icon {
+            color: #9C27B0;
+        }
+
+        .progress-bar-wrap {
+            width: 100%;
+            height: 6px;
+            background: var(--border-color);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--primary-color);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+
+        .progress-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        /* ===== 播放器 ===== */
+        .player-content {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .player-now-playing {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .player-segment-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .player-time-display {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .player-time-sep {
+            margin: 0 4px;
+        }
+
+        .player-progress-bar-wrap {
+            width: 100%;
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .player-progress-bar-wrap:hover .player-progress-bar {
+            height: 10px;
+            margin-top: -1px;
+        }
+
+        .player-progress-bar {
+            height: 100%;
+            background: var(--primary-color);
+            border-radius: 4px;
+            transition: width 0.1s linear;
+        }
+
+        .player-controls-main {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 20px;
+        }
+
+        .player-ctrl-btn {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 12px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            transition: background 0.2s;
+        }
+
+        .player-ctrl-btn:hover {
+            background: var(--hover-bg, rgba(0,0,0,0.05));
+        }
+
+        .player-ctrl-btn:active {
+            transform: scale(0.95);
+        }
+
+        .player-ctrl-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .player-ctrl-play {
+            width: 64px;
+            height: 64px;
+            background: var(--primary-color) !important;
+            color: #fff !important;
+            font-size: 28px;
+            border-radius: 50%;
+        }
+
+        .player-ctrl-play:hover {
+            background: var(--primary-dark) !important;
+        }
+
+        .player-ctrl-play i {
+            margin: 0;
+        }
+
+        .player-speed-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+
+        .player-speed-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .player-speed-options {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .player-speed-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .player-speed-btn:hover {
+            border-color: var(--primary-color);
+        }
+
+        .player-speed-btn.active {
+            background: var(--primary-color);
+            color: #fff;
+            border-color: var(--primary-color);
+        }
+
+        .player-segment-list {
+            margin-bottom: 16px;
+        }
+
+        .player-segment-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .player-segment-item:hover {
+            background: var(--hover-bg, rgba(0,0,0,0.04));
+        }
+
+        .player-segment-item.active {
+            background: var(--primary-light, rgba(76,175,80,0.1));
+            border-color: var(--primary-color);
+        }
+
+        .player-segment-name {
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+
+        .player-segment-item.active .player-segment-name {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        .player-segment-dur {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .player-total-progress {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 12px 0;
+            border-top: 1px solid var(--border-color);
+        }
+
+        @media (max-width: 768px) {
+            .player-content {
+                padding: 16px 12px;
+            }
+            .player-ctrl-play {
+                width: 56px;
+                height: 56px;
+                font-size: 24px;
+            }
+            .player-speed-options {
+                gap: 4px;
+            }
+            .player-speed-btn {
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+        }

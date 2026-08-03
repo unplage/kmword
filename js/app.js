@@ -32,6 +32,15 @@
                     this._mimoSources = [];
                     this._mimoSession = null;
                     this._mimoAborter = null;
+                    this.currentListeningFileId = null;
+                    this.currentListeningFile = null;
+                    this.currentListeningSegments = [];
+                    this.playerAudio = null;
+                    this.playerSegmentIndex = 0;
+                    this.playerSpeed = 1;
+                    this.playerPlaying = false;
+                    this._playerTimeRaf = null;
+                    this._listeningGenAborter = null;
 
                     this.LLM_PROVIDERS = {
                         zhipu: {
@@ -784,6 +793,12 @@
                         this.showNotification('请上传文件后选择「阅读模式」', 'info');
                     });
 
+                    // 听力模块事件
+                    document.getElementById('listeningUploadBtn')?.addEventListener('click', () => {
+                        this.switchPage('novel');
+                        this.showNotification('请上传文件后选择「听力模式」', 'info');
+                    });
+
                     // 上传页模式切换
                     document.querySelectorAll('[data-upload-mode]').forEach(btn => {
                         btn.addEventListener('click', () => {
@@ -791,14 +806,17 @@
                             btn.classList.add('active');
                             const mode = btn.dataset.uploadMode;
                             const isReading = mode === 'reading';
-                            document.getElementById('wordModeOptions').style.display = isReading ? 'none' : 'block';
-                            document.getElementById('processBtn').style.display = isReading ? 'none' : '';
+                            const isListening = mode === 'listening';
+                            document.getElementById('wordModeOptions').style.display = isReading || isListening ? 'none' : 'block';
+                            document.getElementById('processBtn').style.display = isReading || isListening ? 'none' : '';
                             document.getElementById('readingSaveContainer').style.display = isReading ? 'block' : 'none';
+                            document.getElementById('listeningGenContainer').style.display = isListening ? 'block' : 'none';
                             this.uploadMode = mode;
                         });
                     });
 
                     document.getElementById('readingSaveBtn')?.addEventListener('click', () => this.saveAsReading());
+                    document.getElementById('listeningGenBtn')?.addEventListener('click', () => this.generateListeningAudio());
 
                     console.log('事件绑定完成');
                 }
@@ -1124,6 +1142,10 @@
                         this.saveCurrentReadingPosition();
                         this.stopReaderTTS();
                     }
+                    // 离开播放器时停止播放
+                    if (this.currentPage === 'player' && pageName !== 'player') {
+                        this.stopPlayer();
+                    }
                     this.currentPage = pageName;
                         window.scrollTo(0, 0);
                         requestAnimationFrame(() => {
@@ -1164,6 +1186,12 @@
                                 break;
                             case 'reader':
                                 await this.loadReader();
+                                break;
+                            case 'listening':
+                                await this.loadListeningList();
+                                break;
+                            case 'player':
+                                await this.loadPlayer();
                                 break;
                             case 'home':
                                 await this.updateTodayProgress();
@@ -4929,6 +4957,392 @@
                         }
                         node.parentNode.replaceChild(frag, node);
                     }
+                }
+
+                // ===== 听力模块 =====
+                async generateListeningAudio() {
+                    if (!this.novelFileContent) {
+                        this.showNotification('请先选择文件', 'error');
+                        return;
+                    }
+                    if (!this.mimoConfig.apiKey) {
+                        this.showNotification('请先在设置中配置 MiMo API Key', 'warning');
+                        return;
+                    }
+                    if (this._listeningGenAborter) {
+                        this.showNotification('正在生成中，请等待', 'warning');
+                        return;
+                    }
+
+                    const btn = document.getElementById('listeningGenBtn');
+                    const progressWrap = document.getElementById('listeningGenProgress');
+                    const progressBar = document.getElementById('listeningGenProgressBar');
+                    const progressText = document.getElementById('listeningGenProgressText');
+
+                    if (btn) btn.disabled = true;
+                    if (progressWrap) progressWrap.style.display = 'block';
+
+                    try {
+                        const chunker = new TextChunker();
+                        const chunks = chunker.splitText(this.novelFileContent);
+                        if (chunks.length === 0) {
+                            this.showNotification('文件内容为空', 'error');
+                            return;
+                        }
+
+                        const totalChunks = chunks.length;
+                        if (progressText) progressText.textContent = `共 ${totalChunks} 段，准备生成...`;
+
+                        const generator = new TTSGenerator();
+                        this._listeningGenAborter = generator;
+
+                        const fileName = this.novelFileName || '未命名';
+                        const title = fileName.replace(/\.(txt|md|html|htm)$/i, '');
+
+                        const fileId = await this.db.saveListeningFile({
+                            title,
+                            content: this.novelFileContent,
+                            totalDuration: 0,
+                            segmentCount: totalChunks
+                        });
+
+                        let totalDuration = 0;
+                        for (let i = 0; i < totalChunks; i++) {
+                            if (progressText) progressText.textContent = `正在生成 Part ${i + 1}/${totalChunks}...`;
+                            if (progressBar) progressBar.style.width = ((i / totalChunks) * 100) + '%';
+
+                            try {
+                                const { wavBlob, duration } = await generator.streamToWav(
+                                    chunks[i].text,
+                                    this.mimoConfig.apiKey,
+                                    this.mimoConfig.voice
+                                );
+
+                                await this.db.saveAudioSegment({
+                                    fileId,
+                                    segmentIndex: i,
+                                    title: `Part ${i + 1}`,
+                                    text: chunks[i].text,
+                                    duration,
+                                    audioBlob: wavBlob
+                                });
+
+                                totalDuration += duration;
+                            } catch (err) {
+                                console.error(`生成 Part ${i + 1} 失败:`, err);
+                                this.showNotification(`Part ${i + 1} 生成失败: ${err.message}`, 'error');
+                            }
+                        }
+
+                        if (progressBar) progressBar.style.width = '100%';
+                        if (progressText) progressText.textContent = '生成完成！';
+
+                        this.showNotification(`听力音频已生成 (${totalChunks} 段)`, 'success');
+                        this.novelFileContent = null;
+                        this.novelFileName = null;
+                        this.switchPage('listening');
+                    } catch (err) {
+                        console.error('生成听力音频失败:', err);
+                        this.showNotification('生成失败: ' + err.message, 'error');
+                    } finally {
+                        this._listeningGenAborter = null;
+                        if (btn) btn.disabled = false;
+                    }
+                }
+
+                async loadListeningList() {
+                    try {
+                        const list = document.getElementById('listeningList');
+                        if (!list) return;
+                        list.innerHTML = '<div class="loading">加载中...</div>';
+                        const files = await this.db.getListeningFiles();
+                        if (files.length === 0) {
+                            list.innerHTML = '<p class="empty-state">还没有听力文件，去上传吧</p>';
+                            return;
+                        }
+                        let html = '';
+                        for (const file of files) {
+                            const dur = this._formatDuration(file.totalDuration || 0);
+                            const date = new Date(file.createdAt).toLocaleDateString('zh-CN');
+                            html += `
+                                <div class="reading-card listening-card" data-id="${file.id}">
+                                    <div class="reading-card-icon"><i class="fas fa-headphones"></i></div>
+                                    <div class="reading-card-body">
+                                        <div class="reading-card-title">${this.escapeHtml(file.title)}</div>
+                                        <div class="reading-card-meta">${file.segmentCount || 0} 段 · ${dur} · ${date}</div>
+                                    </div>
+                                    <button class="reading-card-delete" data-id="${file.id}" title="删除">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
+                            `;
+                        }
+                        list.innerHTML = html;
+                        list.querySelectorAll('.listening-card').forEach(card => {
+                            card.addEventListener('click', (e) => {
+                                if (e.target.closest('.reading-card-delete')) return;
+                                const id = card.dataset.id;
+                                this.currentListeningFileId = id;
+                                this.switchPage('player');
+                            });
+                            card.querySelector('.reading-card-delete').addEventListener('click', async (e) => {
+                                e.stopPropagation();
+                                const id = card.dataset.id;
+                                if (!confirm('确定要删除这个听力文件吗？')) return;
+                                await this.db.deleteListeningFile(id);
+                                this.showNotification('已删除', 'success');
+                                await this.loadListeningList();
+                            });
+                        });
+                    } catch (error) {
+                        console.error('加载听力列表失败:', error);
+                        const list = document.getElementById('listeningList');
+                        if (list) list.innerHTML = '<div class="error-state">加载失败</div>';
+                    }
+                }
+
+                async loadPlayer() {
+                    const id = this.currentListeningFileId;
+                    if (!id) { this.switchPage('listening'); return; }
+                    try {
+                        const file = await this.db.getListeningFile(id);
+                        if (!file) {
+                            this.showNotification('文件不存在', 'error');
+                            this.switchPage('listening');
+                            return;
+                        }
+                        this.currentListeningFile = file;
+                        const segments = await this.db.getAudioSegmentsByFile(id);
+                        this.currentListeningSegments = segments;
+                        this.playerSegmentIndex = 0;
+
+                        const titleEl = document.getElementById('playerTitle');
+                        if (titleEl) titleEl.textContent = file.title;
+
+                        this._renderSegmentList();
+                        this._bindPlayerEvents();
+                        this._loadSegment(0);
+                    } catch (err) {
+                        console.error('加载播放器失败:', err);
+                        this.showNotification('加载失败', 'error');
+                        this.switchPage('listening');
+                    }
+                }
+
+                _renderSegmentList() {
+                    const listEl = document.getElementById('playerSegmentList');
+                    if (!listEl) return;
+                    const segments = this.currentListeningSegments;
+                    if (!segments.length) {
+                        listEl.innerHTML = '<p class="empty-state">无音频段</p>';
+                        return;
+                    }
+                    let html = '';
+                    for (let i = 0; i < segments.length; i++) {
+                        const seg = segments[i];
+                        const dur = this._formatDuration(seg.duration || 0);
+                        const active = i === this.playerSegmentIndex ? ' active' : '';
+                        html += `
+                            <div class="player-segment-item${active}" data-index="${i}">
+                                <span class="player-segment-name">${this.escapeHtml(seg.title || 'Part ' + (i + 1))}</span>
+                                <span class="player-segment-dur">${dur}</span>
+                            </div>
+                        `;
+                    }
+                    listEl.innerHTML = html;
+                    listEl.querySelectorAll('.player-segment-item').forEach(item => {
+                        item.addEventListener('click', () => {
+                            const idx = parseInt(item.dataset.index);
+                            this._loadSegment(idx);
+                            this._playPlayer();
+                        });
+                    });
+                }
+
+                _bindPlayerEvents() {
+                    if (this._playerEventsBound) return;
+                    this._playerEventsBound = true;
+
+                    document.getElementById('playerBackBtn')?.addEventListener('click', () => {
+                        this.stopPlayer();
+                        this.switchPage('listening');
+                    });
+
+                    document.getElementById('playerPlayBtn')?.addEventListener('click', () => this._playPlayer());
+                    document.getElementById('playerPauseBtn')?.addEventListener('click', () => this._pausePlayer());
+                    document.getElementById('playerRewindBtn')?.addEventListener('click', () => this._seekPlayer(-10));
+                    document.getElementById('playerForwardBtn')?.addEventListener('click', () => this._seekPlayer(10));
+
+                    document.getElementById('playerToggleBtn')?.addEventListener('click', () => {
+                        const controls = document.querySelector('#playerPage .reader-controls');
+                        if (controls) controls.style.display = controls.style.display === 'none' ? '' : 'none';
+                    });
+
+                    document.getElementById('playerProgressBarWrap')?.addEventListener('click', (e) => {
+                        if (!this.playerAudio) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const pct = (e.clientX - rect.left) / rect.width;
+                        this.playerAudio.currentTime = pct * this.playerAudio.duration;
+                    });
+
+                    document.getElementById('playerSpeedOptions')?.addEventListener('click', (e) => {
+                        const btn = e.target.closest('.player-speed-btn');
+                        if (!btn) return;
+                        const speed = parseFloat(btn.dataset.speed);
+                        this.playerSpeed = speed;
+                        if (this.playerAudio) this.playerAudio.playbackRate = speed;
+                        document.querySelectorAll('.player-speed-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                    });
+
+                    document.getElementById('playerDeleteBtn')?.addEventListener('click', async () => {
+                        if (!this.currentListeningFile) return;
+                        if (!confirm('确定要删除这个听力文件吗？')) return;
+                        this.stopPlayer();
+                        await this.db.deleteListeningFile(this.currentListeningFile.id);
+                        this.showNotification('已删除', 'success');
+                        this.switchPage('listening');
+                    });
+                }
+
+                _loadSegment(index) {
+                    const segments = this.currentListeningSegments;
+                    if (index < 0 || index >= segments.length) return;
+
+                    this._stopPlayerAudio();
+                    this.playerSegmentIndex = index;
+                    const seg = segments[index];
+
+                    const segTitle = document.getElementById('playerSegmentTitle');
+                    if (segTitle) segTitle.textContent = seg.title || `Part ${index + 1}`;
+
+                    const timeEl = document.getElementById('playerCurrentTime');
+                    const durEl = document.getElementById('playerDuration');
+                    if (timeEl) timeEl.textContent = '0:00';
+                    if (durEl) durEl.textContent = this._formatDuration(seg.duration || 0);
+
+                    const bar = document.getElementById('playerProgressBar');
+                    if (bar) bar.style.width = '0%';
+
+                    if (seg.audioBlob) {
+                        const url = URL.createObjectURL(seg.audioBlob);
+                        this.playerAudio = new Audio(url);
+                        this.playerAudio.playbackRate = this.playerSpeed;
+                        this.playerAudio.addEventListener('ended', () => this._onSegmentEnded());
+                        this.playerAudio.addEventListener('timeupdate', () => this._updatePlayerProgress());
+                    }
+
+                    this._renderSegmentList();
+                    this._updateTotalProgress();
+                }
+
+                _playPlayer() {
+                    if (!this.playerAudio) return;
+                    this.playerAudio.play().catch(() => {});
+                    this.playerPlaying = true;
+                    const playBtn = document.getElementById('playerPlayBtn');
+                    const pauseBtn = document.getElementById('playerPauseBtn');
+                    if (playBtn) playBtn.style.display = 'none';
+                    if (pauseBtn) pauseBtn.style.display = '';
+                    this._startPlayerProgressLoop();
+                }
+
+                _pausePlayer() {
+                    if (!this.playerAudio) return;
+                    this.playerAudio.pause();
+                    this.playerPlaying = false;
+                    const playBtn = document.getElementById('playerPlayBtn');
+                    const pauseBtn = document.getElementById('playerPauseBtn');
+                    if (playBtn) playBtn.style.display = '';
+                    if (pauseBtn) pauseBtn.style.display = 'none';
+                    this._stopPlayerProgressLoop();
+                }
+
+                _stopPlayerAudio() {
+                    if (this.playerAudio) {
+                        this.playerAudio.pause();
+                        this.playerAudio.src = '';
+                        this.playerAudio = null;
+                    }
+                    this.playerPlaying = false;
+                    this._stopPlayerProgressLoop();
+                    const playBtn = document.getElementById('playerPlayBtn');
+                    const pauseBtn = document.getElementById('playerPauseBtn');
+                    if (playBtn) playBtn.style.display = '';
+                    if (pauseBtn) pauseBtn.style.display = 'none';
+                }
+
+                stopPlayer() {
+                    this._stopPlayerAudio();
+                    this.currentListeningFile = null;
+                    this.currentListeningSegments = [];
+                    this.playerSegmentIndex = 0;
+                }
+
+                _seekPlayer(seconds) {
+                    if (!this.playerAudio) return;
+                    this.playerAudio.currentTime = Math.max(0, Math.min(this.playerAudio.duration || 0, this.playerAudio.currentTime + seconds));
+                }
+
+                _onSegmentEnded() {
+                    this.playerPlaying = false;
+                    const playBtn = document.getElementById('playerPlayBtn');
+                    const pauseBtn = document.getElementById('playerPauseBtn');
+                    if (playBtn) playBtn.style.display = '';
+                    if (pauseBtn) pauseBtn.style.display = 'none';
+                    this._stopPlayerProgressLoop();
+
+                    if (this.playerSegmentIndex < this.currentListeningSegments.length - 1) {
+                        this._loadSegment(this.playerSegmentIndex + 1);
+                        this._playPlayer();
+                    }
+                }
+
+                _updatePlayerProgress() {
+                    if (!this.playerAudio || !this.playerAudio.duration) return;
+                    const pct = this.playerAudio.currentTime / this.playerAudio.duration;
+                    const bar = document.getElementById('playerProgressBar');
+                    if (bar) bar.style.width = (pct * 100) + '%';
+                    const timeEl = document.getElementById('playerCurrentTime');
+                    if (timeEl) timeEl.textContent = this._formatDuration(this.playerAudio.currentTime);
+                    this._updateTotalProgress();
+                }
+
+                _startPlayerProgressLoop() {
+                    if (this._playerTimeRaf) return;
+                    const tick = () => {
+                        this._playerTimeRaf = null;
+                        if (!this.playerPlaying || !this.playerAudio) return;
+                        this._updatePlayerProgress();
+                        this._playerTimeRaf = requestAnimationFrame(tick);
+                    };
+                    this._playerTimeRaf = requestAnimationFrame(tick);
+                }
+
+                _stopPlayerProgressLoop() {
+                    if (this._playerTimeRaf) {
+                        cancelAnimationFrame(this._playerTimeRaf);
+                        this._playerTimeRaf = null;
+                    }
+                }
+
+                _updateTotalProgress() {
+                    const el = document.getElementById('playerTotalProgress');
+                    if (!el) return;
+                    let elapsed = 0;
+                    for (let i = 0; i < this.playerSegmentIndex; i++) {
+                        elapsed += this.currentListeningSegments[i]?.duration || 0;
+                    }
+                    if (this.playerAudio) elapsed += this.playerAudio.currentTime || 0;
+                    const total = this.currentListeningFile?.totalDuration || 0;
+                    el.textContent = `总进度: ${this._formatDuration(elapsed)} / ${this._formatDuration(total)}`;
+                }
+
+                _formatDuration(seconds) {
+                    if (!seconds || seconds <= 0) return '0:00';
+                    const m = Math.floor(seconds / 60);
+                    const s = Math.floor(seconds % 60);
+                    return m + ':' + (s < 10 ? '0' : '') + s;
                 }
             }
 

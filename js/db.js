@@ -1,6 +1,6 @@
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 7;
+            const DB_VERSION = 8;
 
             const STORES = {
                 WORDS: 'words',
@@ -10,7 +10,9 @@
                 DAILY_PLAN: 'daily_plan',
                 LEARNING_HISTORY: 'learning_history',
                 NOVELS: 'novels',
-                SETTINGS: 'settings'
+                SETTINGS: 'settings',
+                LISTENING_FILES: 'listening_files',
+                AUDIO_SEGMENTS: 'audio_segments'
             };
 
             class WordDatabase {
@@ -201,6 +203,18 @@
 								const novelsStore = transaction.objectStore(STORES.NOVELS);
 								if (!novelsStore.indexNames.contains('createdAt')) {
 									novelsStore.createIndex('createdAt', 'createdAt', { unique: false });
+								}
+							}
+							if (oldVersion < 8) {
+								console.log('迁移到版本 8：添加听力模块 stores');
+								if (!db.objectStoreNames.contains(STORES.LISTENING_FILES)) {
+									const lfStore = db.createObjectStore(STORES.LISTENING_FILES, { keyPath: 'id', autoIncrement: true });
+									lfStore.createIndex('createdAt', 'createdAt', { unique: false });
+								}
+								if (!db.objectStoreNames.contains(STORES.AUDIO_SEGMENTS)) {
+									const asStore = db.createObjectStore(STORES.AUDIO_SEGMENTS, { keyPath: 'id', autoIncrement: true });
+									asStore.createIndex('fileId', 'fileId', { unique: false });
+									asStore.createIndex('fileId_segmentIndex', ['fileId', 'segmentIndex'], { unique: true });
 								}
 							}
                         };
@@ -1274,6 +1288,115 @@
                             resolve();
                         };
                         getReq.onerror = () => reject(getReq.error);
+                    });
+                }
+
+                // ===== 听力模块 CRUD =====
+                async saveListeningFile({ title, content, totalDuration, segmentCount }) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LISTENING_FILES], 'readwrite');
+                        const store = transaction.objectStore(STORES.LISTENING_FILES);
+                        const request = store.add({
+                            title: title || '未命名',
+                            content: content || '',
+                            totalDuration: totalDuration || 0,
+                            segmentCount: segmentCount || 0,
+                            createdAt: new Date().toISOString()
+                        });
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getListeningFiles() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LISTENING_FILES], 'readonly');
+                        const store = transaction.objectStore(STORES.LISTENING_FILES);
+                        const request = store.getAll();
+                        request.onsuccess = () => {
+                            const files = request.result || [];
+                            files.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                            resolve(files);
+                        };
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getListeningFile(id) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LISTENING_FILES], 'readonly');
+                        const store = transaction.objectStore(STORES.LISTENING_FILES);
+                        const request = store.get(parseInt(id));
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async deleteListeningFile(id) {
+                    await this.ready();
+                    const parsedId = parseInt(id);
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LISTENING_FILES, STORES.AUDIO_SEGMENTS], 'readwrite');
+                        const lfStore = transaction.objectStore(STORES.LISTENING_FILES);
+                        const asStore = transaction.objectStore(STORES.AUDIO_SEGMENTS);
+                        const idx = asStore.index('fileId');
+                        const getAllReq = idx.getAll(parsedId);
+                        getAllReq.onsuccess = () => {
+                            const segments = getAllReq.result || [];
+                            segments.forEach(seg => asStore.delete(seg.id));
+                            lfStore.delete(parsedId);
+                        };
+                        transaction.oncomplete = () => resolve();
+                        transaction.onerror = () => reject(transaction.error);
+                    });
+                }
+
+                async saveAudioSegment({ fileId, segmentIndex, title, text, duration, audioBlob }) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.AUDIO_SEGMENTS], 'readwrite');
+                        const store = transaction.objectStore(STORES.AUDIO_SEGMENTS);
+                        const request = store.add({
+                            fileId: parseInt(fileId),
+                            segmentIndex,
+                            title: title || '',
+                            text: text || '',
+                            duration: duration || 0,
+                            audioBlob,
+                            createdAt: new Date().toISOString()
+                        });
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getAudioSegmentsByFile(fileId) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.AUDIO_SEGMENTS], 'readonly');
+                        const store = transaction.objectStore(STORES.AUDIO_SEGMENTS);
+                        const idx = store.index('fileId');
+                        const request = idx.getAll(parseInt(fileId));
+                        request.onsuccess = () => {
+                            const segments = request.result || [];
+                            segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+                            resolve(segments);
+                        };
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getAudioSegment(id) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.AUDIO_SEGMENTS], 'readonly');
+                        const store = transaction.objectStore(STORES.AUDIO_SEGMENTS);
+                        const request = store.get(parseInt(id));
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
                     });
                 }
             }

@@ -72,6 +72,9 @@
             <li class="menu-item" data-page="reading" role="menuitem">
                 <i class="fas fa-book"></i> 阅读
             </li>
+            <li class="menu-item" data-page="listening" role="menuitem">
+                <i class="fas fa-headphones"></i> 听力
+            </li>
             <li class="menu-item" data-page="words" role="menuitem">
                 <i class="fas fa-list"></i> 单词库
             </li>
@@ -254,6 +257,7 @@
                 <div class="mode-toggle" style="margin-bottom:20px;">
                     <button class="mode-btn active" data-upload-mode="word" type="button">单词模式</button>
                     <button class="mode-btn" data-upload-mode="reading" type="button">阅读模式</button>
+                    <button class="mode-btn" data-upload-mode="listening" type="button">听力模式</button>
                 </div>
                 
                 <div class="upload-area" id="uploadArea" role="button" tabindex="0">
@@ -295,6 +299,18 @@
                 <div class="process-btn-container" id="readingSaveContainer" style="display:none;">
                     <button class="process-btn" id="readingSaveBtn">
                         <i class="fas fa-book"></i> 保存到阅读
+                    </button>
+                </div>
+
+                <div class="process-btn-container" id="listeningGenContainer" style="display:none;">
+                    <div id="listeningGenProgress" style="display:none; margin-bottom:12px;">
+                        <div class="progress-bar-wrap">
+                            <div class="progress-bar" id="listeningGenProgressBar" style="width:0%"></div>
+                        </div>
+                        <div class="progress-text" id="listeningGenProgressText">准备中...</div>
+                    </div>
+                    <button class="process-btn" id="listeningGenBtn">
+                        <i class="fas fa-headphones"></i> 生成听力音频
                     </button>
                 </div>
                 
@@ -373,6 +389,81 @@
             </div>
             <div class="reader-progress" id="readerProgress">
                 <div class="reader-progress-bar" id="readerProgressBar"></div>
+            </div>
+        </section>
+
+        <!-- 听力列表页面 -->
+        <section id="listeningPage" class="page" aria-label="听力">
+            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <h2>听力</h2>
+                <button class="action-btn small" id="listeningUploadBtn">
+                    <i class="fas fa-upload"></i> 上传
+                </button>
+            </div>
+            <div class="listening-list" id="listeningList">
+                <div class="loading">加载中...</div>
+            </div>
+        </section>
+
+        <!-- 听力播放器页面 -->
+        <section id="playerPage" class="page" aria-label="听力播放器">
+            <div class="reader-toolbar" id="playerToolbar">
+                <button class="reader-btn" id="playerBackBtn" title="返回">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <span class="reader-title" id="playerTitle">加载中...</span>
+                <button class="reader-btn reader-toggle-btn" id="playerToggleBtn" title="折叠工具栏">
+                    <i class="fas fa-chevron-up"></i>
+                </button>
+                <div class="reader-controls">
+                    <button class="reader-btn" id="playerDeleteBtn" title="删除" style="color:var(--danger-color);">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="player-content" id="playerContent">
+                <div class="player-now-playing">
+                    <div class="player-segment-title" id="playerSegmentTitle">Part 1</div>
+                    <div class="player-time-display">
+                        <span id="playerCurrentTime">0:00</span>
+                        <span class="player-time-sep">/</span>
+                        <span id="playerDuration">0:00</span>
+                    </div>
+                    <div class="player-progress-bar-wrap" id="playerProgressBarWrap">
+                        <div class="player-progress-bar" id="playerProgressBar"></div>
+                    </div>
+                </div>
+                <div class="player-controls-main">
+                    <button class="player-ctrl-btn" id="playerRewindBtn" title="后退10秒">
+                        <i class="fas fa-backward"></i>
+                        <span class="player-ctrl-label">10s</span>
+                    </button>
+                    <button class="player-ctrl-btn player-ctrl-play" id="playerPlayBtn" title="播放">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="player-ctrl-btn player-ctrl-play" id="playerPauseBtn" title="暂停" style="display:none;">
+                        <i class="fas fa-pause"></i>
+                    </button>
+                    <button class="player-ctrl-btn" id="playerForwardBtn" title="前进10秒">
+                        <i class="fas fa-forward"></i>
+                        <span class="player-ctrl-label">10s</span>
+                    </button>
+                </div>
+                <div class="player-speed-control">
+                    <span class="player-speed-label">语速</span>
+                    <div class="player-speed-options" id="playerSpeedOptions">
+                        <button class="player-speed-btn" data-speed="0.5">0.5x</button>
+                        <button class="player-speed-btn" data-speed="0.75">0.75x</button>
+                        <button class="player-speed-btn active" data-speed="1">1x</button>
+                        <button class="player-speed-btn" data-speed="1.25">1.25x</button>
+                        <button class="player-speed-btn" data-speed="1.5">1.5x</button>
+                        <button class="player-speed-btn" data-speed="2">2x</button>
+                    </div>
+                </div>
+                <div class="player-segment-list" id="playerSegmentList"></div>
+                <div class="player-total-progress">
+                    <span id="playerTotalProgress">总进度: 0:00 / 0:00</span>
+                </div>
             </div>
         </section>
 
@@ -587,6 +678,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
     <script src="js/db.js"></script>
     <script src="js/novel-processor.js"></script>
+    <script src="js/tts-generator.js"></script>
     <script src="js/app.js"></script>
 
 <!-- 查词弹窗：学习卡片点击单词 / 例句单词时打开，可加入词库 + free dict + 韦氏 -->
