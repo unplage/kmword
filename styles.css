@@ -2411,34 +2411,23 @@
         .player-speed-label {
             font-size: 14px;
             color: var(--text-secondary);
+            flex-shrink: 0;
         }
 
-        .player-speed-options {
-            display: flex;
-            gap: 4px;
-            flex-wrap: wrap;
-            justify-content: center;
+        .player-speed-range {
+            flex: 1;
+            min-width: 120px;
+            max-width: 260px;
+            accent-color: var(--primary-color);
         }
 
-        .player-speed-btn {
-            padding: 6px 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            background: var(--bg-primary);
-            color: var(--text-primary);
+        .player-speed-value {
+            min-width: 44px;
             font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .player-speed-btn:hover {
-            border-color: var(--primary-color);
-        }
-
-        .player-speed-btn.active {
-            background: var(--primary-color);
-            color: #fff;
-            border-color: var(--primary-color);
+            color: var(--text-secondary);
+            font-variant-numeric: tabular-nums;
+            text-align: left;
+            flex-shrink: 0;
         }
 
         .player-segment-list {
@@ -2513,11 +2502,7 @@
                 height: 56px;
                 font-size: 24px;
             }
-            .player-speed-options {
-                gap: 4px;
-            }
-            .player-speed-btn {
-                padding: 5px 10px;
-                font-size: 12px;
+            .player-speed-range {
+                min-width: 90px;
             }
         }

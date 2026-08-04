@@ -80,7 +80,7 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Settings (IndexedDB keys)
 
-`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `ttsEngine`, `mimoApiKey`, `mimoVoice`, `mimoStyle`, `mimoStyleCustom`, `llmModel`, `llmWebSearch`.
+`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `ttsEngine`, `mimoApiKey`, `mimoVoice`, `mimoStyle`, `mimoStyleCustom`, `playerSpeed`, `llmModel`, `llmWebSearch`.
 
 - `llmModel` — GLM model name (default `glm-4.7-flash`). User-configurable text input; empty = default.
 - `llmWebSearch` — Boolean toggle for AI web search via GLM `web_search` tool.
@@ -89,6 +89,7 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 - `mimoVoice` — MiMo preset voice ID (`mimo_default`, 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean).
 - `mimoStyle` — MiMo pronunciation style preset (`standard`, 温柔, 活泼, 严肃, 平静, 磁性, 深沉, `custom`). Presets become audio tags like `(温柔)`; `custom` uses `mimoStyleCustom` as a `role:user` instruction.
 - `mimoStyleCustom` — free-text style instruction used when `mimoStyle === 'custom'`.
+- `playerSpeed` — listening player playback speed (0.5–2, step 0.1), persisted across sessions.
 
 ## Data export/import
 

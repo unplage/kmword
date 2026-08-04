@@ -5399,6 +5399,13 @@
                         const titleEl = document.getElementById('playerTitle');
                         if (titleEl) titleEl.textContent = file.title;
 
+                        const savedSpeed = await this.db.getSetting('playerSpeed', 1);
+                        this.playerSpeed = (savedSpeed && savedSpeed >= 0.5 && savedSpeed <= 2) ? savedSpeed : 1;
+                        const speedRange = document.getElementById('playerSpeedRange');
+                        if (speedRange) speedRange.value = this.playerSpeed;
+                        const speedValue = document.getElementById('playerSpeedValue');
+                        if (speedValue) speedValue.textContent = this.playerSpeed.toFixed(1) + 'x';
+
                         this._renderSegmentList();
                         this._bindPlayerEvents();
                         this._loadSegment(startIndex);
@@ -5516,14 +5523,13 @@
                         this.playerAudio.currentTime = pct * this.playerAudio.duration;
                     });
 
-                    document.getElementById('playerSpeedOptions')?.addEventListener('click', (e) => {
-                        const btn = e.target.closest('.player-speed-btn');
-                        if (!btn) return;
-                        const speed = parseFloat(btn.dataset.speed);
+                    document.getElementById('playerSpeedRange')?.addEventListener('input', (e) => {
+                        const speed = parseFloat(e.target.value);
                         this.playerSpeed = speed;
                         if (this.playerAudio) this.playerAudio.playbackRate = speed;
-                        document.querySelectorAll('.player-speed-btn').forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
+                        const valEl = document.getElementById('playerSpeedValue');
+                        if (valEl) valEl.textContent = speed.toFixed(1) + 'x';
+                        this.db.saveSetting('playerSpeed', speed).catch(console.error);
                     });
 
                     document.getElementById('playerDeleteBtn')?.addEventListener('click', async () => {
