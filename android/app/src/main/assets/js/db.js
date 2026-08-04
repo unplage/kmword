@@ -1302,6 +1302,10 @@
                             content: content || '',
                             totalDuration: totalDuration || 0,
                             segmentCount: segmentCount || 0,
+                            status: 'generating',
+                            generatedSegments: 0,
+                            lastSegmentIndex: 0,
+                            lastSegmentTime: 0,
                             createdAt: new Date().toISOString()
                         });
                         request.onsuccess = () => resolve(request.result);
@@ -1397,6 +1401,52 @@
                         const request = store.get(parseInt(id));
                         request.onsuccess = () => resolve(request.result);
                         request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async updateListeningFileStatus(id, fields) {
+                    await this.ready();
+                    const parsedId = parseInt(id);
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LISTENING_FILES], 'readwrite');
+                        const store = transaction.objectStore(STORES.LISTENING_FILES);
+                        const getReq = store.get(parsedId);
+                        getReq.onsuccess = () => {
+                            const file = getReq.result;
+                            if (file) {
+                                Object.assign(file, fields, { updatedAt: new Date().toISOString() });
+                                const putReq = store.put(file);
+                                putReq.onsuccess = () => resolve(putReq.result);
+                                putReq.onerror = () => reject(putReq.error);
+                            } else {
+                                resolve(null);
+                            }
+                        };
+                        getReq.onerror = () => reject(getReq.error);
+                    });
+                }
+
+                async updateListeningPosition(id, lastSegmentIndex, lastSegmentTime) {
+                    await this.ready();
+                    const parsedId = parseInt(id);
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LISTENING_FILES], 'readwrite');
+                        const store = transaction.objectStore(STORES.LISTENING_FILES);
+                        const getReq = store.get(parsedId);
+                        getReq.onsuccess = () => {
+                            const file = getReq.result;
+                            if (file) {
+                                file.lastSegmentIndex = lastSegmentIndex != null ? parseInt(lastSegmentIndex) : 0;
+                                file.lastSegmentTime = lastSegmentTime != null ? lastSegmentTime : 0;
+                                file.updatedAt = new Date().toISOString();
+                                const putReq = store.put(file);
+                                putReq.onsuccess = () => resolve();
+                                putReq.onerror = () => reject(putReq.error);
+                            } else {
+                                resolve();
+                            }
+                        };
+                        getReq.onerror = () => reject(getReq.error);
                     });
                 }
             }

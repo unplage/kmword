@@ -40,6 +40,8 @@
                     this.playerSpeed = 1;
                     this.playerPlaying = false;
                     this._playerTimeRaf = null;
+                    this._restorePlayerTime = 0;
+                    this._lastPlayerPositionSave = 0;
                     this._listeningGenAborter = null;
 
                     this.LLM_PROVIDERS = {
@@ -544,6 +546,7 @@
                             apiKey: (await this.db.getSetting('mimoApiKey')) || '',
                             voice: (await this.db.getSetting('mimoVoice')) || 'mimo_default'
                         };
+                        await this.promptResumeListening();
                         const savedFontSize = await this.db.getSetting('fontSize', 'medium');
                         this.applyFontSize(savedFontSize);
                         document.getElementById('mwLookupBtn')?.addEventListener('click', () => this.lookupMerriamWebster());
@@ -598,6 +601,7 @@
                 }
 
                 cleanup() {
+                    this._abortListeningGeneration();
                     if (this.novelProcessor) {
                         this.novelProcessor.abort();
                     }
@@ -644,10 +648,13 @@
                     });
                     window.addEventListener('pagehide', () => {
                         if (this.currentPage === 'reader') this.saveCurrentReadingPosition();
+                        if (this.currentPage === 'player') this._savePlayerPosition();
+                        this._abortListeningGeneration();
                     });
                     document.addEventListener('visibilitychange', () => {
-                        if (document.visibilityState === 'hidden' && this.currentPage === 'reader') {
-                            this.saveCurrentReadingPosition();
+                        if (document.visibilityState === 'hidden') {
+                            if (this.currentPage === 'reader') this.saveCurrentReadingPosition();
+                            if (this.currentPage === 'player') this._savePlayerPosition();
                         }
                     });
                     document.querySelectorAll('.menu-item').forEach(item => {
@@ -4991,54 +4998,39 @@
                             return;
                         }
 
-                        const totalChunks = chunks.length;
-                        if (progressText) progressText.textContent = `共 ${totalChunks} 段，准备生成...`;
-
-                        const generator = new TTSGenerator();
-                        this._listeningGenAborter = generator;
-
                         const fileName = this.novelFileName || '未命名';
                         const title = fileName.replace(/\.(txt|md|html|htm)$/i, '');
+
+                        // 检测同名未完成任务，优先续传而非新建
+                        const existingFiles = await this.db.getListeningFiles();
+                        const pending = existingFiles.find(f => f.title === title && f.status === 'generating');
+                        if (pending && (pending.generatedSegments || 0) < (pending.segmentCount || 0)) {
+                            if (!confirm(`检测到「${title}」存在未完成的听力生成（${pending.generatedSegments || 0}/${pending.segmentCount || 0} 段），是否继续生成？`)) {
+                                return;
+                            }
+                            this.showNotification('正在继续生成...', 'info');
+                            await this.resumeListeningGeneration(pending.id, { progressWrap, progressBar, progressText });
+                            this.novelFileContent = null;
+                            this.novelFileName = null;
+                            this.switchPage('listening');
+                            return;
+                        }
 
                         const fileId = await this.db.saveListeningFile({
                             title,
                             content: this.novelFileContent,
                             totalDuration: 0,
-                            segmentCount: totalChunks
+                            segmentCount: chunks.length
                         });
 
-                        let totalDuration = 0;
-                        for (let i = 0; i < totalChunks; i++) {
-                            if (progressText) progressText.textContent = `正在生成 Part ${i + 1}/${totalChunks}...`;
-                            if (progressBar) progressBar.style.width = ((i / totalChunks) * 100) + '%';
+                        if (progressText) progressText.textContent = `共 ${chunks.length} 段，准备生成...`;
 
-                            try {
-                                const { wavBlob, duration } = await generator.streamToWav(
-                                    chunks[i].text,
-                                    this.mimoConfig.apiKey,
-                                    this.mimoConfig.voice
-                                );
+                        await this._generateListeningSegments(fileId, chunks, {
+                            progressWrap,
+                            progressBar,
+                            progressText
+                        });
 
-                                await this.db.saveAudioSegment({
-                                    fileId,
-                                    segmentIndex: i,
-                                    title: `Part ${i + 1}`,
-                                    text: chunks[i].text,
-                                    duration,
-                                    audioBlob: wavBlob
-                                });
-
-                                totalDuration += duration;
-                            } catch (err) {
-                                console.error(`生成 Part ${i + 1} 失败:`, err);
-                                this.showNotification(`Part ${i + 1} 生成失败: ${err.message}`, 'error');
-                            }
-                        }
-
-                        if (progressBar) progressBar.style.width = '100%';
-                        if (progressText) progressText.textContent = '生成完成！';
-
-                        this.showNotification(`听力音频已生成 (${totalChunks} 段)`, 'success');
                         this.novelFileContent = null;
                         this.novelFileName = null;
                         this.switchPage('listening');
@@ -5048,6 +5040,158 @@
                     } finally {
                         this._listeningGenAborter = null;
                         if (btn) btn.disabled = false;
+                        if (progressBar) progressBar.style.width = '100%';
+                    }
+                }
+
+                async _generateListeningSegments(fileId, chunks, ui = {}) {
+                    const { progressBar, progressText } = ui;
+                    const generator = new TTSGenerator();
+                    this._listeningGenAborter = generator;
+
+                    const existing = await this.db.getAudioSegmentsByFile(fileId);
+                    const existingIndexes = new Set(existing.map(s => s.segmentIndex));
+                    const totalChunks = chunks.length;
+
+                    let totalDuration = (existing || []).reduce((sum, s) => sum + (s.duration || 0), 0);
+                    let doneCount = existing.length;
+                    let failed = 0;
+
+                    await this.db.updateListeningFileStatus(fileId, {
+                        status: 'generating',
+                        segmentCount: totalChunks,
+                        generatedSegments: doneCount,
+                        totalDuration
+                    });
+
+                    for (let i = 0; i < totalChunks; i++) {
+                        if (this._listeningGenAborter !== generator) {
+                            throw new Error('生成已中止');
+                        }
+                        if (existingIndexes.has(i)) continue;
+
+                        if (progressText) progressText.textContent = `正在生成 Part ${i + 1}/${totalChunks}...`;
+                        if (progressBar) progressBar.style.width = (Math.min(i, totalChunks) / totalChunks) * 100 + '%';
+
+                        try {
+                            const { wavBlob, duration } = await generator.streamToWav(
+                                chunks[i].text,
+                                this.mimoConfig.apiKey,
+                                this.mimoConfig.voice
+                            );
+
+                            await this.db.saveAudioSegment({
+                                fileId,
+                                segmentIndex: i,
+                                title: `Part ${i + 1}`,
+                                text: chunks[i].text,
+                                duration,
+                                audioBlob: wavBlob
+                            });
+
+                            totalDuration += duration;
+                            doneCount++;
+                            await this.db.updateListeningFileStatus(fileId, {
+                                generatedSegments: doneCount,
+                                totalDuration
+                            });
+                            existingIndexes.add(i);
+                        } catch (err) {
+                            console.error(`生成 Part ${i + 1} 失败:`, err);
+                            failed++;
+                            if (failed <= 1) this.showNotification(`Part ${i + 1} 生成失败: ${err.message}，将自动重试`, 'error');
+                            await new Promise(r => setTimeout(r, 800));
+                            try {
+                                const { wavBlob, duration } = await generator.streamToWav(
+                                    chunks[i].text,
+                                    this.mimoConfig.apiKey,
+                                    this.mimoConfig.voice
+                                );
+                                await this.db.saveAudioSegment({
+                                    fileId,
+                                    segmentIndex: i,
+                                    title: `Part ${i + 1}`,
+                                    text: chunks[i].text,
+                                    duration,
+                                    audioBlob: wavBlob
+                                });
+                                totalDuration += duration;
+                                doneCount++;
+                                await this.db.updateListeningFileStatus(fileId, {
+                                    generatedSegments: doneCount,
+                                    totalDuration
+                                });
+                                existingIndexes.add(i);
+                            } catch (err2) {
+                                console.error(`Part ${i + 1} 重试仍失败:`, err2);
+                            }
+                        }
+                    }
+
+                    const finalSegments = await this.db.getAudioSegmentsByFile(fileId);
+                    const completed = finalSegments.length >= totalChunks && failed === 0;
+                    await this.db.updateListeningFileStatus(fileId, {
+                        status: completed ? 'complete' : 'generating',
+                        segmentCount: totalChunks,
+                        generatedSegments: finalSegments.length,
+                        totalDuration
+                    });
+
+                    if (progressText) progressText.textContent = completed ? '生成完成！' : `生成中断，已生成 ${finalSegments.length}/${totalChunks} 段，可稍后继续`;
+                    if (completed) this.showNotification(`听力音频已生成 (${totalChunks} 段)`, 'success');
+
+                    return { completed, totalChunks, doneCount: finalSegments.length };
+                }
+
+                async resumeListeningGeneration(fileId, ui = {}) {
+                    if (!this.mimoConfig.apiKey) {
+                        this.showNotification('请先在设置中配置 MiMo API Key', 'warning');
+                        return false;
+                    }
+                    if (this._listeningGenAborter) {
+                        this.showNotification('正在生成中，请等待', 'warning');
+                        return false;
+                    }
+                    const file = await this.db.getListeningFile(fileId);
+                    if (!file) {
+                        this.showNotification('文件不存在', 'error');
+                        return false;
+                    }
+                    const chunker = new TextChunker();
+                    const chunks = chunker.splitText(file.content || '');
+                    if (chunks.length === 0) {
+                        this.showNotification('文件内容为空', 'error');
+                        return false;
+                    }
+                    try {
+                        const result = await this._generateListeningSegments(fileId, chunks, ui);
+                        return result.completed;
+                    } finally {
+                        this._listeningGenAborter = null;
+                    }
+                }
+
+                _abortListeningGeneration() {
+                    if (this._listeningGenAborter) {
+                        try { this._listeningGenAborter.abort(); } catch (e) {}
+                        this._listeningGenAborter = null;
+                    }
+                }
+
+                async promptResumeListening() {
+                    try {
+                        const files = await this.db.getListeningFiles();
+                        const pending = files.find(f => f.status === 'generating' && (f.generatedSegments || 0) < (f.segmentCount || 0));
+                        if (!pending) return;
+                        if (confirm(`检测到未完成的听力生成：「${pending.title}」(${pending.generatedSegments || 0}/${pending.segmentCount || 0} 段)，是否继续生成？`)) {
+                            this.switchPage('listening');
+                            const completed = await this.resumeListeningGeneration(pending.id);
+                            if (completed) this.showNotification('听力续传完成', 'success');
+                            else this.showNotification('本次未能全部生成，可稍后继续', 'warning');
+                            if (this.currentPage === 'listening') await this.loadListeningList();
+                        }
+                    } catch (err) {
+                        console.error('检查未完成听力任务失败:', err);
                     }
                 }
 
@@ -5065,12 +5209,25 @@
                         for (const file of files) {
                             const dur = this._formatDuration(file.totalDuration || 0);
                             const date = new Date(file.createdAt).toLocaleDateString('zh-CN');
+                            const incomplete = file.status === 'generating' && (file.generatedSegments || 0) < (file.segmentCount || 0);
+                            const meta = incomplete
+                                ? `${file.generatedSegments || 0}/${file.segmentCount || 0} 段 · 生成中 · ${date}`
+                                : `${file.segmentCount || 0} 段 · ${dur} · ${date}`;
                             html += `
                                 <div class="reading-card listening-card" data-id="${file.id}">
                                     <div class="reading-card-icon"><i class="fas fa-headphones"></i></div>
                                     <div class="reading-card-body">
                                         <div class="reading-card-title">${this.escapeHtml(file.title)}</div>
-                                        <div class="reading-card-meta">${file.segmentCount || 0} 段 · ${dur} · ${date}</div>
+                                        <div class="reading-card-meta">${meta}</div>
+                                        ${incomplete ? `
+                                        <div class="listening-gen-progress">
+                                            <div class="progress-bar-wrap">
+                                                <div class="progress-bar" data-progress="listening" style="width:${(file.generatedSegments || 0) / (file.segmentCount || 1) * 100}%"></div>
+                                            </div>
+                                        </div>
+                                        <button class="action-btn small primary listening-resume-btn" data-id="${file.id}">
+                                            <i class="fas fa-play-circle"></i> 继续生成
+                                        </button>` : ''}
                                     </div>
                                     <button class="reading-card-delete" data-id="${file.id}" title="删除">
                                         <i class="fas fa-trash-alt"></i>
@@ -5082,6 +5239,7 @@
                         list.querySelectorAll('.listening-card').forEach(card => {
                             card.addEventListener('click', (e) => {
                                 if (e.target.closest('.reading-card-delete')) return;
+                                if (e.target.closest('.listening-resume-btn')) return;
                                 const id = card.dataset.id;
                                 this.currentListeningFileId = id;
                                 this.switchPage('player');
@@ -5094,6 +5252,30 @@
                                 this.showNotification('已删除', 'success');
                                 await this.loadListeningList();
                             });
+                            const resumeBtn = card.querySelector('.listening-resume-btn');
+                            if (resumeBtn) {
+                                resumeBtn.addEventListener('click', async (e) => {
+                                    e.stopPropagation();
+                                    const id = resumeBtn.dataset.id;
+                                    resumeBtn.disabled = true;
+                                    resumeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
+                                    try {
+                                        const completed = await this.resumeListeningGeneration(id, {
+                                            progressBar: card.querySelector('[data-progress="listening"]')
+                                        });
+                                        if (completed) {
+                                            this.showNotification('听力音频已生成', 'success');
+                                        } else {
+                                            this.showNotification('本次未能全部生成，可再次点击继续', 'warning');
+                                        }
+                                    } catch (err) {
+                                        console.error('继续生成失败:', err);
+                                        this.showNotification('继续生成失败: ' + err.message, 'error');
+                                    } finally {
+                                        await this.loadListeningList();
+                                    }
+                                });
+                            }
                         });
                     } catch (error) {
                         console.error('加载听力列表失败:', error);
@@ -5115,14 +5297,17 @@
                         this.currentListeningFile = file;
                         const segments = await this.db.getAudioSegmentsByFile(id);
                         this.currentListeningSegments = segments;
-                        this.playerSegmentIndex = 0;
+                        let startIndex = parseInt(file.lastSegmentIndex) || 0;
+                        if (startIndex < 0 || startIndex >= segments.length) startIndex = 0;
+                        this.playerSegmentIndex = startIndex;
+                        this._restorePlayerTime = (startIndex > 0 || (file.lastSegmentTime > 0)) ? (parseFloat(file.lastSegmentTime) || 0) : 0;
 
                         const titleEl = document.getElementById('playerTitle');
                         if (titleEl) titleEl.textContent = file.title;
 
                         this._renderSegmentList();
                         this._bindPlayerEvents();
-                        this._loadSegment(0);
+                        this._loadSegment(startIndex);
                     } catch (err) {
                         console.error('加载播放器失败:', err);
                         this.showNotification('加载失败', 'error');
@@ -5199,8 +5384,9 @@
                     document.getElementById('playerDeleteBtn')?.addEventListener('click', async () => {
                         if (!this.currentListeningFile) return;
                         if (!confirm('确定要删除这个听力文件吗？')) return;
+                        const fileId = this.currentListeningFile.id;
                         this.stopPlayer();
-                        await this.db.deleteListeningFile(this.currentListeningFile.id);
+                        await this.db.deleteListeningFile(fileId);
                         this.showNotification('已删除', 'success');
                         this.switchPage('listening');
                     });
@@ -5231,7 +5417,15 @@
                         this.playerAudio.playbackRate = this.playerSpeed;
                         this.playerAudio.addEventListener('ended', () => this._onSegmentEnded());
                         this.playerAudio.addEventListener('timeupdate', () => this._updatePlayerProgress());
+                        if (this._restorePlayerTime > 0) {
+                            const restoreTime = this._restorePlayerTime;
+                            this.playerAudio.addEventListener('loadedmetadata', () => {
+                                this.playerAudio.currentTime = Math.min(restoreTime, this.playerAudio.duration || 0);
+                                this._updatePlayerProgress();
+                            });
+                        }
                     }
+                    this._restorePlayerTime = 0;
 
                     this._renderSegmentList();
                     this._updateTotalProgress();
@@ -5250,6 +5444,7 @@
 
                 _pausePlayer() {
                     if (!this.playerAudio) return;
+                    this._savePlayerPosition();
                     this.playerAudio.pause();
                     this.playerPlaying = false;
                     const playBtn = document.getElementById('playerPlayBtn');
@@ -5274,10 +5469,12 @@
                 }
 
                 stopPlayer() {
+                    this._savePlayerPosition();
                     this._stopPlayerAudio();
                     this.currentListeningFile = null;
                     this.currentListeningSegments = [];
                     this.playerSegmentIndex = 0;
+                    this._restorePlayerTime = 0;
                 }
 
                 _seekPlayer(seconds) {
@@ -5294,8 +5491,14 @@
                     this._stopPlayerProgressLoop();
 
                     if (this.playerSegmentIndex < this.currentListeningSegments.length - 1) {
-                        this._loadSegment(this.playerSegmentIndex + 1);
+                        const nextIndex = this.playerSegmentIndex + 1;
+                        if (this.currentListeningFile) {
+                            this.db.updateListeningPosition(this.currentListeningFile.id, nextIndex, 0).catch(console.error);
+                        }
+                        this._loadSegment(nextIndex);
                         this._playPlayer();
+                    } else {
+                        this._savePlayerPosition();
                     }
                 }
 
@@ -5307,6 +5510,18 @@
                     const timeEl = document.getElementById('playerCurrentTime');
                     if (timeEl) timeEl.textContent = this._formatDuration(this.playerAudio.currentTime);
                     this._updateTotalProgress();
+                    const now = Date.now();
+                    if (now - this._lastPlayerPositionSave > 3000) {
+                        this._lastPlayerPositionSave = now;
+                        this._savePlayerPosition();
+                    }
+                }
+
+                _savePlayerPosition() {
+                    const file = this.currentListeningFile;
+                    if (!file || !file.id) return;
+                    const t = (this.playerAudio && this.playerAudio.currentTime) || 0;
+                    this.db.updateListeningPosition(file.id, this.playerSegmentIndex, t).catch(console.error);
                 }
 
                 _startPlayerProgressLoop() {

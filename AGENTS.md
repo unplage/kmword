@@ -25,9 +25,10 @@
 
 ## Word list import
 
-Upload supports `.txt`, `.md`, `.html`. Two modes:
+Upload supports `.txt`, `.md`, `.html`. Three modes:
 - **单词模式 (word)** — extracts words from text.
 - **阅读模式 (reading)** — saves file as-is for in-app reading with TTS + word lookup.
+- **听力模式 (listening)** — saves file and generates segmented TTS audio (MiMo), resumable.
 
 TXT files in this repo follow a numbered-list format (header of "Level4_2 单词列表", "共 N 个单词", `====` divider, then `   1. word`). Exception: `雅思260314-3427.txt` is one-word-per-line, no header.
 
@@ -40,6 +41,14 @@ TXT files in this repo follow a numbered-list format (header of "Level4_2 单词
 | `user_progress` | `wordId` | SM-2 fields: `easeFactor`, `repetition`, `interval`, `familiarity`, `nextReview` |
 | `new_words` | `wordId` | JS does manual dedup before `put()` to avoid overwriting existing entries |
 | `novels` | auto-increment `id` | `title`, `content`, `format`, `wordCount`, `currentPosition`, `createdAt`, `updatedAt` |
+| `listening_files` | auto-increment `id` | `title`, `content`, `totalDuration`, `segmentCount`, `status` (`generating`/`complete`), `generatedSegments`, `lastSegmentIndex`, `lastSegmentTime`, `createdAt` |
+| `audio_segments` | auto-increment `id` | `fileId`, `segmentIndex`, `title`, `text`, `duration`, `audioBlob`; unique index `[fileId, segmentIndex]` |
+
+## Listening module
+
+- TTS generation chunks the article (deterministic `TextChunker.splitText`), saves one `audio_segments` row per part, and updates `listening_files.status`/`generatedSegments` per segment.
+- Generation is **resumable**: incomplete files (`status === 'generating'`, `generatedSegments < segmentCount`) can be continued from the listening list (「继续生成」button) or via the startup `confirm` prompt. Generation aborts on `pagehide`/`beforeunload` (via `_abortListeningGeneration`); deleting the listening file removes it and its segments.
+- Player restores last playback position (`lastSegmentIndex` + `lastSegmentTime`) on entry; position is saved on pause/segment-end/leave and throttled every ~3s during playback.
 
 ## SM-2 spaced repetition
 
