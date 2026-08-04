@@ -2239,28 +2239,6 @@
             transition: background 0.1s;
         }
 
-        .mode-toggle {
-            display: flex;
-            background: var(--bg-color);
-            border-radius: 8px;
-            padding: 3px;
-            border: 1px solid var(--border-color);
-        }
-        .mode-btn {
-            flex: 1;
-            padding: 8px 16px;
-            border: none;
-            background: transparent;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.95rem;
-            color: var(--gray-color);
-            transition: all 0.2s;
-        }
-        .mode-btn.active {
-            background: var(--primary-color);
-            color: #fff;
-        }
         .mode-btn:not(.active):hover {
             background: var(--hover-bg);
         }
@@ -2305,14 +2283,14 @@
             margin-bottom: 6px;
         }
 
-        .progress-bar {
+        .progress-bar-wrap .progress-bar {
             height: 100%;
             background: var(--primary-color);
             border-radius: 3px;
             transition: width 0.3s;
         }
 
-        .progress-text {
+        .progress-bar-wrap .progress-text {
             font-size: 13px;
             color: var(--text-secondary);
             text-align: center;

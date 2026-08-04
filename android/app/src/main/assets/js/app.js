@@ -694,6 +694,7 @@
                     document.getElementById('savePlanBtn')?.addEventListener('click', () => this.saveDailyPlan());
 
                     document.getElementById('statsBtn')?.addEventListener('click', () => this.showStats());
+                    document.getElementById('statsBackBtn')?.addEventListener('click', () => this.switchPage('home'));
 
                     document.getElementById('startReviewSession')?.addEventListener('click', () => this.startReviewSession());
 

@@ -2,7 +2,7 @@
     class TextChunker {
         constructor() {
             this.TARGET_MINUTES = 5;
-            this.CHARS_PER_MINUTE = 180;
+            this.CHARS_PER_MINUTE = 250;
             this.TARGET_CHARS = this.TARGET_MINUTES * this.CHARS_PER_MINUTE;
         }
 
@@ -17,6 +17,7 @@
                 if (!line.trim()) {
                     if (currentLen > 0) {
                         currentChunk += '\n';
+                        currentLen += 1;
                     }
                     continue;
                 }
@@ -32,11 +33,31 @@
                 }
                 if (currentLen > 0) {
                     currentChunk += '\n';
+                    currentLen += 1;
                 }
             }
             if (currentChunk.trim()) {
                 chunks.push(currentChunk.trim());
             }
+
+            // Merge short chunks (< 2 min) into the previous chunk
+            if (chunks.length > 1) {
+                const merged = [chunks[0]];
+                for (let i = 1; i < chunks.length; i++) {
+                    const prevLen = merged[merged.length - 1].length;
+                    const curLen = chunks[i].length;
+                    const prevMin = prevLen / this.CHARS_PER_MINUTE;
+                    const curMin = curLen / this.CHARS_PER_MINUTE;
+                    if (curMin < 2 && prevMin + curMin <= this.TARGET_MINUTES * 1.2) {
+                        merged[merged.length - 1] = merged[merged.length - 1] + '\n\n' + chunks[i];
+                    } else {
+                        merged.push(chunks[i]);
+                    }
+                }
+                chunks.length = 0;
+                chunks.push(...merged);
+            }
+
             return chunks.map((text, i) => ({
                 index: i,
                 text,

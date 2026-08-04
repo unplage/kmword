@@ -90,6 +90,9 @@
             <li class="menu-item" data-page="settings" role="menuitem">
                 <i class="fas fa-cog"></i> 设置
             </li>
+            <li class="menu-item" data-page="stats" role="menuitem">
+                <i class="fas fa-chart-line"></i> 统计
+            </li>
         </ul>
         <div class="sidebar-footer">
             <button class="logout-btn" id="logoutBtn">
@@ -613,8 +616,11 @@
 
         <!-- 统计页面 -->
         <section id="statsPage" class="page" aria-label="统计">
-            <div class="page-header">
+            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
                 <h2>统计</h2>
+                <button class="action-btn small" id="statsBackBtn">
+                    <i class="fas fa-arrow-left"></i> 返回首页
+                </button>
             </div>
             <div class="stats-container">
                 <!-- 顶部 4 张卡片 -->
