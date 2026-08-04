@@ -3,53 +3,47 @@
         constructor() {
             this.TARGET_MINUTES = 5;
             this.CHARS_PER_MINUTE = 250;
-            this.TARGET_CHARS = this.TARGET_MINUTES * this.CHARS_PER_MINUTE;
+            this.TARGET_CHARS = this.TARGET_MINUTES * this.CHARS_PER_MINUTE; // ~5 min
+            this.MAX_CHARS = Math.round(this.TARGET_CHARS * 1.2);             // ~6 min hard cap
+            this.MIN_CHARS = Math.round(3 * this.CHARS_PER_MINUTE);           // ~3 min floor
         }
 
         splitText(content) {
             if (!content || !content.trim()) return [];
-            const lines = content.split('\n');
-            const chunks = [];
-            let currentChunk = '';
-            let currentLen = 0;
 
-            for (const line of lines) {
-                if (!line.trim()) {
-                    if (currentLen > 0) {
-                        currentChunk += '\n';
-                        currentLen += 1;
-                    }
+            const paragraphs = this._splitParagraphs(content);
+            const chunks = [];
+            let current = '';
+
+            const flush = () => {
+                if (current.trim()) {
+                    chunks.push(current.trim());
+                    current = '';
+                }
+            };
+
+            for (const paragraph of paragraphs) {
+                // 单段过长：不得不按句子硬切
+                if (paragraph.length > this.MAX_CHARS) {
+                    flush();
+                    const pieces = this._splitLongParagraph(paragraph);
+                    for (const piece of pieces) chunks.push(piece);
                     continue;
                 }
-                const sentences = this._splitSentences(line);
-                for (const sentence of sentences) {
-                    if (currentLen + sentence.length > this.TARGET_CHARS && currentLen > 0) {
-                        chunks.push(currentChunk.trim());
-                        currentChunk = '';
-                        currentLen = 0;
-                    }
-                    currentChunk += (currentLen > 0 ? ' ' : '') + sentence;
-                    currentLen += sentence.length;
+                if (current && current.length + paragraph.length > this.MAX_CHARS) {
+                    flush();
                 }
-                if (currentLen > 0) {
-                    currentChunk += '\n';
-                    currentLen += 1;
-                }
+                current += (current ? '\n\n' : '') + paragraph;
             }
-            if (currentChunk.trim()) {
-                chunks.push(currentChunk.trim());
-            }
+            flush();
 
-            // Merge short chunks (< 2 min) into the previous chunk
+            // 末尾短段（< 3 min）并入上一段（受 MAX 上限约束）
             if (chunks.length > 1) {
                 const merged = [chunks[0]];
                 for (let i = 1; i < chunks.length; i++) {
-                    const prevLen = merged[merged.length - 1].length;
-                    const curLen = chunks[i].length;
-                    const prevMin = prevLen / this.CHARS_PER_MINUTE;
-                    const curMin = curLen / this.CHARS_PER_MINUTE;
-                    if (curMin < 2 && prevMin + curMin <= this.TARGET_MINUTES * 1.2) {
-                        merged[merged.length - 1] = merged[merged.length - 1] + '\n\n' + chunks[i];
+                    const prev = merged[merged.length - 1];
+                    if (chunks[i].length < this.MIN_CHARS && prev.length + chunks[i].length <= this.MAX_CHARS) {
+                        merged[merged.length - 1] = prev + '\n\n' + chunks[i];
                     } else {
                         merged.push(chunks[i]);
                     }
@@ -63,6 +57,38 @@
                 text,
                 estimatedMinutes: Math.round(text.length / this.CHARS_PER_MINUTE * 10) / 10
             }));
+        }
+
+        _splitParagraphs(content) {
+            const lines = content.split('\n');
+            const paragraphs = [];
+            let buf = [];
+            for (const line of lines) {
+                if (!line.trim()) {
+                    if (buf.length) {
+                        paragraphs.push(buf.join('\n').trim());
+                        buf = [];
+                    }
+                    continue;
+                }
+                buf.push(line.trim());
+            }
+            if (buf.length) paragraphs.push(buf.join('\n').trim());
+            return paragraphs;
+        }
+
+        _splitLongParagraph(paragraph) {
+            const pieces = [];
+            let piece = '';
+            for (const sentence of this._splitSentences(paragraph)) {
+                if (piece && piece.length + sentence.length > this.MAX_CHARS) {
+                    pieces.push(piece.trim());
+                    piece = '';
+                }
+                piece += (piece ? ' ' : '') + sentence;
+            }
+            if (piece.trim()) pieces.push(piece.trim());
+            return pieces;
         }
 
         _splitSentences(text) {
@@ -131,13 +157,23 @@
             }
         }
 
-        async streamToWav(text, apiKey, voice, onProgress) {
+        async streamToWav(text, apiKey, voice, style, styleCustom) {
             this.aborter = new AbortController();
             const allPcm = [];
 
+            const messages = [];
+            if (style === 'custom' && styleCustom && styleCustom.trim()) {
+                messages.push({ role: 'user', content: styleCustom.trim() });
+            }
+            let content = text;
+            if (style && style !== 'standard' && style !== 'custom' && style !== 'follow') {
+                content = `(${style})${content}`;
+            }
+            messages.push({ role: 'assistant', content });
+
             const body = {
                 model: this.model,
-                messages: [{ role: 'assistant', content: text }],
+                messages,
                 audio: { format: 'pcm16', voice: voice || 'mimo_default' },
                 stream: true
             };
@@ -179,7 +215,6 @@
                         const pcm = this._decodeBase64PCM16(audio.data);
                         if (pcm) {
                             allPcm.push(pcm);
-                            if (onProgress) onProgress(allPcm);
                         }
                     }
                 } catch (e) {}
@@ -241,6 +276,94 @@
                 try { this.aborter.abort(); } catch (e) {}
                 this.aborter = null;
             }
+        }
+
+        static async mergeWavBlobs(blobs) {
+            if (!blobs || blobs.length === 0) return null;
+            if (blobs.length === 1) return blobs[0];
+
+            const parseWav = (buf) => {
+                const view = new DataView(buf);
+                const readStr = (off, len) => {
+                    let s = '';
+                    for (let i = 0; i < len; i++) s += String.fromCharCode(view.getUint8(off + i));
+                    return s;
+                };
+                if (readStr(0, 4) !== 'RIFF' || readStr(8, 4) !== 'WAVE') return null;
+                let fmt = null;
+                let dataStart = -1;
+                let dataSize = 0;
+                let off = 12;
+                while (off + 8 <= buf.byteLength) {
+                    const id = readStr(off, 4);
+                    const size = view.getUint32(off + 4, true);
+                    if (id === 'fmt ') {
+                        fmt = {
+                            audioFormat: view.getUint16(off + 8, true),
+                            channels: view.getUint16(off + 10, true),
+                            sampleRate: view.getUint32(off + 12, true),
+                            byteRate: view.getUint32(off + 16, true),
+                            blockAlign: view.getUint16(off + 20, true),
+                            bitsPerSample: view.getUint16(off + 22, true)
+                        };
+                    } else if (id === 'data') {
+                        dataStart = off + 8;
+                        dataSize = size;
+                        break;
+                    }
+                    off += 8 + size + (size % 2);
+                }
+                if (!fmt || dataStart < 0) return null;
+                return { fmt, dataStart, dataSize };
+            };
+
+            const parsed = [];
+            let firstFmt = null;
+            let totalData = 0;
+            for (const blob of blobs) {
+                const buf = await blob.arrayBuffer();
+                const info = parseWav(buf);
+                if (!info) {
+                    console.warn('跳过非 WAV 分段');
+                    continue;
+                }
+                if (!firstFmt) firstFmt = info.fmt;
+                parsed.push({ buf, info });
+                totalData += info.dataSize;
+            }
+            if (parsed.length === 0) return null;
+
+            const { audioFormat, channels, sampleRate, byteRate, blockAlign, bitsPerSample } = firstFmt;
+            const dataSize = totalData;
+            const fileSize = 44 + dataSize;
+            const out = new ArrayBuffer(fileSize);
+            const view = new DataView(out);
+            const writeStr = (off, str) => {
+                for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+            };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, fileSize - 8, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, audioFormat, true);
+            view.setUint16(22, channels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeStr(36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            const outU8 = new Uint8Array(out);
+            let writePos = 44;
+            for (const { buf, info } of parsed) {
+                const src = new Uint8Array(buf, info.dataStart, info.dataSize);
+                outU8.set(src, writePos);
+                writePos += info.dataSize;
+            }
+
+            return new Blob([out], { type: 'audio/wav' });
         }
     }
 

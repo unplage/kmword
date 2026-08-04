@@ -1306,6 +1306,9 @@
                             generatedSegments: 0,
                             lastSegmentIndex: 0,
                             lastSegmentTime: 0,
+                            ttsVoice: '',
+                            ttsStyle: 'standard',
+                            ttsStyleCustom: '',
                             createdAt: new Date().toISOString()
                         });
                         request.onsuccess = () => resolve(request.result);

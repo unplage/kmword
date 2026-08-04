@@ -41,13 +41,15 @@ TXT files in this repo follow a numbered-list format (header of "Level4_2 单词
 | `user_progress` | `wordId` | SM-2 fields: `easeFactor`, `repetition`, `interval`, `familiarity`, `nextReview` |
 | `new_words` | `wordId` | JS does manual dedup before `put()` to avoid overwriting existing entries |
 | `novels` | auto-increment `id` | `title`, `content`, `format`, `wordCount`, `currentPosition`, `createdAt`, `updatedAt` |
-| `listening_files` | auto-increment `id` | `title`, `content`, `totalDuration`, `segmentCount`, `status` (`generating`/`complete`), `generatedSegments`, `lastSegmentIndex`, `lastSegmentTime`, `createdAt` |
+| `listening_files` | auto-increment `id` | `title`, `content`, `totalDuration`, `segmentCount`, `status` (`generating`/`complete`), `generatedSegments`, `lastSegmentIndex`, `lastSegmentTime`, `ttsVoice`, `ttsStyle`, `ttsStyleCustom`, `createdAt` |
 | `audio_segments` | auto-increment `id` | `fileId`, `segmentIndex`, `title`, `text`, `duration`, `audioBlob`; unique index `[fileId, segmentIndex]` |
 
 ## Listening module
 
-- TTS generation chunks the article (deterministic `TextChunker.splitText`), saves one `audio_segments` row per part, and updates `listening_files.status`/`generatedSegments` per segment.
+- TTS generation chunks the article at **paragraph boundaries** (deterministic `TextChunker.splitText`, ~3 min floor / 5 min target / 6 min cap; oversized single paragraphs are split by sentence), saves one `audio_segments` row per part, and updates `listening_files.status`/`generatedSegments` per segment.
 - Generation is **resumable**: incomplete files (`status === 'generating'`, `generatedSegments < segmentCount`) can be continued from the listening list (「继续生成」button) or via the startup `confirm` prompt. Generation aborts on `pagehide`/`beforeunload` (via `_abortListeningGeneration`); deleting the listening file removes it and its segments.
+- Voice + style (preset audio tags like `(温柔)` or a custom `role:user` instruction) are resolved at generation start and persisted on the file (`ttsVoice`/`ttsStyle`/`ttsStyleCustom`) so resume stays consistent. The reader's MiMo full-article TTS reuses the same `mimoStyle`/`mimoStyleCustom` settings.
+- Download: player toolbar downloads a merged full WAV (`TTSGenerator.mergeWavBlobs`, header-stripped PCM concatenation); each segment in the list can be downloaded individually.
 - Player restores last playback position (`lastSegmentIndex` + `lastSegmentTime`) on entry; position is saved on pause/segment-end/leave and throttled every ~3s during playback.
 
 ## SM-2 spaced repetition
@@ -78,13 +80,15 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Settings (IndexedDB keys)
 
-`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `ttsEngine`, `mimoApiKey`, `mimoVoice`, `llmModel`, `llmWebSearch`.
+`autoPlaySound`, `showPhonetic`, `autoNextWord`, `theme`, `fontSize`, `mwDictKey`, `mwThesKey`, `learningMode`, `readerFontSize`, `currentListId`, `lastStudyDate`, `learningStreak`, `ttsVoice`, `ttsSpeaker`, `ttsSpeed`, `ttsEngine`, `mimoApiKey`, `mimoVoice`, `mimoStyle`, `mimoStyleCustom`, `llmModel`, `llmWebSearch`.
 
 - `llmModel` — GLM model name (default `glm-4.7-flash`). User-configurable text input; empty = default.
 - `llmWebSearch` — Boolean toggle for AI web search via GLM `web_search` tool.
 - `ttsEngine` — reader full-article TTS engine: `system` (browser) or `mimo` (MiMo cloud). Word pronunciation always uses system TTS / dictionary audio.
 - `mimoApiKey` — Xiaomi MiMo API key for `mimo-v2.5-tts`.
 - `mimoVoice` — MiMo preset voice ID (`mimo_default`, 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean).
+- `mimoStyle` — MiMo pronunciation style preset (`standard`, 温柔, 活泼, 严肃, 平静, 磁性, 深沉, `custom`). Presets become audio tags like `(温柔)`; `custom` uses `mimoStyleCustom` as a `role:user` instruction.
+- `mimoStyleCustom` — free-text style instruction used when `mimoStyle === 'custom'`.
 
 ## Data export/import
 

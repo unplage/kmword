@@ -27,7 +27,7 @@
                     this._readerStarting = false;
                     this._ttsStartTimer = null;
                     this._isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
-                    this.mimoConfig = { engine: 'system', apiKey: '', voice: 'mimo_default' };
+                    this.mimoConfig = { engine: 'system', apiKey: '', voice: 'mimo_default', style: 'standard', styleCustom: '' };
                     this._mimoCtx = null;
                     this._mimoSources = [];
                     this._mimoSession = null;
@@ -544,7 +544,9 @@
                         this.mimoConfig = {
                             engine: (await this.db.getSetting('ttsEngine')) || 'system',
                             apiKey: (await this.db.getSetting('mimoApiKey')) || '',
-                            voice: (await this.db.getSetting('mimoVoice')) || 'mimo_default'
+                            voice: (await this.db.getSetting('mimoVoice')) || 'mimo_default',
+                            style: (await this.db.getSetting('mimoStyle')) || 'standard',
+                            styleCustom: (await this.db.getSetting('mimoStyleCustom')) || ''
                         };
                         await this.promptResumeListening();
                         const savedFontSize = await this.db.getSetting('fontSize', 'medium');
@@ -825,6 +827,14 @@
 
                     document.getElementById('readingSaveBtn')?.addEventListener('click', () => this.saveAsReading());
                     document.getElementById('listeningGenBtn')?.addEventListener('click', () => this.generateListeningAudio());
+
+                    const listeningStyleSel = document.getElementById('listeningStyle');
+                    const listeningCustomItem = document.getElementById('listeningStyleCustomItem');
+                    if (listeningStyleSel && listeningCustomItem) {
+                        listeningStyleSel.addEventListener('change', () => {
+                            listeningCustomItem.style.display = listeningStyleSel.value === 'custom' ? '' : 'none';
+                        });
+                    }
 
                     console.log('事件绑定完成');
                 }
@@ -2736,6 +2746,27 @@
                                         </select>
                                     </div>
                                 </div>
+                                <div class="setting-item" id="mimoStyleItem">
+                                    <label for="mimoStyle">MiMo 发音风格</label>
+                                    <div class="setting-control">
+                                        <select id="mimoStyle">
+                                            <option value="standard">标准 (默认)</option>
+                                            <option value="温柔">温柔</option>
+                                            <option value="活泼">活泼</option>
+                                            <option value="严肃">严肃</option>
+                                            <option value="平静">平静</option>
+                                            <option value="磁性">磁性</option>
+                                            <option value="深沉">深沉</option>
+                                            <option value="custom">自定义指令...</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="setting-item" id="mimoStyleCustomItem" style="display:none;">
+                                    <label for="mimoStyleCustom">自定义风格指令</label>
+                                    <div class="setting-control" style="flex:1;">
+                                        <input type="text" id="mimoStyleCustom" placeholder="例如：用沉稳缓慢的语调朗读，语气平缓自然" style="flex:1; min-width:200px;">
+                                    </div>
+                                </div>
                                 <div class="setting-item">
                                     <label for="ttsVoice">朗读语言</label>
                                     <div class="setting-control">
@@ -2941,14 +2972,24 @@
                         const engine = document.getElementById('ttsEngine')?.value;
                         const keyItem = document.getElementById('mimoApiKeyItem');
                         const voiceItem = document.getElementById('mimoVoiceItem');
+                        const styleItem = document.getElementById('mimoStyleItem');
+                        const styleCustomItem = document.getElementById('mimoStyleCustomItem');
                         const isMimo = engine === 'mimo';
                         if (keyItem) keyItem.style.display = isMimo ? '' : 'none';
                         if (voiceItem) voiceItem.style.display = isMimo ? '' : 'none';
+                        if (styleItem) styleItem.style.display = isMimo ? '' : 'none';
+                        if (styleCustomItem) {
+                            styleCustomItem.style.display = (isMimo && document.getElementById('mimoStyle')?.value === 'custom') ? '' : 'none';
+                        }
                     };
                     const engineSelect = document.getElementById('ttsEngine');
                     if (engineSelect) {
                         engineSelect.addEventListener('change', toggleMimoFields);
                         toggleMimoFields();
+                    }
+                    const styleSelect = document.getElementById('mimoStyle');
+                    if (styleSelect) {
+                        styleSelect.addEventListener('change', toggleMimoFields);
                     }
 
                     // Speed slider label
@@ -3031,10 +3072,16 @@
                         if (ttsEngineEl) ttsEngineEl.dispatchEvent(new Event('change'));
                         setInputValue('mimoApiKey', settings.mimoApiKey);
                         setSelect('mimoVoice', settings.mimoVoice || 'mimo_default');
+                        setSelect('mimoStyle', settings.mimoStyle || 'standard');
+                        setInputValue('mimoStyleCustom', settings.mimoStyleCustom || '');
+                        const loadedStyleSel = document.getElementById('mimoStyle');
+                        if (loadedStyleSel) loadedStyleSel.dispatchEvent(new Event('change'));
                         this.mimoConfig = {
                             engine: settings.ttsEngine || 'system',
                             apiKey: settings.mimoApiKey || '',
-                            voice: settings.mimoVoice || 'mimo_default'
+                            voice: settings.mimoVoice || 'mimo_default',
+                            style: settings.mimoStyle || 'standard',
+                            styleCustom: settings.mimoStyleCustom || ''
                         };
                         this._savedSpeaker = settings.ttsSpeaker || '';
                         setSelect('ttsVoice', settings.ttsVoice);
@@ -3088,6 +3135,8 @@
                             ttsEngine: getSelect('ttsEngine') || 'system',
                             mimoApiKey: getInputValue('mimoApiKey'),
                             mimoVoice: getSelect('mimoVoice') || 'mimo_default',
+                            mimoStyle: getSelect('mimoStyle') || 'standard',
+                            mimoStyleCustom: getInputValue('mimoStyleCustom') || '',
                             llmProvider: getSelect('llmProvider') || 'zhipu',
                             llmApiBase: (getInputValue('llmApiBase') || '').trim(),
                             llmApiKey: getInputValue('llmApiKey'),
@@ -3103,7 +3152,9 @@
                         this.mimoConfig = {
                             engine: settings.ttsEngine || 'system',
                             apiKey: settings.mimoApiKey || '',
-                            voice: settings.mimoVoice || 'mimo_default'
+                            voice: settings.mimoVoice || 'mimo_default',
+                            style: settings.mimoStyle || 'standard',
+                            styleCustom: settings.mimoStyleCustom || ''
                         };
                         this.showNotification('设置已保存', 'success');
                         this.applyTheme(settings.theme);
@@ -4422,12 +4473,21 @@
                     }
                 }
 
-                async _mimoStream(text, voice) {
+                async _mimoStream(text, voice, style, styleCustom) {
                     const apiKey = this.mimoConfig.apiKey;
                     if (!apiKey) throw new Error('未配置 MiMo API Key');
+                    const messages = [];
+                    if (style === 'custom' && styleCustom && styleCustom.trim()) {
+                        messages.push({ role: 'user', content: styleCustom.trim() });
+                    }
+                    let content = text;
+                    if (style && style !== 'standard' && style !== 'custom' && style !== 'follow') {
+                        content = `(${style})${content}`;
+                    }
+                    messages.push({ role: 'assistant', content });
                     const body = {
                         model: 'mimo-v2.5-tts',
-                        messages: [{ role: 'assistant', content: text }],
+                        messages,
                         audio: { format: 'pcm16', voice: voice || 'mimo_default' },
                         stream: true
                     };
@@ -4452,7 +4512,7 @@
                     return res;
                 }
 
-                mimoSpeak({ text, voice, rate, onStart, onEnd, onError }) {
+                mimoSpeak({ text, voice, rate, style, styleCustom, onStart, onEnd, onError }) {
                     const ctx = this._mimoEnsureCtx();
                     if (!ctx) {
                         if (onError) onError('当前浏览器不支持 Web Audio');
@@ -4488,7 +4548,7 @@
                         if (this._mimoSession) this._mimoSession.endAt = nextTime;
                         sources.push(src);
                     };
-                    this._mimoStream(text, voice).then((res) => {
+                    this._mimoStream(text, voice, style, styleCustom).then((res) => {
                         const reader = res.body.getReader();
                         const decoder = new TextDecoder('utf-8');
                         let buf = '';
@@ -4605,6 +4665,8 @@
                     await this.mimoSpeak({
                         text: chunk.text,
                         voice: this.mimoConfig.voice,
+                        style: this.mimoConfig.style,
+                        styleCustom: this.mimoConfig.styleCustom,
                         rate: tts.rate,
                         onStart: () => {
                             const cur = this.readerTTS;
@@ -4968,6 +5030,25 @@
                 }
 
                 // ===== 听力模块 =====
+                _resolveListeningTTSConfig() {
+                    const voiceSel = document.getElementById('listeningVoice')?.value;
+                    const styleSel = document.getElementById('listeningStyle')?.value;
+                    const customInput = document.getElementById('listeningStyleCustom')?.value;
+                    let voice = this.mimoConfig.voice;
+                    let style = this.mimoConfig.style || 'standard';
+                    let styleCustom = this.mimoConfig.styleCustom || '';
+                    if (voiceSel && voiceSel !== 'follow') voice = voiceSel;
+                    if (styleSel && styleSel !== 'follow') {
+                        if (styleSel === 'custom') {
+                            style = 'custom';
+                            styleCustom = (customInput || '').trim();
+                        } else {
+                            style = styleSel;
+                        }
+                    }
+                    return { voice, style, styleCustom };
+                }
+
                 async generateListeningAudio() {
                     if (!this.novelFileContent) {
                         this.showNotification('请先选择文件', 'error');
@@ -5016,11 +5097,15 @@
                             return;
                         }
 
+                        const ttsCfg = this._resolveListeningTTSConfig();
                         const fileId = await this.db.saveListeningFile({
                             title,
                             content: this.novelFileContent,
                             totalDuration: 0,
-                            segmentCount: chunks.length
+                            segmentCount: chunks.length,
+                            ttsVoice: ttsCfg.voice,
+                            ttsStyle: ttsCfg.style,
+                            ttsStyleCustom: ttsCfg.styleCustom
                         });
 
                         if (progressText) progressText.textContent = `共 ${chunks.length} 段，准备生成...`;
@@ -5048,6 +5133,11 @@
                     const { progressBar, progressText } = ui;
                     const generator = new TTSGenerator();
                     this._listeningGenAborter = generator;
+
+                    const file = await this.db.getListeningFile(fileId);
+                    const voice = (file && file.ttsVoice) || this.mimoConfig.voice;
+                    const style = (file && file.ttsStyle) || 'standard';
+                    const styleCustom = (file && file.ttsStyleCustom) || '';
 
                     const existing = await this.db.getAudioSegmentsByFile(fileId);
                     const existingIndexes = new Set(existing.map(s => s.segmentIndex));
@@ -5077,7 +5167,9 @@
                             const { wavBlob, duration } = await generator.streamToWav(
                                 chunks[i].text,
                                 this.mimoConfig.apiKey,
-                                this.mimoConfig.voice
+                                voice,
+                                style,
+                                styleCustom
                             );
 
                             await this.db.saveAudioSegment({
@@ -5105,7 +5197,9 @@
                                 const { wavBlob, duration } = await generator.streamToWav(
                                     chunks[i].text,
                                     this.mimoConfig.apiKey,
-                                    this.mimoConfig.voice
+                                    voice,
+                                    style,
+                                    styleCustom
                                 );
                                 await this.db.saveAudioSegment({
                                     fileId,
@@ -5332,6 +5426,9 @@
                             <div class="player-segment-item${active}" data-index="${i}">
                                 <span class="player-segment-name">${this.escapeHtml(seg.title || 'Part ' + (i + 1))}</span>
                                 <span class="player-segment-dur">${dur}</span>
+                                <span class="player-segment-download" data-download="${i}" title="下载此段">
+                                    <i class="fas fa-download"></i>
+                                </span>
                             </div>
                         `;
                     }
@@ -5342,7 +5439,55 @@
                             this._loadSegment(idx);
                             this._playPlayer();
                         });
+                        const dl = item.querySelector('.player-segment-download');
+                        if (dl) {
+                            dl.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                const idx = parseInt(dl.dataset.download);
+                                const seg = this.currentListeningSegments[idx];
+                                if (seg && seg.audioBlob) {
+                                    const name = this.currentListeningFile
+                                        ? `${this.currentListeningFile.title}-Part-${idx + 1}.wav`
+                                        : `Part-${idx + 1}.wav`;
+                                    this._downloadBlob(seg.audioBlob, name);
+                                }
+                            });
+                        }
                     });
+                }
+
+                _downloadBlob(blob, filename) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                }
+
+                async _downloadMergedListening() {
+                    const file = this.currentListeningFile;
+                    if (!file) return;
+                    const segments = this.currentListeningSegments;
+                    if (!segments.length) {
+                        this.showNotification('暂无音频可下载', 'warning');
+                        return;
+                    }
+                    try {
+                        this.showNotification('正在合成完整音频...', 'info');
+                        const merged = await TTSGenerator.mergeWavBlobs(segments.map(s => s.audioBlob));
+                        if (!merged) {
+                            this.showNotification('合成失败：分段格式不兼容', 'error');
+                            return;
+                        }
+                        this._downloadBlob(merged, `${file.title}.wav`);
+                        this.showNotification('已开始下载', 'success');
+                    } catch (err) {
+                        console.error('下载完整音频失败:', err);
+                        this.showNotification('下载失败: ' + err.message, 'error');
+                    }
                 }
 
                 _bindPlayerEvents() {
@@ -5390,6 +5535,8 @@
                         this.showNotification('已删除', 'success');
                         this.switchPage('listening');
                     });
+
+                    document.getElementById('playerDownloadBtn')?.addEventListener('click', () => this._downloadMergedListening());
                 }
 
                 _loadSegment(index) {

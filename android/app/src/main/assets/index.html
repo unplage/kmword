@@ -309,6 +309,45 @@
                         </div>
                         <div class="progress-text" id="listeningGenProgressText">准备中...</div>
                     </div>
+                    <div class="setting-item" style="margin-bottom:10px;">
+                        <label for="listeningVoice">音色</label>
+                        <div class="setting-control">
+                            <select id="listeningVoice">
+                                <option value="follow">跟随设置</option>
+                                <option value="mimo_default">MiMo 默认</option>
+                                <option value="冰糖">冰糖 (中文·女)</option>
+                                <option value="茉莉">茉莉 (中文·女)</option>
+                                <option value="苏打">苏打 (中文·男)</option>
+                                <option value="白桦">白桦 (中文·男)</option>
+                                <option value="Mia">Mia (英文·女)</option>
+                                <option value="Chloe">Chloe (英文·女)</option>
+                                <option value="Milo">Milo (英文·男)</option>
+                                <option value="Dean">Dean (英文·男)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-item" style="margin-bottom:10px;">
+                        <label for="listeningStyle">发音风格</label>
+                        <div class="setting-control">
+                            <select id="listeningStyle">
+                                <option value="follow">跟随设置</option>
+                                <option value="standard">标准</option>
+                                <option value="温柔">温柔</option>
+                                <option value="活泼">活泼</option>
+                                <option value="严肃">严肃</option>
+                                <option value="平静">平静</option>
+                                <option value="磁性">磁性</option>
+                                <option value="深沉">深沉</option>
+                                <option value="custom">自定义指令...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-item" id="listeningStyleCustomItem" style="display:none; margin-bottom:10px;">
+                        <label for="listeningStyleCustom">自定义风格指令</label>
+                        <div class="setting-control" style="flex:1;">
+                            <input type="text" id="listeningStyleCustom" placeholder="例如：用沉稳缓慢的语调朗读，语气平缓自然" style="flex:1; min-width:180px;">
+                        </div>
+                    </div>
                     <button class="process-btn" id="listeningGenBtn">
                         <i class="fas fa-headphones"></i> 生成听力音频
                     </button>
@@ -416,6 +455,9 @@
                     <i class="fas fa-chevron-up"></i>
                 </button>
                 <div class="reader-controls">
+                    <button class="reader-btn" id="playerDownloadBtn" title="下载完整音频">
+                        <i class="fas fa-download"></i>
+                    </button>
                     <button class="reader-btn" id="playerDeleteBtn" title="删除" style="color:var(--danger-color);">
                         <i class="fas fa-trash-alt"></i>
                     </button>

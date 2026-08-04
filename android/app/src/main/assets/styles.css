@@ -2468,6 +2468,7 @@
         .player-segment-name {
             font-size: 14px;
             color: var(--text-primary);
+            flex: 1;
         }
 
         .player-segment-item.active .player-segment-name {
@@ -2479,6 +2480,20 @@
             font-size: 13px;
             color: var(--text-secondary);
             font-variant-numeric: tabular-nums;
+        }
+
+        .player-segment-download {
+            margin-left: 12px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .player-segment-download:hover {
+            opacity: 1;
+            color: var(--primary-color);
         }
 
         .player-total-progress {
