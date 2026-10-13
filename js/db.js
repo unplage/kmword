@@ -1,6 +1,6 @@
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 8;
+            const DB_VERSION = 9;
 
             const STORES = {
                 WORDS: 'words',
@@ -12,7 +12,8 @@
                 NOVELS: 'novels',
                 SETTINGS: 'settings',
                 LISTENING_FILES: 'listening_files',
-                AUDIO_SEGMENTS: 'audio_segments'
+                AUDIO_SEGMENTS: 'audio_segments',
+                WORD_CACHE: 'word_cache'
             };
 
             class WordDatabase {
@@ -217,6 +218,12 @@
 									asStore.createIndex('fileId_segmentIndex', ['fileId', 'segmentIndex'], { unique: true });
 								}
 							}
+							if (oldVersion < 9) {
+								console.log('迁移到版本 9：添加 word_cache store');
+								if (!db.objectStoreNames.contains(STORES.WORD_CACHE)) {
+									db.createObjectStore(STORES.WORD_CACHE, { keyPath: 'word' });
+								}
+							}
                         };
                         
                         request.onblocked = () => {
@@ -265,6 +272,10 @@
                     
                     if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
                         db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' });
+                    }
+
+                    if (!db.objectStoreNames.contains(STORES.WORD_CACHE)) {
+                        db.createObjectStore(STORES.WORD_CACHE, { keyPath: 'word' });
                     }
                 }
 
@@ -1165,6 +1176,39 @@
                             resolve(settings);
                         };
                         request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getWordCache(word) {
+                    await this.ready();
+                    const key = String(word || '').trim().toLowerCase();
+                    if (!key) return null;
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.WORD_CACHE], 'readonly');
+                        const store = transaction.objectStore(STORES.WORD_CACHE);
+                        const request = store.get(key);
+                        request.onsuccess = () => resolve(request.result || null);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async saveWordCache(word, patch) {
+                    await this.ready();
+                    const key = String(word || '').trim().toLowerCase();
+                    if (!key) return null;
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.WORD_CACHE], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.WORD_CACHE);
+                        const getRequest = store.get(key);
+                        getRequest.onsuccess = () => {
+                            const record = getRequest.result || { word: key };
+                            Object.assign(record, patch);
+                            const putRequest = store.put(record);
+                            putRequest.onsuccess = () => resolve(record);
+                            putRequest.onerror = () => reject(putRequest.error);
+                        };
+                        getRequest.onerror = () => reject(getRequest.error);
                     });
                 }
 

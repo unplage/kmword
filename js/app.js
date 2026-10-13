@@ -744,6 +744,8 @@
                     });
                     document.getElementById('lookupModalMwBtn')?.addEventListener('click', () => this.lookupModalMw());
                     document.getElementById('lookupModalAiBtn')?.addEventListener('click', () => this.lookupModalAi());
+                    document.getElementById('lookupModalMwCacheBtn')?.addEventListener('click', () => this.lookupModalMwCache());
+                    document.getElementById('lookupModalAiCacheBtn')?.addEventListener('click', () => this.lookupModalAiCache());
                     // 弹窗内单词标题也可点击发音
                     document.getElementById('lookupModalWord')?.addEventListener('click', () => {
                         if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
@@ -3745,15 +3747,35 @@
                 }
 
                 // 参数化版本：把韦氏查询结果渲染到指定容器，供学习卡片与查词弹窗复用
-				async renderMwResult(word, containerEl) {
+                // options.cachedResult: { dict, thesaurus } 直接渲染缓存原始 JSON，跳过网络请求
+                // options.cachedAt: 缓存时间 ISO 字符串，展示在结果顶部
+				async renderMwResult(word, containerEl, options = {}) {
 					if (!containerEl) return;
 					containerEl.style.display = 'block';
 					containerEl.innerHTML = '<div class="mw-loading"><i class="fas fa-spinner fa-spin"></i> 正在查询韦氏词典...</div>';
 					try {
-						const result = await this.mwAPI.lookupWord(word);
+                        let result;
+                        if (options.cachedResult) {
+                            result = options.cachedResult;
+                        } else {
+                            result = await this.mwAPI.lookupWord(word);
+                            if (result && (result.dict || result.thesaurus)) {
+                                this.db.saveWordCache(word, {
+                                    mw: {
+                                        dict: result.dict || null,
+                                        thesaurus: result.thesaurus || null,
+                                        cachedAt: new Date().toISOString()
+                                    }
+                                }).then(() => this.refreshLookupModalCacheButtons(word))
+                                  .catch(err => console.warn('韦氏缓存写入失败:', err));
+                            }
+                        }
 						const dictData = this.mwAPI.parseDict(result.dict);  // 现在是一个数组
 						const thesData = this.mwAPI.parseThesaurus(result.thesaurus);
-						let html = '<div class="mw-result-section">';
+						let html = options.cachedAt
+                            ? `<div class="cache-note"><i class="fas fa-database"></i> 缓存于 ${this.formatCacheDate(options.cachedAt)} · 点击「韦氏词典」可重新查询</div>`
+                            : '';
+                        html += '<div class="mw-result-section">';
 
 						// --- 词典部分：支持多词条 ---
 						if (dictData && dictData.length > 0) {
@@ -4010,7 +4032,12 @@
                         aiResultEl.style.display = 'none';
                         aiResultEl.innerHTML = '';
                     }
+                    const mwCacheBtn = document.getElementById('lookupModalMwCacheBtn');
+                    const aiCacheBtn = document.getElementById('lookupModalAiCacheBtn');
+                    if (mwCacheBtn) mwCacheBtn.style.display = 'none';
+                    if (aiCacheBtn) aiCacheBtn.style.display = 'none';
                     modal.style.display = 'flex';
+                    this.refreshLookupModalCacheButtons(word);
                     // 拉取 free dict 并渲染
                     try {
                         const data = await this.dictionaryAPI.fetchWordData(word);
@@ -4129,6 +4156,55 @@
                     await this.renderMwResult(word, mwResultEl);
                 }
 
+                async lookupModalMwCache() {
+                    const word = this.lookupModalWord;
+                    if (!word) return;
+                    const mwResultEl = document.getElementById('lookupModalMwResult');
+                    if (!mwResultEl) return;
+                    try {
+                        const cache = await this.db.getWordCache(word);
+                        if (!cache || !cache.mw) {
+                            this.showNotification('没有该单词的韦氏词典缓存', 'warning');
+                            this.refreshLookupModalCacheButtons(word);
+                            return;
+                        }
+                        await this.renderMwResult(word, mwResultEl, {
+                            cachedResult: cache.mw,
+                            cachedAt: cache.mw.cachedAt
+                        });
+                    } catch (e) {
+                        console.error('读取韦氏缓存失败:', e);
+                        this.showNotification('读取缓存失败', 'error');
+                    }
+                }
+
+                formatCacheDate(iso) {
+                    try {
+                        return new Date(iso).toLocaleString('zh-CN', {
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit'
+                        });
+                    } catch (e) {
+                        return iso;
+                    }
+                }
+
+                async refreshLookupModalCacheButtons(word = null) {
+                    word = word || this.lookupModalWord;
+                    const mwCacheBtn = document.getElementById('lookupModalMwCacheBtn');
+                    const aiCacheBtn = document.getElementById('lookupModalAiCacheBtn');
+                    if (!word || !mwCacheBtn || !aiCacheBtn) return;
+                    if (this.lookupModalWord && this.lookupModalWord.toLowerCase() !== String(word).toLowerCase()) return;
+                    try {
+                        const cache = await this.db.getWordCache(word);
+                        mwCacheBtn.style.display = (cache && cache.mw) ? '' : 'none';
+                        aiCacheBtn.style.display = (cache && cache.ai) ? '' : 'none';
+                    } catch (e) {
+                        mwCacheBtn.style.display = 'none';
+                        aiCacheBtn.style.display = 'none';
+                    }
+                }
+
                 async lookupModalAi() {
                     const word = this.lookupModalWord;
                     if (!word) return;
@@ -4206,8 +4282,46 @@
                         } else {
                             aiResultEl.innerHTML = '<div class="ai-result">' + this.escapeHtml(content) + '</div>';
                         }
+                        if (content && content !== '(无返回内容)') {
+                            this.db.saveWordCache(word, {
+                                ai: {
+                                    content: content,
+                                    cachedAt: new Date().toISOString()
+                                }
+                            }).then(() => this.refreshLookupModalCacheButtons(word))
+                              .catch(err => console.warn('AI 缓存写入失败:', err));
+                        }
                     } catch (e) {
                         aiResultEl.innerHTML = '<div class="ai-error"><i class="fas fa-exclamation-triangle"></i> ' + this.escapeHtml(e.message) + '</div>';
+                    }
+                }
+
+                async lookupModalAiCache() {
+                    const word = this.lookupModalWord;
+                    if (!word) return;
+                    const aiResultEl = document.getElementById('lookupModalAiResult');
+                    if (!aiResultEl) return;
+                    try {
+                        const cache = await this.db.getWordCache(word);
+                        if (!cache || !cache.ai || !cache.ai.content) {
+                            this.showNotification('没有该单词的 AI 分析缓存', 'warning');
+                            this.refreshLookupModalCacheButtons(word);
+                            return;
+                        }
+                        const note = '<div class="cache-note"><i class="fas fa-database"></i> 缓存于 ' +
+                            this.formatCacheDate(cache.ai.cachedAt) + ' · 点击「AI 分析」可重新生成</div>';
+                        const content = cache.ai.content;
+                        aiResultEl.style.display = 'block';
+                        const renderFn = typeof marked?.parse === 'function' ? marked : null;
+                        if (renderFn) {
+                            const html = renderFn.parse(content, { breaks: true });
+                            aiResultEl.innerHTML = note + '<div class="ai-result">' + DOMPurify.sanitize(html) + '</div>';
+                        } else {
+                            aiResultEl.innerHTML = note + '<div class="ai-result">' + this.escapeHtml(content) + '</div>';
+                        }
+                    } catch (e) {
+                        console.error('读取 AI 缓存失败:', e);
+                        this.showNotification('读取缓存失败', 'error');
                     }
                 }
 

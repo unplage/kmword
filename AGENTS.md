@@ -11,7 +11,7 @@
   - `js/novel-processor.js` — NovelProcessor class + `window.novelProcessor` instance.
   - `js/app.js` — WordLearnerApp class + `window.app` instance.
 - **Load order (manifest in `<script>` tags):** `db.js` → `novel-processor.js` → `app.js`.
-- **Storage:** IndexedDB `WordLearnerDB` (v7), stores: `words`, `word_lists`, `user_progress`, `new_words`, `daily_plan`, `learning_history`, `novels`, `settings`.
+- **Storage:** IndexedDB `WordLearnerDB` (v9), stores: `words`, `word_lists`, `user_progress`, `new_words`, `daily_plan`, `learning_history`, `novels`, `settings`, `word_cache`.
 - **PWA:** `sw.js` (cache-first static, network-first for Dictionary APIs), `manifest.json` (scope `/kmword/`).
 - **Deployment:** GitHub Pages at `https://unplage.github.io/kmword/`.
 - **Android wrapper:** `android/` is a separate Gradle/Kotlin project for a WebView-based Android app; not part of the PWA frontend.
@@ -43,6 +43,12 @@ TXT files in this repo follow a numbered-list format (header of "Level4_2 单词
 | `novels` | auto-increment `id` | `title`, `content`, `format`, `wordCount`, `currentPosition`, `createdAt`, `updatedAt` |
 | `listening_files` | auto-increment `id` | `title`, `content`, `totalDuration`, `segmentCount`, `status` (`generating`/`complete`), `generatedSegments`, `lastSegmentIndex`, `lastSegmentTime`, `ttsVoice`, `ttsStyle`, `ttsStyleCustom`, `createdAt` |
 | `audio_segments` | auto-increment `id` | `fileId`, `segmentIndex`, `title`, `text`, `duration`, `audioBlob`; unique index `[fileId, segmentIndex]` |
+| `word_cache` | `word` (normalized lowercase) | `{ word, mw: {dict, thesaurus, cachedAt}, ai: {content, cachedAt} }` — MW stores raw API JSON (re-rendered on display); AI stores markdown content. Permanent, overwritten on each live query. |
+
+## Word lookup cache buttons
+
+- 查词弹窗 has two extra buttons 「韦氏词典（缓存）」/「AI 分析（缓存）」, shown only when the word has a corresponding `word_cache` entry (checked in `refreshLookupModalCacheButtons`).
+- Live queries (modal buttons + learn-card `#mwLookupBtn` via shared `renderMwResult`) write/overwrite the cache on success; cached views show a `.cache-note` header with the cache date and skip network entirely.
 
 ## Listening module
 
