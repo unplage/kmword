@@ -21,6 +21,75 @@
                     this.db = null;
                     this.initPromise = null;
                     this.isInitializing = false;
+                    this._srs = null;
+                }
+
+                // FSRS-6 调度器（ts-fsrs UMD），延迟初始化
+                srs() {
+                    if (!this._srs) {
+                        if (!window.FSRS) throw new Error('FSRS 库未加载');
+                        this._srs = window.FSRS.fsrs(window.FSRS.generatorParameters({
+                            enable_fuzz: true,
+                            learning_steps: ['1m', '10m'],
+                            relearning_steps: ['10m']
+                        }));
+                    }
+                    return this._srs;
+                }
+
+                // 将 user_progress 记录还原为 FSRS 卡片；旧 SM-2/familiarity 记录按 fsrs-rs 官方公式迁移
+                cardFromProgress(progress, now = new Date()) {
+                    const F = window.FSRS;
+                    if (!F) throw new Error('FSRS 库未加载');
+                    if (!progress) return F.createEmptyCard(now);
+                    if (progress.state != null && progress.stability != null) {
+                        return {
+                            due: progress.nextReview ? new Date(progress.nextReview) : new Date(now),
+                            stability: progress.stability,
+                            difficulty: progress.difficulty != null ? progress.difficulty : 5,
+                            elapsed_days: progress.elapsed_days || 0,
+                            scheduled_days: progress.scheduled_days || 0,
+                            learning_steps: progress.learning_steps || 0,
+                            reps: progress.reps != null ? progress.reps : (progress.totalReviews || 0),
+                            lapses: progress.lapses || 0,
+                            state: progress.state,
+                            last_review: progress.lastReview ? new Date(progress.lastReview) : null
+                        };
+                    }
+                    const OLD_INTERVALS = [1, 3, 7, 14, 30];
+                    const familiarity = progress.familiarity || 0;
+                    const repetition = progress.repetition != null ? progress.repetition : familiarity;
+                    const interval = progress.interval || (familiarity > 0
+                        ? OLD_INTERVALS[Math.min(familiarity - 1, OLD_INTERVALS.length - 1)]
+                        : 1);
+                    const card = F.createEmptyCard(now);
+                    card.due = progress.nextReview ? new Date(progress.nextReview) : new Date(now);
+                    card.reps = progress.totalReviews || repetition || 0;
+                    card.last_review = progress.lastReview ? new Date(progress.lastReview) : null;
+                    if (!repetition) return card;
+                    const params = this.srs().parameters;
+                    const w = params.w;
+                    const retention = params.request_retention;
+                    const decay = -w[20];
+                    const stability = Math.max(1e-3,
+                        interval * (Math.pow(0.9, 1 / decay) - 1) / (Math.pow(retention, 1 / decay) - 1));
+                    const easeFactor = progress.easeFactor != null ? progress.easeFactor : 2.5;
+                    const denom = Math.exp(w[8]) * Math.pow(stability, -w[9]) *
+                        (Math.exp((1 - retention) * w[10]) - 1);
+                    const difficulty = Math.min(10, Math.max(1, 11 - (easeFactor - 1) / denom));
+                    card.stability = stability;
+                    card.difficulty = difficulty;
+                    card.scheduled_days = interval;
+                    card.state = F.State.Review;
+                    return card;
+                }
+
+                // 当前记忆保持率（0-1），新卡返回 null
+                getCardRetrievability(progress, now = new Date()) {
+                    if (!progress) return null;
+                    const card = this.cardFromProgress(progress, now);
+                    if (card.state === window.FSRS.State.New || card.stability <= 0) return null;
+                    return this.srs().get_retrievability(card, now, false);
                 }
 
                 async batchDeleteWordsByList(listId) {
@@ -655,67 +724,37 @@
                         return;
                     }
                     const now = new Date();
+                    const F = window.FSRS;
+                    if (!F) throw new Error('FSRS 库未加载');
 
-                    // ---- SM-2 算法（向后兼容旧 familiarity-only 记录）----
-                    // 旧记录缺 easeFactor/repetition/interval 时，按 familiarity 即时迁移：
-                    //   easeFactor -> 2.5；repetition -> familiarity；interval -> 旧间隔表对应值
-                    const OLD_INTERVALS = [1, 3, 7, 14, 30];
-                    let repetition, interval, easeFactor, familiarity;
-                    if (progress && (progress.easeFactor != null || progress.repetition != null)) {
-                        // 已是 SM-2 记录
-                        easeFactor = progress.easeFactor != null ? progress.easeFactor : 2.5;
-                        repetition = progress.repetition || 0;
-                        interval = progress.interval || 1;
-                        familiarity = progress.familiarity || 0;
-                    } else if (progress) {
-                        // 旧记录迁移
-                        familiarity = progress.familiarity || 0;
-                        repetition = familiarity;
-                        interval = familiarity > 0
-                            ? OLD_INTERVALS[Math.min(familiarity - 1, OLD_INTERVALS.length - 1)]
-                            : 1;
-                        easeFactor = 2.5;
-                    } else {
-                        repetition = 0;
-                        interval = 1;
-                        easeFactor = 2.5;
-                        familiarity = 0;
-                    }
+                    // ---- FSRS-6：认识=Good，不认识=Again ----
+                    const card = this.cardFromProgress(progress, now);
+                    const grade = correct ? F.Rating.Good : F.Rating.Again;
+                    const { card: nextCard } = this.srs().next(card, now, grade);
 
-                    // 二元答题映射为 SM-2 质量 q：认识=5（完美），不认识=2（有印象但答错，q<3 触发重置）
-                    const q = correct ? 5 : 2;
+                    // familiarity 仅用于展示（星级/统计），不再参与调度
+                    const prevFamiliarity = progress && progress.familiarity ? progress.familiarity : 0;
+                    const familiarity = correct
+                        ? Math.min(prevFamiliarity + 1, 5)
+                        : Math.max(prevFamiliarity - 1, 0);
 
-                    if (q >= 3) {
-                        if (repetition === 0) {
-                            interval = 1;
-                        } else if (repetition === 1) {
-                            interval = 6;
-                        } else {
-                            interval = Math.max(1, Math.round(interval * easeFactor));
-                        }
-                        repetition += 1;
-                        familiarity = Math.min(familiarity + 1, 5);
-                    } else {
-                        repetition = 0;
-                        interval = 1;
-                        familiarity = Math.max(familiarity - 1, 0);
-                    }
-
-                    // 更新 ease factor，下限 1.3
-                    easeFactor = easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
-                    if (easeFactor < 1.3) easeFactor = 1.3;
-
-                    const nextReview = new Date(now);
-                    nextReview.setDate(nextReview.getDate() + interval);
                     const progressData = {
                         wordId: parseInt(wordId),
                         familiarity,
-                        repetition,
-                        interval,
-                        easeFactor,
-                        nextReview: nextReview.toISOString(),
-                        lastReview: now.toISOString(),
-                        totalReviews: (progress?.totalReviews || 0) + 1
+                        state: nextCard.state,
+                        stability: nextCard.stability,
+                        difficulty: nextCard.difficulty,
+                        elapsed_days: nextCard.elapsed_days,
+                        scheduled_days: nextCard.scheduled_days,
+                        learning_steps: nextCard.learning_steps,
+                        reps: nextCard.reps,
+                        lapses: nextCard.lapses,
+                        // interval/repetition 为旧字段，保留供旧版备份/展示兼容
+                        interval: Math.round(nextCard.scheduled_days),
+                        repetition: nextCard.reps,
+                        nextReview: nextCard.due.toISOString(),
+                        lastReview: (nextCard.last_review || now).toISOString(),
+                        totalReviews: (progress && progress.totalReviews ? progress.totalReviews : 0) + 1
                     };
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.USER_PROGRESS], 'readwrite');

@@ -28,18 +28,78 @@
                 'hear', 'heard', 'play', 'played', 'run', 'ran', 'move', 'moved'
             ]);
 
+            // 不规则变形 -> 原形（仅收录常见高频词，原形优先于规则变形）
+            const IRREGULAR_LEMMAS = {
+                children: 'child', men: 'man', women: 'woman', people: 'person',
+                teeth: 'tooth', feet: 'foot', mice: 'mouse', geese: 'goose', oxen: 'ox',
+                analyses: 'analysis', crises: 'crisis', matrices: 'matrix', phenomena: 'phenomenon',
+                criteria: 'criterion', indices: 'index', vertices: 'vertex', appendices: 'appendix',
+                been: 'be', being: 'be', am: 'be', is: 'be', are: 'be', was: 'be', were: 'be',
+                has: 'have', had: 'have', does: 'do', did: 'do', done: 'do',
+                went: 'go', gone: 'go', saw: 'see', seen: 'see', said: 'say',
+                told: 'tell', knew: 'know', known: 'know', thought: 'think',
+                took: 'take', taken: 'take', gave: 'give', given: 'give',
+                found: 'find', felt: 'feel', became: 'become', left: 'leave',
+                heard: 'hear', made: 'make', held: 'hold', kept: 'keep', lost: 'lose',
+                met: 'meet', paid: 'pay', ran: 'run', sang: 'sing', sung: 'sing',
+                sat: 'sit', slept: 'sleep', spoke: 'speak', spoken: 'speak',
+                stood: 'stand', spent: 'spend', taught: 'teach', threw: 'throw', thrown: 'throw',
+                understood: 'understand', wore: 'wear', worn: 'wear', won: 'win',
+                wrote: 'write', written: 'write', bought: 'buy', brought: 'bring',
+                caught: 'catch', chose: 'choose', chosen: 'choose', came: 'come',
+                drank: 'drink', drunk: 'drink', drove: 'drive', driven: 'drive',
+                ate: 'eat', eaten: 'eat', fell: 'fall', fallen: 'fall',
+                flew: 'fly', flown: 'fly', forgot: 'forget', forgotten: 'forget',
+                froze: 'freeze', frozen: 'freeze', grew: 'grow', grown: 'grow',
+                hid: 'hide', hidden: 'hide', laid: 'lay', led: 'lead', lent: 'lend',
+                lit: 'light', rode: 'ride', ridden: 'ride', rose: 'rise', risen: 'rise',
+                sold: 'sell', sent: 'send', shook: 'shake', shaken: 'shake',
+                shot: 'shoot', shut: 'shut', sank: 'sink', sunk: 'sink',
+                stole: 'steal', stolen: 'steal', swam: 'swim', swum: 'swim',
+                swept: 'sweep', tore: 'tear', torn: 'tear', woke: 'wake', woken: 'wake',
+                drew: 'draw', drawn: 'draw', dealt: 'deal', dug: 'dig', fed: 'feed',
+                fought: 'fight', fled: 'flee', flung: 'fling', hung: 'hang',
+                meant: 'mean', rang: 'ring', rung: 'ring', sought: 'seek',
+                stuck: 'stick', struck: 'strike', swore: 'swear', sworn: 'swear',
+                wept: 'weep', began: 'begin', begun: 'begin', bent: 'bend',
+                bit: 'bite', bitten: 'bite', bled: 'bleed', blew: 'blow', blown: 'blow',
+                broke: 'break', broken: 'break', bred: 'breed', built: 'build',
+                burst: 'burst', cast: 'cast', crept: 'creep', cut: 'cut',
+                dove: 'dive', dreamt: 'dream', dwelt: 'dwell', knelt: 'kneel',
+                leapt: 'leap', learnt: 'learn', mistook: 'mistake', mistaken: 'mistake',
+                overcame: 'overcome', quit: 'quit', read: 'read', rid: 'rid',
+                sewn: 'sew', shed: 'shed', shone: 'shine', shrank: 'shrink', shrunk: 'shrink',
+                slid: 'slide', spilt: 'spill', spun: 'spin', spat: 'spit', split: 'split',
+                spread: 'spread', sprang: 'spring', sprung: 'spring', stung: 'sting',
+                stank: 'stink', stunk: 'stink', strode: 'stride', swung: 'swing',
+                thrust: 'thrust', trod: 'tread', wove: 'weave', woven: 'weave',
+                withdrew: 'withdraw', withdrawn: 'withdraw', wrung: 'wring',
+                lying: 'lie', dying: 'die',
+                better: 'good', best: 'good', worse: 'bad', worst: 'bad'
+            };
+
+            // 特殊缩写 -> 原形
+            const CONTRACTION_LEMMAS = {
+                "can't": 'can', "won't": 'will', "shan't": 'shall', "ain't": 'be',
+                "don't": 'do', "doesn't": 'do', "didn't": 'do',
+                "isn't": 'be', "aren't": 'be', "wasn't": 'be', "weren't": 'be',
+                "haven't": 'have', "hasn't": 'have', "hadn't": 'have',
+                "wouldn't": 'will', "couldn't": 'can', "shouldn't": 'should', "mustn't": 'must'
+            };
+
+            const CLITIC_RULES = [
+                [/['’]s$/, ''], [/s'$/, 's'], [/n't$/, ''],
+                [/['’](re|ve|ll|d|m)$/, '']
+            ];
+
             class NovelProcessor {
                 constructor() {
                     this.wordFrequency = new Map();
-                    this.difficultyLevels = {
-                        1: { name: '初级', freqRange: [1000, Infinity] },
-                        2: { name: '中级', freqRange: [500, 999] },
-                        3: { name: '高级', freqRange: [200, 499] },
-                        4: { name: '专业', freqRange: [50, 199] },
-                        5: { name: '学术', freqRange: [0, 49] }
-                    };
                     this.dictionaryCache = new Map();
                     this.abortController = null;
+                    this._freqRankMap = null;
+                    this._variants = new Map();
+                    this._lemmaCache = new Map();
                 }
 
                 abort() {
@@ -49,60 +109,173 @@
                     }
                 }
 
+                // 词频排名（1 = 最高频）；不在词频表内返回 0
+                frequencyRank(word) {
+                    if (!this._freqRankMap) {
+                        this._freqRankMap = new Map();
+                        const list = (typeof window !== 'undefined' && Array.isArray(window.WORD_FREQ))
+                            ? window.WORD_FREQ : [];
+                        list.forEach((w, i) => this._freqRankMap.set(w, i + 1));
+                    }
+                    return this._freqRankMap.get(word) || 0;
+                }
+
+                // 提取词元（保留大小写信息用于专有名词判断），剥离 HTML 标签
+                tokenize(text) {
+                    const stripped = String(text || '').replace(/<[^>]*>/g, ' ');
+                    return stripped.match(/[A-Za-z]+(?:['’][A-Za-z]+)*/g) || [];
+                }
+
+                lemmatize(word, lexicon) {
+                    if (!word) return word;
+                    if (this._lemmaCache.has(word)) return this._lemmaCache.get(word);
+                    const result = this._lemmatizeUncached(word, lexicon);
+                    this._lemmaCache.set(word, result);
+                    return result;
+                }
+
+                _lemmatizeUncached(word, lexicon) {
+                    if (CONTRACTION_LEMMAS[word]) return CONTRACTION_LEMMAS[word];
+                    if (IRREGULAR_LEMMAS[word]) return IRREGULAR_LEMMAS[word];
+                    const has = (c) => c && c.length >= 2 && c !== word && lexicon.has(c);
+                    const candidates = [];
+                    const add = (c) => { if (c && c !== word && !candidates.includes(c)) candidates.push(c); };
+                    for (const [re, rep] of CLITIC_RULES) {
+                        if (re.test(word)) add(word.replace(re, rep));
+                    }
+                    if (/ies$/.test(word) && word.length > 4) add(word.slice(0, -3) + 'y');
+                    if (/s$/.test(word) && !/ss$/.test(word) && word.length > 3) add(word.slice(0, -1));
+                    if (/(?:xes|ses|zes|ches|shes|oes)$/.test(word)) add(word.slice(0, -2));
+                    if (/ves$/.test(word) && word.length > 4) {
+                        add(word.slice(0, -3) + 'f');
+                        add(word.slice(0, -3) + 'fe');
+                    }
+                    if (/ied$/.test(word) && word.length > 4) add(word.slice(0, -3) + 'y');
+                    if (/ing$/.test(word) && word.length > 4) {
+                        const stem = word.slice(0, -3);
+                        add(stem);
+                        if (stem.length >= 3) {
+                            add(stem + 'e');
+                            add(this._undouble(stem));
+                        }
+                    }
+                    if (/ed$/.test(word) && word.length > 4) {
+                        const stem = word.slice(0, -2);
+                        add(stem);
+                        if (stem.length >= 3) {
+                            add(stem + 'e');
+                            add(this._undouble(stem));
+                        }
+                    }
+                    for (const c of candidates) {
+                        if (has(c)) return c;
+                    }
+                    return word;
+                }
+
+                // 双写辅音去重（running: runn -> run），仅用于规则变形的候选
+                _undouble(stem) {
+                    if (stem.length >= 4 && /([bcdfgklmnprtvz])\1$/.test(stem)) {
+                        return stem.slice(0, -1);
+                    }
+                    return null;
+                }
+
                 async processNovel(text, options = {}) {
-                    const { excludeCommon = true, minFrequency = 3, autoDifficulty = true } = options;
+                    const {
+                        minFrequency = 3,
+                        skipRank = 0,
+                        allowedWords = null,
+                        excludeProperNouns = true
+                    } = options;
                     console.log('开始处理小说文本...');
-                    const cleanedText = this.cleanText(text);
-                    const words = this.extractWords(cleanedText);
-                    console.log(`提取到 ${words.length} 个单词`);
-                    this.calculateFrequency(words);
-                    let filteredWords = this.filterWords(words, { excludeCommon, minFrequency });
-                    console.log(`过滤后剩余 ${filteredWords.length} 个单词`);
-                    const uniqueWords = [...new Set(filteredWords)];
-                    console.log(`去重后剩余 ${uniqueWords.length} 个单词`);
+                    const stripped = String(text || '').replace(/<[^>]*>/g, ' ');
+                    const tokenRegex = /[A-Za-z]+(?:['’][A-Za-z]+)*/g;
+                    const tokens = [];
+                    const tokenStarts = [];
+                    let tokenMatch;
+                    while ((tokenMatch = tokenRegex.exec(stripped)) !== null) {
+                        tokens.push(tokenMatch[0]);
+                        tokenStarts.push(tokenMatch.index);
+                    }
+                    console.log(`提取到 ${tokens.length} 个词元`);
+                    this._lemmaCache.clear();
+                    this._variants.clear();
+                    this.wordFrequency.clear();
+
+                    const surfaceCounts = new Map();
+                    for (const token of tokens) {
+                        const surface = token.replace(/’/g, "'").toLowerCase();
+                        surfaceCounts.set(surface, (surfaceCounts.get(surface) || 0) + 1);
+                    }
+                    // 词形还原的词典校验集：文中所有词形 + 词频表 + 限定词表
+                    const lexicon = new Set(surfaceCounts.keys());
+                    const freqList = (typeof window !== 'undefined' && Array.isArray(window.WORD_FREQ))
+                        ? window.WORD_FREQ : [];
+                    for (const w of freqList) lexicon.add(w);
+                    if (allowedWords) for (const w of allowedWords) lexicon.add(w);
+
+                    const lemmaStats = new Map();
+                    let prevEnd = 0;
+                    tokens.forEach((token, index) => {
+                        const start = tokenStarts[index];
+                        const sentenceInitial = prevEnd === 0 || /[.!?…]/.test(stripped.slice(prevEnd, start));
+                        prevEnd = start + token.length;
+                        const raw = token.replace(/’/g, "'");
+                        const surface = raw.toLowerCase();
+                        const lemma = this.lemmatize(surface, lexicon);
+                        let stat = lemmaStats.get(lemma);
+                        if (!stat) {
+                            stat = { count: 0, lower: 0, capMid: 0, first: index, variants: new Set() };
+                            lemmaStats.set(lemma, stat);
+                        }
+                        stat.count++;
+                        stat.variants.add(surface);
+                        if (/^[a-z]/.test(raw)) stat.lower++;
+                        else if (!sentenceInitial) stat.capMid++;
+                    });
+                    console.log(`合并词形后得到 ${lemmaStats.size} 个原形`);
+
+                    const wordList = [];
+                    for (const [lemma, stat] of lemmaStats) {
+                        if (stat.count < minFrequency) continue;
+                        if (COMMON_WORDS.has(lemma) && !(allowedWords && allowedWords.has(lemma))) continue;
+                        if (lemma.length < 3 || lemma.length > 20) continue;
+                        if (allowedWords && !allowedWords.has(lemma)) continue;
+                        if (skipRank > 0 && !(allowedWords && allowedWords.has(lemma))) {
+                            const rank = this.frequencyRank(lemma);
+                            if (rank > 0 && rank <= skipRank) continue;
+                        }
+                        if (excludeProperNouns && stat.capMid > 0 && stat.lower === 0 && !(allowedWords && allowedWords.has(lemma))) continue;
+                        wordList.push(lemma);
+                    }
+                    wordList.sort((a, b) => lemmaStats.get(b).count - lemmaStats.get(a).count
+                        || (a < b ? -1 : a > b ? 1 : 0));
+                    for (const lemma of wordList) {
+                        const stat = lemmaStats.get(lemma);
+                        this.wordFrequency.set(lemma, stat.count);
+                        this._variants.set(lemma, stat.variants);
+                    }
+                    console.log(`过滤后剩余 ${wordList.length} 个待学单词`);
                     return {
-                        totalWords: words.length,
-                        uniqueWords: uniqueWords.length,
-                        wordList: uniqueWords,
+                        totalWords: tokens.length,
+                        uniqueWords: lemmaStats.size,
+                        wordList,
                         frequencyMap: this.wordFrequency,
-                        difficultyDistribution: this.getDifficultyDistribution(uniqueWords)
+                        difficultyDistribution: this.getDifficultyDistribution(wordList)
                     };
                 }
 
-                cleanText(text) {
-                    return text
-                        .toLowerCase()
-                        .replace(/[^\w\s']/g, ' ')
-                        .replace(/\s+/g, ' ')
-                        .trim();
-                }
-
-                extractWords(text) {
-                    return text.split(' ')
-                        .map(word => word.replace(/^'|'$/g, ''))
-                        .filter(word => word.length > 1)
-                        .filter(word => !/^\d+$/.test(word));
-                }
-
-                calculateFrequency(words) {
-                    this.wordFrequency.clear();
-                    words.forEach(word => {
-                        this.wordFrequency.set(word, (this.wordFrequency.get(word) || 0) + 1);
-                    });
-                }
-
-                filterWords(words, options) {
-                    const { excludeCommon, minFrequency } = options;
-                    return words.filter(word => {
-                        const frequency = this.wordFrequency.get(word);
-                        if (frequency < minFrequency) return false;
-                        if (excludeCommon && COMMON_WORDS.has(word)) return false;
-                        if (word.length < 3 || word.length > 20) return false;
-                        return true;
-                    });
-                }
-
                 assignDifficulty(word) {
+                    const rank = this.frequencyRank(word);
+                    if (rank > 0) {
+                        if (rank <= 2000) return 1;
+                        if (rank <= 4000) return 2;
+                        if (rank <= 6000) return 3;
+                        if (rank <= 9000) return 4;
+                        return 5;
+                    }
+                    // 词频表之外的生僻词：沿用启发式评分
                     const frequency = this.wordFrequency.get(word) || 0;
                     const length = word.length;
                     const lowerWord = word.toLowerCase();
@@ -162,34 +335,78 @@
                     if (this.dictionaryCache.has(word)) {
                         return this.dictionaryCache.get(word);
                     }
+                    // 1) 主源：Free Dictionary API
+                    const freeResult = await this._fetchFreeDict(word);
+                    if (freeResult) {
+                        this.dictionaryCache.set(word, freeResult);
+                        return freeResult;
+                    }
+                    // 2) 备用源：Wiktionary（主源失败/未收录时自动切换）
+                    const wikResult = await this._fetchWiktionary(word);
+                    if (wikResult) {
+                        this.dictionaryCache.set(word, wikResult);
+                        return wikResult;
+                    }
+                    // 3) 两源均明确未收录 → 缓存“未找到”；网络/超时错误不缓存以便重试
+                    if (freeResult === false && wikResult === false) {
+                        const fallbackData = this.getFallbackData(word);
+                        this.dictionaryCache.set(word, fallbackData);
+                        return fallbackData;
+                    }
+                    return this.getFallbackData(word);
+                }
+
+                // 主源：Free Dictionary API。返回 解析对象 / null（网络错误、超时，可重试）/ false（明确 404）
+                async _fetchFreeDict(word) {
                     this.abortController = new AbortController();
+                    let timedOut = false;
+                    const timeoutId = setTimeout(() => {
+                        timedOut = true;
+                        console.log(`获取单词"${word}"超时，已中止请求`);
+                        this.abortController.abort();
+                    }, 10000);
                     try {
                         const response = await fetch(
                             `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
                             { signal: this.abortController.signal }
                         );
-                        if (!response.ok) {
-                            if (response.status === 404) {
-                                console.log(`单词 "${word}" 在词典中未找到`);
-                                const fallbackData = this.getFallbackData(word);
-                                this.dictionaryCache.set(word, fallbackData);
-                                return fallbackData;
-                            }
-                            throw new Error(`API响应错误: ${response.status}`);
-                        }
+                        if (response.status === 404) return false;
+                        if (!response.ok) throw new Error(`API响应错误: ${response.status}`);
                         const data = await response.json();
-                        const parsedData = this.parseDictionaryResponse(data, word);
-                        this.dictionaryCache.set(word, parsedData);
-                        return parsedData;
+                        if (!Array.isArray(data) || data.length === 0) return false;
+                        return this.parseDictionaryResponse(data, word);
                     } catch (error) {
-                        if (error.name === 'AbortError') {
+                        if (error.name === 'AbortError' && !timedOut) {
                             console.log(`获取单词"${word}"被取消`);
                             throw error;
                         }
-                        console.warn(`获取单词"${word}"的词典数据失败:`, error);
-                        const fallbackData = this.getFallbackData(word);
-                        this.dictionaryCache.set(word, fallbackData);
-                        return fallbackData;
+                        console.warn(`Free Dictionary 获取"${word}"失败:`, timedOut ? '请求超时' : error);
+                        return null;
+                    } finally {
+                        clearTimeout(timeoutId);
+                    }
+                }
+
+                // 备用源：Wiktionary。返回 解析对象 / null（可重试）/ false（明确未收录）
+                async _fetchWiktionary(word) {
+                    if (!(typeof window !== 'undefined' && window.wiktionaryAPI)) return null;
+                    try {
+                        const wik = await window.wiktionaryAPI.query(word, {
+                            signal: this.abortController ? this.abortController.signal : undefined
+                        });
+                        if (!wik) return wik === false ? false : null;
+                        return {
+                            meaning: wik.meaning,
+                            phonetic: wik.phonetic || `/${this.generatePhoneticFallback(word)}/`,
+                            examples: wik.example ? [wik.example] : [],
+                            audioUrl: wik.audioUrl || '',
+                            allMeanings: wik.allMeanings,
+                            rawApiData: null
+                        };
+                    } catch (error) {
+                        if (error.name === 'AbortError') throw error;
+                        console.warn(`Wiktionary 获取"${word}"失败:`, error);
+                        return null;
                     }
                 }
 
@@ -319,13 +536,22 @@
                     return results;
                 }
 
+                // 从原文中截取包含该单词（或其变形）的上下文
                 extractSentence(word, text) {
-                    const lowerWord = word.toLowerCase();
-                    const lowerText = text.toLowerCase();
-                    const idx = lowerText.indexOf(lowerWord);
-                    if (idx < 0) return '';
+                    if (!text || !word) return '';
+                    const variants = this._variants.get(word);
+                    const candidates = variants && variants.size > 0
+                        ? [word, ...variants]
+                        : [word];
+                    const escaped = candidates
+                        .map(v => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                        .sort((a, b) => b.length - a.length);
+                    const re = new RegExp(`\\b(${escaped.join('|')})\\b`, 'i');
+                    const match = re.exec(text);
+                    if (!match) return '';
+                    const idx = match.index;
                     const start = Math.max(0, idx - 60);
-                    const end = Math.min(text.length, idx + word.length + 60);
+                    const end = Math.min(text.length, idx + match[0].length + 60);
                     let sentence = text.slice(start, end);
                     if (start > 0) sentence = '...' + sentence;
                     if (end < text.length) sentence = sentence + '...';

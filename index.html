@@ -13,6 +13,9 @@
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     
     <!-- Font Awesome 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -271,10 +274,6 @@
                     <h3>处理选项</h3>
                     <div class="option-group">
                         <label>
-                            <input type="checkbox" id="excludeCommon" checked>
-                            排除常见简单单词
-                        </label>
-                        <label>
                             <input type="checkbox" id="autoDifficulty" checked>
                             自动难度分级
                         </label>
@@ -284,6 +283,24 @@
                         </label>
                     </div>
                     
+                    <div class="slider-group">
+                        <label for="skipRank">跳过常用词：</label>
+                        <select id="skipRank" aria-label="跳过常用词">
+                            <option value="0">不跳过</option>
+                            <option value="2000">跳过最常用 2000 词</option>
+                            <option value="3500" selected>跳过最常用 3500 词</option>
+                            <option value="5000">跳过最常用 5000 词</option>
+                            <option value="8000">跳过最常用 8000 词</option>
+                        </select>
+                    </div>
+
+                    <div class="slider-group">
+                        <label for="vocabFilter">仅保留词表：</label>
+                        <select id="vocabFilter" aria-label="仅保留词表">
+                            <option value="">全部单词</option>
+                        </select>
+                    </div>
+
                     <div class="slider-group">
                         <label>最低词频：<span id="minFreqValue">3</span></label>
                         <input type="range" id="minFrequency" min="1" max="10" value="3" aria-label="最低词频">
@@ -715,6 +732,9 @@
     <!-- ========== 外部脚本 ========== -->
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+    <script src="js/fsrs.js"></script>
+    <script src="js/word-freq.js"></script>
+    <script src="js/wiktionary.js"></script>
     <script src="js/db.js"></script>
     <script src="js/novel-processor.js"></script>
     <script src="js/tts-generator.js"></script>

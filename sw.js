@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v33';  // 每次更新时递增
+const CACHE_VERSION = 'v37';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
@@ -12,11 +12,20 @@ const STATIC_ASSETS = [
     `${CURRENT_PATH}/`,           // /kmword/
     `${CURRENT_PATH}/index.html`, // /kmword/index.html
     `${CURRENT_PATH}/styles.css`,
+    `${CURRENT_PATH}/js/fsrs.js`,
+    `${CURRENT_PATH}/js/word-freq.js`,
+    `${CURRENT_PATH}/js/wiktionary.js`,
     `${CURRENT_PATH}/js/db.js`,
     `${CURRENT_PATH}/js/novel-processor.js`,
     `${CURRENT_PATH}/js/tts-generator.js`,
     `${CURRENT_PATH}/js/app.js`,
     `${CURRENT_PATH}/manifest.json`,
+    `${CURRENT_PATH}/icons/icon.svg`,
+    `${CURRENT_PATH}/icons/icon-192.png`,
+    `${CURRENT_PATH}/icons/icon-512.png`,
+    `${CURRENT_PATH}/icons/icon-maskable-512.png`,
+    `${CURRENT_PATH}/icons/apple-touch-icon.png`,
+    `${CURRENT_PATH}/icons/favicon-32.png`,
     // CDN 资源可以保留
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
     'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js',
@@ -80,7 +89,7 @@ self.addEventListener('fetch', (event) => {
     const url = new URL(request.url);
 
     // API 请求使用网络优先策略（在 scope filter 之前，因为 API 是跨域）
-    const apiHosts = ['api.dictionaryapi.dev', 'www.dictionaryapi.com'];
+    const apiHosts = ['api.dictionaryapi.dev', 'www.dictionaryapi.com', 'en.wiktionary.org'];
     if (apiHosts.includes(url.hostname)) {
         event.respondWith(
             fetch(request)

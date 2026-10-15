@@ -81,29 +81,66 @@
 					this.dictionaryAPI = {
 						baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
 						cache: new Map(),
-						async fetchWordData(word) {
-							const cacheKey = (word || '').toLowerCase().trim();
-							if (!cacheKey) return this.getFallbackData(word);
-							if (this.cache.has(cacheKey)) { return this.cache.get(cacheKey); }
-							try {
-								console.log(`正在获取单词"${word}"的数据...`);
-								const response = await fetch(`${this.baseUrl}/${encodeURIComponent(word)}`);
-								if (!response.ok) {
-									if (response.status === 404) {
-										return this.getFallbackData(word);
-									}
-									throw new Error(`API请求失败: ${response.status}`);
-								}
-								const data = await response.json();
-								console.log(`单词"${word}"数据获取成功`);
-								const parsedData = this.parseApiData(data, word);
-								this.cache.set(cacheKey, parsedData);
-								return parsedData;
-							} catch (error) {
-								console.error(`获取单词"${word}"数据失败:`, error);
-								return this.getFallbackData(word);
-							}
-						},
+					async fetchWordData(word) {
+						const cacheKey = (word || '').toLowerCase().trim();
+						if (!cacheKey) return this.getFallbackData(word);
+						if (this.cache.has(cacheKey)) { return this.cache.get(cacheKey); }
+						const freeResult = await this._fetchFromFreeDict(word);
+						if (freeResult) {
+							this.cache.set(cacheKey, freeResult);
+							return freeResult;
+						}
+						const wikResult = await this._fetchFromWiktionary(word);
+						if (wikResult) {
+							this.cache.set(cacheKey, wikResult);
+							return wikResult;
+						}
+						// 仅当两个源都明确未收录时才缓存兜底；网络/超时错误不缓存，便于重试
+						const fallback = this.getFallbackData(word);
+						if (freeResult === false && wikResult === false) {
+							this.cache.set(cacheKey, fallback);
+						}
+						return fallback;
+					},
+					async _fetchFromFreeDict(word) {
+						const controller = new AbortController();
+						const timer = setTimeout(() => controller.abort(), 10000);
+						try {
+							console.log(`正在获取单词"${word}"的数据...`);
+							const response = await fetch(`${this.baseUrl}/${encodeURIComponent(word)}`, { signal: controller.signal });
+							if (response.status === 404) return false;
+							if (!response.ok) throw new Error(`API请求失败: ${response.status}`);
+							const data = await response.json();
+							if (!Array.isArray(data) || data.length === 0) return false;
+							console.log(`单词"${word}"数据获取成功（Free Dictionary）`);
+							return this.parseApiData(data, word);
+						} catch (error) {
+							console.error(`Free Dictionary 获取"${word}"失败:`, error);
+							return null;
+						} finally {
+							clearTimeout(timer);
+						}
+					},
+					async _fetchFromWiktionary(word) {
+						if (typeof window === 'undefined' || !window.wiktionaryAPI) return null;
+						try {
+							const wik = await window.wiktionaryAPI.query(word);
+							if (!wik) return wik === false ? false : null;
+							console.log(`单词"${word}"数据获取成功（Wiktionary 备用源）`);
+							return {
+								word: word,
+								phonetic: wik.phonetic || `/${this.generatePhoneticFallback(word)}/`,
+								meaning: wik.meaning,
+								example: wik.example || '',
+								allMeanings: wik.allMeanings,
+								audioUrl: wik.audioUrl || '',
+								rawData: { source: 'wiktionary' }
+							};
+						} catch (error) {
+							console.error(`Wiktionary 获取"${word}"失败:`, error);
+							return null;
+						}
+					},
 						parseApiData(apiData, originalWord) {
 							if (!apiData || !Array.isArray(apiData) || apiData.length === 0) {
 								return this.getFallbackData(originalWord);
@@ -1207,6 +1244,9 @@
                             case 'reader':
                                 await this.loadReader();
                                 break;
+                            case 'novel':
+                                await this.populateVocabFilterSelect();
+                                break;
                             case 'listening':
                                 await this.loadListeningList();
                                 break;
@@ -1365,8 +1405,8 @@
                     // 让释义/例句/词典详情里的所有英文单词可点击查词
                     this.makeClickable(document.getElementById('wordDetails'));
                     this.applyLearningModeLayout();
-                    // SM-2 信息展示
-                    this.renderSM2Info(wordData.id);
+                    // 记忆状态（FSRS）信息展示
+                    this.renderSrsInfo(wordData.id);
                     // 上下文展示（来自小说原文）
                     const contextEl = document.getElementById('wordContext');
                     if (contextEl && wordData.context) {
@@ -1418,7 +1458,7 @@
                     }
                 }
 
-                async renderSM2Info(wordId) {
+                async renderSrsInfo(wordId) {
                     const el = document.getElementById('sm2Info');
                     if (!el) return;
                     try {
@@ -1429,24 +1469,32 @@
                         const daysSinceReview = progress.lastReview
                             ? Math.ceil((new Date() - new Date(progress.lastReview)) / (1000 * 60 * 60 * 24))
                             : '-';
-                        const nextReviewDays = progress.nextReview
-                            ? Math.ceil((new Date(progress.nextReview) - new Date()) / (1000 * 60 * 60 * 24))
-                            : '-';
+                        const nextMs = progress.nextReview ? new Date(progress.nextReview) - new Date() : null;
+                        const nextReviewText = nextMs === null
+                            ? '-'
+                            : nextMs < 86400000 ? '今天' : Math.round(nextMs / 86400000) + '天后';
+                        const retrievability = await this.db.getCardRetrievability(progress);
+                        const reps = progress.reps != null ? progress.reps : (progress.repetition || 0);
+                        const scheduledDays = progress.scheduled_days != null
+                            ? progress.scheduled_days
+                            : (progress.interval || 0);
                         el.innerHTML = `
                             <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
                                 <span title="熟悉度">📊 ${'★'.repeat(progress.familiarity || 0)}${'☆'.repeat(5 - (progress.familiarity || 0))}</span>
-                                <span title="重复次数">🔄 ${progress.repetition || 0}次</span>
-                                <span title="间隔天数">📅 ${progress.interval || 0}天</span>
-                                <span title="难度因子">⚡ ${(progress.easeFactor || 0).toFixed(2)}</span>
+                                <span title="复习次数">🔄 ${reps}次</span>
+                                <span title="间隔天数">📅 ${scheduledDays}天</span>
+                                <span title="记忆稳定性（天）">🧠 ${progress.stability != null ? progress.stability.toFixed(1) + '天' : '-'}</span>
+                                <span title="难度（1-10）">⚡ ${progress.difficulty != null ? progress.difficulty.toFixed(1) : '-'}</span>
+                                <span title="当前记忆保持率">💧 ${retrievability != null ? Math.round(retrievability * 100) + '%' : '-'}</span>
                                 <span title="上次复习">📝 ${daysSinceReview === '-' ? '-' : daysSinceReview + '天前'}</span>
-                                <span title="下次复习">⏰ ${nextReviewDays === '-' ? '-' : nextReviewDays <= 0 ? '今天' : nextReviewDays + '天后'}</span>
+                                <span title="下次复习">⏰ ${nextReviewText}</span>
                                 <span title="错误次数">❌ ${word.errorCount || 0}次</span>
                                 <span title="总复习次数">📖 ${progress.totalReviews || 0}次</span>
                             </div>
                         `;
                         el.style.display = 'block';
                     } catch (e) {
-                        console.warn('SM-2 信息加载失败:', e);
+                        console.warn('记忆状态信息加载失败:', e);
                         el.style.display = 'none';
                     }
                 }
@@ -1459,6 +1507,7 @@
 				// ===== 修改：Free Dict 渲染 =====
 				renderDictDetails(wordData, containerEl) {
 					if (!containerEl) return;
+					const esc = (s) => this.escapeHtml(s == null ? '' : String(s));
 					if (wordData.allMeanings && wordData.allMeanings.length > 0) {
 						const total = wordData.allMeanings.length;
 						const showAll = total <= 3;
@@ -1466,14 +1515,14 @@
 						let html = '<div class="dictionary-details">';
 						wordData.allMeanings.slice(0, visibleCount).forEach((meaning) => {
 							html += `<div class="meaning-item" style="margin-bottom: 15px;">`;
-							if (meaning.partOfSpeech) html += `<div class="part-of-speech">${meaning.partOfSpeech}</div>`;
-							if (meaning.definition) html += `<div class="definition">${meaning.definition}</div>`;
-							if (meaning.example) html += `<div class="example"><em>例句:</em> ${meaning.example}</div>`;
+							if (meaning.partOfSpeech) html += `<div class="part-of-speech">${esc(meaning.partOfSpeech)}</div>`;
+							if (meaning.definition) html += `<div class="definition">${esc(meaning.definition)}</div>`;
+							if (meaning.example) html += `<div class="example"><em>例句:</em> ${esc(meaning.example)}</div>`;
 							if (meaning.synonyms && meaning.synonyms.length > 0) {
 								html += `<div style="margin-top: 6px; font-size: 0.9rem;">`;
 								html += `<span style="color: var(--gray-color); font-weight: 500;">同义词：</span>`;
 								meaning.synonyms.forEach(syn => {
-									html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${syn}">${syn}</span>`;
+									html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${esc(syn)}">${esc(syn)}</span>`;
 								});
 								html += `</div>`;
 							}
@@ -1481,7 +1530,7 @@
 								html += `<div style="margin-top: 4px; font-size: 0.9rem;">`;
 								html += `<span style="color: var(--gray-color); font-weight: 500;">反义词：</span>`;
 								meaning.antonyms.forEach(ant => {
-									html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${ant}">${ant}</span>`;
+									html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${esc(ant)}">${esc(ant)}</span>`;
 								});
 								html += `</div>`;
 							}
@@ -1490,7 +1539,7 @@
 						if (!showAll) {
 							const remaining = total - 3;
 							html += `<div style="text-align:center;margin-top:8px;">
-								<button class="action-btn small expand-meanings-btn" data-meanings='${JSON.stringify(wordData.allMeanings.slice(3))}'>
+								<button class="action-btn small expand-meanings-btn" data-meanings='${encodeURIComponent(JSON.stringify(wordData.allMeanings.slice(3)))}'>
 									展开全部${remaining}个释义 ↓
 								</button>
 							</div>`;
@@ -1499,14 +1548,15 @@
 						containerEl.innerHTML = html;
 						const expandBtn = containerEl.querySelector('.expand-meanings-btn');
 						if (expandBtn) {
+							const self = this;
 							expandBtn.addEventListener('click', function() {
-								const meanings = JSON.parse(this.dataset.meanings);
+								const meanings = JSON.parse(decodeURIComponent(this.dataset.meanings));
 								let allHtml = '';
 								meanings.forEach(m => {
 									allHtml += '<div class="meaning-item" style="margin-bottom: 15px;">';
-									if (m.partOfSpeech) allHtml += '<div class="part-of-speech">' + m.partOfSpeech + '</div>';
-									if (m.definition) allHtml += '<div class="definition">' + m.definition + '</div>';
-									if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + m.example + '</div>';
+									if (m.partOfSpeech) allHtml += '<div class="part-of-speech">' + self.escapeHtml(m.partOfSpeech) + '</div>';
+									if (m.definition) allHtml += '<div class="definition">' + self.escapeHtml(m.definition) + '</div>';
+									if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + self.escapeHtml(m.example) + '</div>';
 									allHtml += '</div>';
 								});
 								this.closest('.dictionary-details').insertAdjacentHTML('beforeend', allHtml);
@@ -1524,11 +1574,12 @@
                     const wordData = this.learningWords[this.currentWordIndex];
                     console.log(`处理答案: ${wordData.word} - ${correct ? '认识' : '不认识'}`);
                     try {
-                        await this.db.updateProgress(wordData.id, correct);
+                        const progressData = await this.db.updateProgress(wordData.id, correct);
                         await this.db.addLearningHistory(wordData.id, correct);
                         if (correct) {
                             await this.db.updateStreak();
                         }
+                        this.maybeRequeueLearningCard(wordData, progressData);
                         this.playAnswerSound(correct);
                         if (correct) {
                             this.showNotification('✓ 很好！继续加油', 'success');
@@ -1560,6 +1611,19 @@
                         this.showNotification('处理失败，请重试', 'error');
                         this.isProcessing = false;
                     }
+                }
+
+                // FSRS 学习/重学阶段的卡片在本次会话末尾重现（同 Anki 的 learning steps），每词最多补排 2 次
+                maybeRequeueLearningCard(wordData, progressData) {
+                    if (!progressData || !window.FSRS || !wordData) return;
+                    const state = progressData.state;
+                    if (state !== window.FSRS.State.Learning && state !== window.FSRS.State.Relearning) return;
+                    const requeues = wordData._sessionRequeues || 0;
+                    if (requeues >= 2) return;
+                    wordData._sessionRequeues = requeues + 1;
+                    this.learningWords.push(wordData);
+                    const totalToLearn = document.getElementById('totalToLearn');
+                    if (totalToLearn) totalToLearn.textContent = this.learningWords.length;
                 }
 
                 async completeLearningSession() {
@@ -1850,6 +1914,23 @@
                     }
                 }
 
+                async populateVocabFilterSelect() {
+                    const select = document.getElementById('vocabFilter');
+                    if (!select) return;
+                    try {
+                        const lists = await this.db.getWordLists();
+                        const current = select.value;
+                        select.innerHTML = '<option value="">全部单词</option>' + lists
+                            .map(l => `<option value="${l.id}">${l.name} (${l.wordCount || 0})</option>`)
+                            .join('');
+                        if (current && Array.from(select.options).some(o => o.value === current)) {
+                            select.value = current;
+                        }
+                    } catch (error) {
+                        console.error('加载词表列表失败:', error);
+                    }
+                }
+
                 async processNovelFile() {
                     if (!this.novelFileContent) {
                         this.showNotification('请先选择文件', 'error');
@@ -1860,10 +1941,26 @@
                     try {
                         this.showLoader('正在分析小说内容...');
                         const options = {
-                            excludeCommon: document.getElementById('excludeCommon')?.checked ?? true,
                             minFrequency: parseInt(document.getElementById('minFrequency')?.value || '3'),
+                            skipRank: parseInt(document.getElementById('skipRank')?.value || '0'),
                             autoDifficulty: document.getElementById('autoDifficulty')?.checked ?? true
                         };
+                        const filterListId = document.getElementById('vocabFilter')?.value;
+                        if (filterListId) {
+                            this.showLoader('正在读取词表...');
+                            const listWords = await this.db.getWordsByList(parseInt(filterListId));
+                            options.allowedWords = new Set(
+                                listWords.map(w => (w.word || '').toLowerCase().trim()).filter(Boolean)
+                            );
+                            if (options.allowedWords.size === 0) {
+                                this.hideLoader();
+                                this.isProcessing = false;
+                                this.showNotification('所选词表为空，请先导入单词或更换词表', 'error');
+                                return;
+                            }
+                            console.log(`词表过滤启用：${options.allowedWords.size} 个单词`);
+                        }
+                        this.showLoader('正在分析小说内容...');
                         const result = await this.novelProcessor.processNovel(
                             this.novelFileContent, 
                             options
@@ -3370,13 +3467,13 @@
                                 for (const progress of batch) {
                                     const newId = wordIdMap[progress.wordId];
                                     if (newId) {
-                                        store.put({
-                                            wordId: newId,
-                                            familiarity: progress.familiarity || 0,
-                                            nextReview: progress.nextReview || new Date().toISOString(),
-                                            lastReview: progress.lastReview || new Date().toISOString(),
-                                            totalReviews: progress.totalReviews || 0
-                                        });
+                                        const record = { ...progress, wordId: newId };
+                                        delete record.id;
+                                        if (!record.nextReview) record.nextReview = new Date().toISOString();
+                                        if (!record.lastReview) record.lastReview = record.nextReview;
+                                        if (record.familiarity == null) record.familiarity = 0;
+                                        if (record.totalReviews == null) record.totalReviews = 0;
+                                        store.put(record);
                                     }
                                 }
                                 await new Promise((resolve, reject) => {
@@ -4045,8 +4142,8 @@
                         this.renderDictDetails(data, freeDictEl);
                         // 顶部补一行音标 + 释义摘要，便于没展开 details 也能看到
                         const summary = [];
-                        if (data.phonetic) summary.push(`<span style="color:var(--gray-color);">${data.phonetic}</span>`);
-                        if (data.meaning) summary.push(`<div style="margin-top:6px;">${data.meaning}</div>`);
+                        if (data.phonetic) summary.push(`<span style="color:var(--gray-color);">${this.escapeHtml(data.phonetic)}</span>`);
+                        if (data.meaning) summary.push(`<div style="margin-top:6px;">${this.escapeHtml(data.meaning)}</div>`);
                         if (summary.length && freeDictEl) {
                             freeDictEl.insertAdjacentHTML('afterbegin', `<div style="margin-bottom:8px;">${summary.join(' ')}</div>`);
                         }
