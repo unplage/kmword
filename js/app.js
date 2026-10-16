@@ -14,7 +14,7 @@
                     this.voices = [];
                     this.searchDebounceTimer = null;
                     this.isProcessing = false;
-                    this.isStudyingNewWords = false;
+                    this.isStudyingPreparedSession = false;
                     this.learningMode = 'recognition'; // 'recognition' | 'spelling'
                     this.spellingLocked = false;        // 提交后锁定输入直到推进
                     this.currentReadingArticleId = null;
@@ -472,7 +472,7 @@
 							
 							const result = {
 								synonyms: [], antonyms: [], related: [], nearSynonyms: [], nearAntonyms: [],
-								synonymGroups: [], antonymGroups: [], relatedInfo: [], nearSynonymGroups: [], nearAntonymGroups: []
+								synonymGroups: [], antonymGroups: [], relatedInfo: [], nearSynonymGroups: [], nearAntonymGroups: [], synonymsInfo: { paragraphs: [], examples: [] }
 							};
 
 							const extractDefinitionText = (dt) => {
@@ -1283,9 +1283,10 @@
                 async startLearningSession() {
                     try {
                         this.showLoader('正在准备学习内容...');
-                        if (this.isStudyingNewWords) {
-                            console.log('继续学习生词本，跳过默认加载');
-                            this.isStudyingNewWords = false;
+                        if (this.isStudyingPreparedSession) {
+                            console.log('继续已准备的学习会话，跳过默认加载');
+                            this.isStudyingPreparedSession = false;
+                            this.showingDetails = false;
                             const learnedCount = document.getElementById('learnedCount');
                             const totalToLearn = document.getElementById('totalToLearn');
                             if (learnedCount) learnedCount.textContent = '1';
@@ -1570,8 +1571,9 @@
 
                 async handleAnswer(correct) {
                     if (this.isProcessing) return;
-                    this.isProcessing = true;
                     const wordData = this.learningWords[this.currentWordIndex];
+                    if (!wordData) return;
+                    this.isProcessing = true;
                     console.log(`处理答案: ${wordData.word} - ${correct ? '认识' : '不认识'}`);
                     try {
                         const progressData = await this.db.updateProgress(wordData.id, correct);
@@ -2517,7 +2519,7 @@
                             this.showNotification('生词本为空', 'info');
                             return;
                         }
-                        this.isStudyingNewWords = true;
+                        this.isStudyingPreparedSession = true;
                         this.learningWords = newWords;
                         this.currentWordIndex = 0;
                         this.showingDetails = false;
@@ -2525,7 +2527,7 @@
                     } catch (error) {
                         console.error('开始学习生词失败:', error);
                         this.showNotification('开始学习失败', 'error');
-                        this.isStudyingNewWords = false;
+                        this.isStudyingPreparedSession = false;
                     }
                 }
 
@@ -2717,6 +2719,7 @@
                     try {
                         const word = await this.db.getWordById(wordId);
                         if (word) {
+                            this.isStudyingPreparedSession = true;
                             this.learningWords = [word];
                             this.currentWordIndex = 0;
                             this.switchPage('learn');
@@ -2735,6 +2738,7 @@
                         }
                         const plan = await this.db.getDailyPlan();
                         const limit = Math.min(reviewWords.length, plan.reviewGoal);
+                        this.isStudyingPreparedSession = true;
                         this.learningWords = reviewWords.slice(0, limit);
                         this.currentWordIndex = 0;
                         this.showingDetails = false;
@@ -3819,6 +3823,7 @@
                     try {
                         const word = await this.db.getWordById(wordId);
                         if (word) {
+                            this.isStudyingPreparedSession = true;
                             this.learningWords = [word];
                             this.currentWordIndex = 0;
                             this.switchPage('learn');

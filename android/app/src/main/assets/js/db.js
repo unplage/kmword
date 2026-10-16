@@ -1375,7 +1375,7 @@
                 }
 
                 // ===== 听力模块 CRUD =====
-                async saveListeningFile({ title, content, totalDuration, segmentCount }) {
+                async saveListeningFile({ title, content, totalDuration, segmentCount, ttsVoice, ttsStyle, ttsStyleCustom }) {
                     await this.ready();
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.LISTENING_FILES], 'readwrite');
@@ -1389,9 +1389,9 @@
                             generatedSegments: 0,
                             lastSegmentIndex: 0,
                             lastSegmentTime: 0,
-                            ttsVoice: '',
-                            ttsStyle: 'standard',
-                            ttsStyleCustom: '',
+                            ttsVoice: ttsVoice || '',
+                            ttsStyle: ttsStyle || 'standard',
+                            ttsStyleCustom: ttsStyleCustom || '',
                             createdAt: new Date().toISOString()
                         });
                         request.onsuccess = () => resolve(request.result);
