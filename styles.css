@@ -1849,6 +1849,15 @@
         .ai-result h1, .ai-result h2, .ai-result h3, .ai-result h4 { margin: 12px 0 6px; color: var(--primary-color); }
         .ai-result h1 { font-size: 1.3rem; }
         .ai-result h2 { font-size: 1.15rem; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; }
+        .ai-result h2::before {
+            content: "\f0da";
+            font-family: "Font Awesome 6 Free";
+            font-weight: 900;
+            font-size: 0.75em;
+            color: var(--primary-color);
+            margin-right: 6px;
+            opacity: 0.85;
+        }
         .ai-result h3 { font-size: 1.05rem; }
         .ai-result p { margin: 6px 0; }
         .ai-result ul, .ai-result ol { margin: 6px 0; padding-left: 24px; }

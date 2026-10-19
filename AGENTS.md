@@ -142,7 +142,7 @@ In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 
 
 ## Cache versioning
 
-`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v41.
+`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v42.
 
 ## Quirks
 

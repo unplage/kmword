@@ -3511,6 +3511,7 @@
                     content = content.trim();
                     if (!word || /\s/.test(word)) return null;
                     if (!content || content.length < 10) return null;
+                    content = this.normalizeAiMarkdown(content);
                     return { word, content, cachedAt: entry.cachedAt || undefined };
                 }
 
@@ -4473,6 +4474,25 @@
                     }
                 }
 
+                normalizeAiMarkdown(text) {
+                    if (!text) return '';
+                    let out = String(text).replace(/\r\n/g, '\n');
+                    out = out.replace(/^\s*(?:好的|当然|以下是|以下为)[^\n]*\n+/, '');
+                    out = out.replace(
+                        /^[ \t]*\*\*\s*(\d+)[.、．]\s*([^*\n]{1,40}?)\s*\*\*[ \t]*[：:]?[ \t]*(.*)$/gm,
+                        (m, num, title, rest) => {
+                            const head = `## ${num}. ${title.trim()}`;
+                            return rest && rest.trim() ? `${head}\n\n${rest.trim()}` : head;
+                        }
+                    );
+                    const knownSection = /^(词性和基本释义|词根词缀分析|记忆技巧|常用搭配和短语|近义词辨析|例句|学习建议|学习这个单词.*|单词分析.*)$/;
+                    out = out.replace(/^[ \t]*\*\*\s*([^*\n]{2,30}?)\s*\*\*[ \t]*[：:]?[ \t]*$/gm, (m, title) => {
+                        return knownSection.test(title.trim()) ? `## ${title.trim()}` : m;
+                    });
+                    out = out.replace(/([^\n])\n(#{1,4}\s)/g, '$1\n\n$2');
+                    return out;
+                }
+
                 async lookupModalAi() {
                     const word = this.lookupModalWord;
                     if (!word) return;
@@ -4543,12 +4563,13 @@
 
                         const data = await response.json();
                         const content = data.choices?.[0]?.message?.content || '(无返回内容)';
+                        const rendered = this.normalizeAiMarkdown(content);
                         const renderFn = typeof marked?.parse === 'function' ? marked : null;
                         if (renderFn) {
-                            const html = renderFn.parse(content, { breaks: true });
+                            const html = renderFn.parse(rendered, { breaks: true });
                             aiResultEl.innerHTML = '<div class="ai-result">' + DOMPurify.sanitize(html) + '</div>';
                         } else {
-                            aiResultEl.innerHTML = '<div class="ai-result">' + this.escapeHtml(content) + '</div>';
+                            aiResultEl.innerHTML = '<div class="ai-result">' + this.escapeHtml(rendered) + '</div>';
                         }
                         if (content && content !== '(无返回内容)') {
                             this.db.saveWordCache(word, {
@@ -4578,7 +4599,7 @@
                         }
                         const note = '<div class="cache-note"><i class="fas fa-database"></i> 缓存于 ' +
                             this.formatCacheDate(cache.ai.cachedAt) + ' · 点击「AI 分析」可重新生成</div>';
-                        const content = cache.ai.content;
+                        const content = this.normalizeAiMarkdown(cache.ai.content);
                         aiResultEl.style.display = 'block';
                         const renderFn = typeof marked?.parse === 'function' ? marked : null;
                         if (renderFn) {
