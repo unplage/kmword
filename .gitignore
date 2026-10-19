@@ -2,3 +2,11 @@ android/app/build/
 android/.gradle/
 android/local.properties
 android/gradle/wrapper/gradle-wrapper.properties
+
+__pycache__/
+
+# 生成的 AI 释义缓存（可用 Settings 导入，不纳入版本库）
+ai_gloss_toefl.jsonl
+ai_gloss_failed.jsonl
+ai_gloss.log
+ai_gloss.stop

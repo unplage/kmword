@@ -1251,6 +1251,103 @@
                     });
                 }
 
+                async getAllWordCache() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.WORD_CACHE], 'readonly');
+                        const request = transaction.objectStore(STORES.WORD_CACHE).getAll();
+                        request.onsuccess = () => resolve(request.result || []);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async importWordCacheRecords(records, options = {}) {
+                    await this.ready();
+                    const batchSize = options.batchSize || 500;
+                    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+                    const total = Array.isArray(records) ? records.length : 0;
+                    const result = { total, imported: 0, invalid: 0 };
+                    for (let i = 0; i < total; i += batchSize) {
+                        const batch = records.slice(i, i + batchSize);
+                        let count = 0;
+                        await new Promise((resolve, reject) => {
+                            const transaction = this.db.transaction([STORES.WORD_CACHE], 'readwrite');
+                            transaction.oncomplete = () => resolve();
+                            transaction.onerror = (e) => reject(e.target.error || new Error('transaction error'));
+                            transaction.onabort = () => reject(new Error('transaction aborted'));
+                            const store = transaction.objectStore(STORES.WORD_CACHE);
+                            for (const rec of batch) {
+                                if (!rec || typeof rec !== 'object') { result.invalid++; continue; }
+                                const key = String(rec.word || '').trim().toLowerCase();
+                                if (!key || (!rec.ai && !rec.mw)) { result.invalid++; continue; }
+                                store.put({ ...rec, word: key });
+                                count++;
+                            }
+                        });
+                        result.imported += count;
+                        if (onProgress) onProgress({ ...result, processed: Math.min(i + batchSize, total) });
+                    }
+                    return result;
+                }
+
+                async importAiCache(entries, options = {}) {
+                    await this.ready();
+                    const overwrite = !!options.overwrite;
+                    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+                    const batchSize = options.batchSize || 200;
+                    const signal = options.signal || null;
+                    const total = entries.length;
+                    const result = { total, imported: 0, skipped: 0, invalid: 0, failed: 0, aborted: false };
+                    if (!total) return result;
+
+                    let consecutiveFailures = 0;
+                    for (let i = 0; i < total; i += batchSize) {
+                        if (signal && signal.aborted) { result.aborted = true; break; }
+                        const batch = entries.slice(i, i + batchSize);
+                        let batchImported = 0;
+                        let batchSkipped = 0;
+                        let batchValid = 0;
+                        try {
+                            await new Promise((resolve, reject) => {
+                                const transaction = this.db.transaction([STORES.WORD_CACHE], 'readwrite');
+                                transaction.oncomplete = () => resolve();
+                                transaction.onerror = (e) => reject(e.target.error || new Error('transaction error'));
+                                transaction.onabort = () => reject(new Error('transaction aborted'));
+                                const store = transaction.objectStore(STORES.WORD_CACHE);
+                                for (const entry of batch) {
+                                    const key = String(entry.word || '').trim().toLowerCase();
+                                    const content = typeof entry.content === 'string' ? entry.content.trim() : '';
+                                    if (!key || !content) { result.invalid++; continue; }
+                                    batchValid++;
+                                    const req = store.get(key);
+                                    req.onsuccess = () => {
+                                        const record = req.result || { word: key };
+                                        if (record.ai && record.ai.content && !overwrite) {
+                                            batchSkipped++;
+                                            return;
+                                        }
+                                        record.word = key;
+                                        record.ai = { content, cachedAt: entry.cachedAt || new Date().toISOString() };
+                                        store.put(record);
+                                        batchImported++;
+                                    };
+                                }
+                            });
+                        } catch (err) {
+                            result.failed += batchValid;
+                            consecutiveFailures++;
+                            if (consecutiveFailures >= 3) { result.aborted = true; break; }
+                            if (onProgress) onProgress({ ...result, processed: Math.min(i + batchSize, total) });
+                            continue;
+                        }
+                        consecutiveFailures = 0;
+                        result.imported += batchImported;
+                        result.skipped += batchSkipped;
+                        if (onProgress) onProgress({ ...result, processed: Math.min(i + batchSize, total) });
+                    }
+                    return result;
+                }
+
                 async debugDatabase() {
                     await this.ready();
                     const allWords = await this.getAllWords();

@@ -63,6 +63,13 @@ Caveat: for exam-list TXT imports (专四/专八/托福/雅思) select 「不跳
 - 查词弹窗 has two extra buttons 「韦氏词典（缓存）」/「AI 分析（缓存）」, shown only when the word has a corresponding `word_cache` entry (checked in `refreshLookupModalCacheButtons`).
 - Live queries (modal buttons + learn-card `#mwLookupBtn` via shared `renderMwResult`) write/overwrite the cache on success; cached views show a `.cache-note` header with the cache date and skip network entirely.
 
+### 导入 AI 释义缓存（设置 → 数据管理 → 导入 AI 释义缓存）
+
+支持 `.json`（数组或 `{word: content}` 映射）和 `.jsonl`（每行 `{word, content, cachedAt?}`），可选 `.tsv`（`word<TAB>content`）。导入时：
+- 默认只写入**不存在** AI 缓存的单词；勾选「覆盖已有 AI 缓存」会覆盖。
+- 分批写入 `word_cache`，支持 `取消`；已写入的条目不会因停止而丢失，下次运行自动续跑。
+- 导入后，查词弹窗对应的单词会出现「AI 分析（缓存）」按钮，点击直接展示缓存的 AI 释义，**不影响实时 AI 查询功能**。
+
 ## Listening module
 
 - TTS generation chunks the article at **paragraph boundaries** (deterministic `TextChunker.splitText`, ~3 min floor / 5 min target / 6 min cap; oversized single paragraphs are split by sentence), saves one `audio_segments` row per part, and updates `listening_files.status`/`generatedSegments` per segment.
@@ -115,7 +122,7 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Data export/import
 
-- Export via Settings → downloads JSON (`word-learner-backup-<date>.json`), includes all stores.
+- Export via Settings → downloads JSON (`word-learner-backup-<date>.json`), includes all stores including `word_cache` (MW/AI caches). Import overwrites all data (double confirm) and restores `word_cache` records (`wordCache` field in backup, v3.2+; older backups without it are still accepted).
 - Import via Settings → overwrites all data (double confirm).
 - Clear data: `clear2.html` (scoped to `kmword` prefix) or `clear3.html` (scoped to current origin).
 
@@ -125,6 +132,8 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 `build_word_freq.js` — downloads the OpenSubtitles 2018 frequency list (hermitdave/FrequencyWords, MIT) and regenerates `js/word-freq.js` (top 12000, `node build_word_freq.js`).
 
+`build_ai_gloss.py` — batch-generates AI glosses for a word list via `opencode serve` (default free `opencode/mimo-v2.6-flash-free`, no user API key), appending results to `ai_gloss_toefl.jsonl` (JSONL, one `{word, content, model, cachedAt}` per line). Supports `--limit`, `--workers`, stop/restart without data loss (`touch ai_gloss.stop` to stop; rerun to resume). Output can be imported via Settings → 数据管理 → 导入 AI 释义缓存.
+
 `icons/build_icons.py` — regenerates the PNG icons (PWA + Android mipmaps) from `icons/icon.svg` / `icons/icon-maskable.svg` (`pip install cairosvg`, then `python3 icons/build_icons.py`).
 
 ## Word text files (reference data)
@@ -133,7 +142,7 @@ In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 
 
 ## Cache versioning
 
-`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub.
+`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v41.
 
 ## Quirks
 

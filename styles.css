@@ -960,6 +960,34 @@
             min-width: 120px;
         }
 
+        .ai-cache-row {
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .ai-cache-overwrite {
+            font-size: 0.85rem;
+            color: var(--gray-color);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ai-cache-status-row {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .import-status {
+            font-size: 0.85rem;
+            color: var(--gray-color);
+            flex: 1;
+            min-width: 0;
+            word-break: break-all;
+            line-height: 1.4;
+        }
+
         .switch {
             position: relative;
             display: inline-block;

@@ -3000,6 +3000,25 @@
                                     </div>
                                 </div>
                                 <div class="setting-item">
+                                    <label>导入 AI 释义缓存</label>
+                                    <div class="setting-control ai-cache-row">
+                                        <label class="ai-cache-overwrite">
+                                            <input type="checkbox" id="aiCacheOverwrite"> 覆盖已有 AI 缓存
+                                        </label>
+                                        <button class="action-btn small" id="importAiCacheBtn">
+                                            <i class="fas fa-brain"></i> 导入
+                                        </button>
+                                        <input type="file" id="importAiCacheFile" accept=".json,.jsonl,.txt" style="display: none;">
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>导入进度</label>
+                                    <div class="setting-control ai-cache-status-row">
+                                        <span id="aiCacheImportStatus" class="import-status">未开始</span>
+                                        <button class="action-btn small danger" id="cancelAiCacheImport" style="display: none;">取消</button>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
                                     <label>清空所有数据</label>
                                     <div class="setting-control">
                                         <button class="action-btn small danger" id="clearAllData">
@@ -3034,6 +3053,17 @@
                         if (e.target.files[0]) {
                             this.importData(e.target.files[0]);
                         }
+                    });
+                    document.getElementById('importAiCacheBtn')?.addEventListener('click', () => {
+                        document.getElementById('importAiCacheFile')?.click();
+                    });
+                    document.getElementById('importAiCacheFile')?.addEventListener('change', async (e) => {
+                        if (e.target.files[0]) await this.importAiCache(e.target.files[0]);
+                        e.target.value = '';
+                    });
+                    document.getElementById('cancelAiCacheImport')?.addEventListener('click', () => {
+                        if (this._aiCacheAbort) this._aiCacheAbort.abort();
+                        document.getElementById('cancelAiCacheImport')?.setAttribute('style', 'display: none;');
                     });
                     document.getElementById('clearAllData')?.addEventListener('click', () => this.clearAllData());
                     document.getElementById('showDebugInfo')?.addEventListener('click', () => this.showDebugInfo());
@@ -3319,8 +3349,9 @@
                             const req = store.getAll();
                             req.onsuccess = () => resolve(req.result || []);
                         });
+                        const allWordCache = await this.db.getAllWordCache();
                         const exportData = {
-                            version: '3.1',
+                            version: '3.2',
                             exportDate: new Date().toISOString(),
                             words: allWords,
                             newWords: newWords.map(w => ({ wordId: w.id, addedAt: w.addedAt })),
@@ -3328,6 +3359,7 @@
                             userProgress: allProgress,
                             learningHistory: allHistory,
                             novels: allArticles,
+                            wordCache: allWordCache,
                             plan: plan,
                             settings: settings,
                             stats: stats
@@ -3354,6 +3386,132 @@
                         this.hideLoader();
                         this.showNotification('导出数据失败', 'error');
                     }
+                }
+
+                async importAiCache(file) {
+                    if (!file) return;
+                    const statusEl = document.getElementById('aiCacheImportStatus');
+                    const cancelEl = document.getElementById('cancelAiCacheImport');
+                    const setStatus = (text, isError = false) => {
+                        if (statusEl) {
+                            statusEl.textContent = text;
+                            statusEl.style.color = isError ? 'var(--danger-color)' : 'var(--gray-color)';
+                        }
+                    };
+                    const overwrite = document.getElementById('aiCacheOverwrite')?.checked;
+                    setStatus('读取文件中…');
+                    let text;
+                    try {
+                        text = await file.text();
+                    } catch (err) {
+                        setStatus('读取失败：' + (err && err.message || err), true);
+                        return;
+                    }
+                    let entries;
+                    try {
+                        entries = this.parseAiCacheFile(text, file.name);
+                    } catch (err) {
+                        setStatus('解析失败：' + (err && err.message || err), true);
+                        return;
+                    }
+                    if (!entries.length) {
+                        setStatus('文件中没有可用的 AI 释义词条', true);
+                        return;
+                    }
+                    const controller = new AbortController();
+                    this._aiCacheAbort = controller;
+                    cancelEl?.setAttribute('style', '');
+                    setStatus(`解析到 ${entries.length} 条，开始写入…`);
+                    try {
+                        const res = await this.db.importAiCache(entries, {
+                            overwrite,
+                            signal: controller.signal,
+                            batchSize: 200,
+                            onProgress: (p) => setStatus(`已处理 ${p.processed}/${p.total}：写入 ${p.imported}，跳过已有 ${p.skipped}${p.aborted ? '（已取消）' : ''}`),
+                        });
+                        let msg = `导入完成：共 ${res.total} 条，写入 ${res.imported}，跳过已有 ${res.skipped}`;
+                        if (res.invalid) msg += `，无效 ${res.invalid}`;
+                        if (res.failed) msg += `，失败 ${res.failed}`;
+                        if (res.aborted) msg += '（已中止/取消）';
+                        setStatus(msg, res.failed && !res.imported ? true : false);
+                        if (res.imported) {
+                            this.refreshLookupModalCacheButtons();
+                        }
+                    } catch (err) {
+                        setStatus('导入失败：' + (err && err.message || err), true);
+                    } finally {
+                        this._aiCacheAbort = null;
+                        cancelEl?.setAttribute('style', 'display: none;');
+                    }
+                }
+
+                parseAiCacheFile(text, name) {
+                    const trimmed = (text || '').trim();
+                    if (!trimmed) return [];
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(trimmed);
+                    } catch (e) {
+                        return this.parseAiCacheLines(text);
+                    }
+                    if (Array.isArray(parsed)) return parsed.map((e) => this.normalizeAiCacheEntry(e)).filter(Boolean);
+                    if (parsed && parsed.items && Array.isArray(parsed.items)) {
+                        return parsed.items.map((e) => this.normalizeAiCacheEntry(e)).filter(Boolean);
+                    }
+                    if (parsed && typeof parsed === 'object' && (parsed.word || parsed.content || parsed.ai)) {
+                        const e = this.normalizeAiCacheEntry(parsed);
+                        return e ? [e] : [];
+                    }
+                    if (parsed && typeof parsed === 'object') {
+                        const out = [];
+                        for (const k of Object.keys(parsed)) {
+                            const v = parsed[k];
+                            const e = this.normalizeAiCacheEntry(
+                                (v && typeof v === 'object' && !Array.isArray(v))
+                                    ? { ...v, word: k }
+                                    : { word: k, content: typeof v === 'string' ? v : JSON.stringify(v) }
+                            );
+                            if (e) out.push(e);
+                        }
+                        return out;
+                    }
+                    return [];
+                }
+
+                parseAiCacheLines(text) {
+                    const out = [];
+                    for (const raw of (text || '').split(/\r?\n/)) {
+                        const line = raw.trim();
+                        if (!line) continue;
+                        let obj;
+                        try {
+                            obj = JSON.parse(line);
+                        } catch {
+                            obj = null;
+                        }
+                        if (obj) {
+                            const e = this.normalizeAiCacheEntry(obj);
+                            if (e) out.push(e);
+                        } else {
+                            const parts = line.split(/\t/);
+                            if (parts.length >= 2) {
+                                const e = this.normalizeAiCacheEntry({ word: parts[0].trim(), content: parts.slice(1).join('\t').trim() });
+                                if (e) out.push(e);
+                            }
+                        }
+                    }
+                    return out;
+                }
+
+                normalizeAiCacheEntry(entry) {
+                    if (!entry || typeof entry !== 'object') return null;
+                    const word = String(entry.word || entry.w || '').trim();
+                    let content = entry.content ?? entry.text ?? (entry.ai && entry.ai.content) ?? entry.ai ?? entry.meaning ?? '';
+                    if (typeof content !== 'string') content = JSON.stringify(content);
+                    content = content.trim();
+                    if (!word || /\s/.test(word)) return null;
+                    if (!content || content.length < 10) return null;
+                    return { word, content, cachedAt: entry.cachedAt || undefined };
                 }
 
                 async importData(file) {
@@ -3534,6 +3692,14 @@
                                     updatedAt: article.updatedAt || new Date().toISOString()
                                 });
                             }
+                        }
+
+                        if (importData.wordCache && importData.wordCache.length > 0) {
+                            this.showLoader(`正在导入 AI/词典缓存...`);
+                            await this.db.importWordCacheRecords(importData.wordCache, {
+                                batchSize: 500,
+                                onProgress: (p) => this.showLoader(`正在导入 AI/词典缓存 ${p.processed}/${p.total} ...`)
+                            });
                         }
 
                         this.hideLoader();
