@@ -735,6 +735,7 @@
     <script src="js/fsrs.js"></script>
     <script src="js/word-freq.js"></script>
     <script src="js/wiktionary.js"></script>
+    <script src="js/ecdict.js"></script>
     <script src="js/db.js"></script>
     <script src="js/novel-processor.js"></script>
     <script src="js/tts-generator.js"></script>
@@ -757,6 +758,9 @@
                 <button class="action-btn small" id="lookupModalSpeakBtn">
                     <i class="fas fa-volume-up"></i> 发音
                 </button>
+                <button class="action-btn small secondary" id="lookupModalEcdictBtn" style="display:none;">
+                    <i class="fas fa-book-open"></i> ECDICT
+                </button>
                 <button class="action-btn small secondary" id="lookupModalMwBtn">
                     <i class="fas fa-book"></i> 韦氏词典
                 </button>
@@ -771,6 +775,7 @@
                 </button>
             </div>
             <div id="lookupModalFreeDict" class="modal-section"></div>
+            <div id="lookupModalEcdictResult" class="modal-section" style="display:none;"></div>
             <div id="lookupModalMwResult" class="modal-section" style="display:none;"></div>
             <div id="lookupModalAiResult" class="modal-section" style="display:none;"></div>
         </div>

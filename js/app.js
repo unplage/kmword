@@ -640,6 +640,10 @@
                 }
 
                 cleanup() {
+                    if (this._ecdictWorker) {
+                        try { this._ecdictWorker.terminate(); } catch (e) {}
+                        this._ecdictWorker = null;
+                    }
                     this._abortListeningGeneration();
                     if (this.novelProcessor) {
                         this.novelProcessor.abort();
@@ -779,6 +783,7 @@
                     document.getElementById('lookupModalSpeakBtn')?.addEventListener('click', () => {
                         if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
                     });
+                    document.getElementById('lookupModalEcdictBtn')?.addEventListener('click', () => this.lookupModalEcdict());
                     document.getElementById('lookupModalMwBtn')?.addEventListener('click', () => this.lookupModalMw());
                     document.getElementById('lookupModalAiBtn')?.addEventListener('click', () => this.lookupModalAi());
                     document.getElementById('lookupModalMwCacheBtn')?.addEventListener('click', () => this.lookupModalMwCache());
@@ -2759,6 +2764,7 @@
                             this.bindSettingsEvents();
                         }
                         await this.loadSettingsData();
+                        await this.refreshEcdictSettings();
                     } catch (error) {
                         console.error('加载设置页面失败:', error);
                     }
@@ -3019,6 +3025,29 @@
                                     </div>
                                 </div>
                                 <div class="setting-item">
+                                    <label>ECDICT 外部词典</label>
+                                    <div class="setting-control ecdict-import-row">
+                                        <span id="ecdictStatus" class="import-status">未安装</span>
+                                        <button class="action-btn small" id="importEcdictBtn">
+                                            <i class="fas fa-book-open"></i> 导入
+                                        </button>
+                                        <button class="action-btn small danger" id="deleteEcdictBtn" style="display: none;">
+                                            <i class="fas fa-trash-alt"></i> 删除
+                                        </button>
+                                        <button class="action-btn small danger" id="cancelEcdictImport" style="display: none;">取消</button>
+                                        <input type="file" id="importEcdictFile" accept=".csv,text/csv" style="display: none;">
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>ECDICT 导入进度</label>
+                                    <div class="setting-control">
+                                        <div class="ecdict-progress-wrap" id="ecdictProgressWrap" style="display: none;">
+                                            <div class="ecdict-progress-bar" id="ecdictProgressBar"></div>
+                                        </div>
+                                        <span class="ecdict-hint">全量约 63MB，导入后约 150MB；仅存本机，不进入学习数据备份。</span>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
                                     <label>清空所有数据</label>
                                     <div class="setting-control">
                                         <button class="action-btn small danger" id="clearAllData">
@@ -3065,6 +3094,15 @@
                         if (this._aiCacheAbort) this._aiCacheAbort.abort();
                         document.getElementById('cancelAiCacheImport')?.setAttribute('style', 'display: none;');
                     });
+                    document.getElementById('importEcdictBtn')?.addEventListener('click', () => {
+                        document.getElementById('importEcdictFile')?.click();
+                    });
+                    document.getElementById('importEcdictFile')?.addEventListener('change', async (e) => {
+                        if (e.target.files[0]) await this.importEcdict(e.target.files[0]);
+                        e.target.value = '';
+                    });
+                    document.getElementById('deleteEcdictBtn')?.addEventListener('click', () => this.deleteEcdict());
+                    document.getElementById('cancelEcdictImport')?.addEventListener('click', () => this.cancelEcdictImport());
                     document.getElementById('clearAllData')?.addEventListener('click', () => this.clearAllData());
                     document.getElementById('showDebugInfo')?.addEventListener('click', () => this.showDebugInfo());
                     document.getElementById('saveSettings')?.addEventListener('click', () => this.saveSettings());
@@ -3515,10 +3553,324 @@
                     return { word, content, cachedAt: entry.cachedAt || undefined };
                 }
 
+                // ===== ECDICT 外部词典导入 / 查询 =====
+                async refreshEcdictSettings() {
+                    const statusEl = document.getElementById('ecdictStatus');
+                    if (!statusEl) return;
+                    const importBtn = document.getElementById('importEcdictBtn');
+                    const deleteBtn = document.getElementById('deleteEcdictBtn');
+                    const cancelBtn = document.getElementById('cancelEcdictImport');
+                    const progressWrap = document.getElementById('ecdictProgressWrap');
+                    const progressBar = document.getElementById('ecdictProgressBar');
+                    const setStatus = (text, isError = false) => {
+                        statusEl.textContent = text;
+                        statusEl.style.color = isError ? 'var(--danger-color)' : 'var(--gray-color)';
+                    };
+
+                    if (this._ecdictImporting) {
+                        setStatus(this._ecdictStatusText || '正在导入 ECDICT…');
+                        if (importBtn) importBtn.disabled = true;
+                        if (deleteBtn) deleteBtn.style.display = 'none';
+                        if (cancelBtn) cancelBtn.style.display = '';
+                        if (progressWrap) progressWrap.style.display = 'block';
+                        if (progressBar) progressBar.style.width = (this._ecdictProgressPct || 0) + '%';
+                        return;
+                    }
+
+                    if (importBtn) importBtn.disabled = false;
+                    if (cancelBtn) cancelBtn.style.display = 'none';
+                    if (progressWrap) progressWrap.style.display = 'none';
+                    if (progressBar) progressBar.style.width = '0%';
+
+                    let meta = null;
+                    try { meta = await this.db.getEcdictMeta(); } catch (e) { meta = null; }
+                    if (meta && meta.status === 'ready') {
+                        const count = Number(meta.count || 0).toLocaleString('zh-CN');
+                        const date = meta.importedAt ? this.formatCacheDate(meta.importedAt) : '';
+                        setStatus(`已安装 ${count} 词条${date ? ' · ' + date : ''}`);
+                        if (importBtn) importBtn.innerHTML = '<i class="fas fa-sync-alt"></i> 重新导入';
+                        if (deleteBtn) deleteBtn.style.display = '';
+                    } else if (meta && meta.status === 'incomplete') {
+                        const count = Number(meta.count || 0).toLocaleString('zh-CN');
+                        setStatus(`导入未完成（已写入 ${count} 条），请重新导入`, true);
+                        if (importBtn) importBtn.innerHTML = '<i class="fas fa-sync-alt"></i> 重新导入';
+                        if (deleteBtn) deleteBtn.style.display = '';
+                    } else {
+                        setStatus('未安装 · 全量约 63MB，导入后约 150MB');
+                        if (importBtn) importBtn.innerHTML = '<i class="fas fa-book-open"></i> 导入';
+                        if (deleteBtn) deleteBtn.style.display = 'none';
+                    }
+                }
+
+                async importEcdict(file) {
+                    if (!file || this._ecdictImporting || this._ecdictStarting) return;
+                    if (typeof Worker === 'undefined') {
+                        this.showNotification('当前浏览器不支持 Web Worker，无法导入 ECDICT', 'error');
+                        return;
+                    }
+
+                    // 防止确认/存储检查期间重复触发导入，导致两个 Worker 同时写库
+                    this._ecdictStarting = true;
+                    try {
+                        let existing = null;
+                        try { existing = await this.db.getEcdictMeta(); } catch (e) { existing = null; }
+                        if (existing && existing.status === 'ready') {
+                            if (!confirm(`已安装 ECDICT（${Number(existing.count || 0).toLocaleString('zh-CN')} 词条）。重新导入会覆盖现有词典，是否继续？`)) return;
+                        } else if (existing && existing.status === 'incomplete') {
+                            if (!confirm('上次导入未完成。重新导入会清空已写入的部分并重新开始，是否继续？')) return;
+                        } else if (!confirm('导入 ECDICT 全量词典？\n\nCSV 约 63MB，导入后占用约 150MB，仅保存在本机，不进入学习数据备份。')) {
+                            return;
+                        }
+
+                        try {
+                            if (navigator.storage && navigator.storage.estimate) {
+                                const estimate = await navigator.storage.estimate();
+                                const free = (estimate.quota || 0) - (estimate.usage || 0);
+                                if (estimate.quota && free < 300 * 1024 * 1024) {
+                                    const freeMB = Math.max(0, Math.round(free / 1024 / 1024));
+                                    if (!confirm(`当前浏览器可用存储约 ${freeMB}MB，建议至少 300MB。继续导入可能导致失败，是否仍要继续？`)) return;
+                                }
+                            }
+                            if (navigator.storage && navigator.storage.persist) {
+                                // 不阻塞导入：部分浏览器会等待用户手势，导致 persist() 长时间不返回
+                                Promise.resolve(navigator.storage.persist()).catch(() => {});
+                            }
+                        } catch (e) {
+                            console.warn('ECDICT 存储空间检查失败:', e);
+                        }
+
+                        // 先校验表头，避免选错文件时把已安装的词典清空
+                        let headerLine = '';
+                        try {
+                            headerLine = await file.slice(0, 4096).text();
+                        } catch (e) {
+                            headerLine = '';
+                        }
+                        const headerFields = (headerLine.split(/\r?\n/, 1)[0] || '')
+                            .replace(/^\uFEFF/, '')
+                            .split(',');
+                        if (headerFields.length < 13 || (headerFields[0] || '').trim().toLowerCase() !== 'word') {
+                            this.showNotification('不是有效的 ECDICT CSV（缺少 word 列或列数不足）', 'error');
+                            return;
+                        }
+                    } finally {
+                        this._ecdictStarting = false;
+                    }
+
+                    this._ecdictImporting = true;
+                    this._ecdictCancelled = false;
+                    this._ecdictStatusText = '准备导入…';
+                    this._ecdictProgressPct = 0;
+                    this._ecdictImportedRows = 0;
+                    await this.refreshEcdictSettings();
+
+                    try {
+                        await this.db.clearEcdict();
+                        await this.db.saveEcdictMeta({
+                            status: 'importing',
+                            count: 0,
+                            startedAt: new Date().toISOString(),
+                            source: file.name || 'ecdict.csv'
+                        });
+                    } catch (err) {
+                        this._ecdictImporting = false;
+                        this._ecdictStatusText = '';
+                        this._ecdictProgressPct = 0;
+                        await this.refreshEcdictSettings();
+                        this.showNotification('ECDICT 导入失败：无法初始化数据库', 'error');
+                        console.error(err);
+                        return;
+                    }
+
+                    let worker;
+                    try {
+                        worker = new Worker('./js/ecdict-worker.js');
+                    } catch (err) {
+                        this._ecdictImporting = false;
+                        this._ecdictStatusText = '';
+                        this._ecdictProgressPct = 0;
+                        await this.db.saveEcdictMeta({ status: 'incomplete', count: 0 }).catch(() => {});
+                        await this.refreshEcdictSettings();
+                        this.showNotification('ECDICT 导入失败：无法启动解析 Worker', 'error');
+                        console.error(err);
+                        return;
+                    }
+                    this._ecdictWorker = worker;
+                    let lastUiUpdate = 0;
+
+                    const cleanupWorker = () => {
+                        try { worker.terminate(); } catch (e) {}
+                        if (this._ecdictWorker === worker) this._ecdictWorker = null;
+                    };
+
+                    const failImport = async (message, error) => {
+                        if (!this._ecdictImporting) return;
+                        this._ecdictImporting = false;
+                        this._ecdictCancelled = false;
+                        this._ecdictStatusText = '';
+                        this._ecdictProgressPct = 0;
+                        cleanupWorker();
+                        if (error) console.error(error);
+                        const count = await this.db.getEcdictCount().catch(() => 0);
+                        await this.db.saveEcdictMeta({
+                            status: 'incomplete',
+                            count,
+                            importedAt: new Date().toISOString(),
+                            source: file.name || 'ecdict.csv'
+                        }).catch(() => {});
+                        await this.refreshEcdictSettings();
+                        this.showNotification(message, 'error');
+                    };
+
+                    worker.onmessage = async (event) => {
+                        const msg = event.data || {};
+                        if (msg.type === 'batch') {
+                            if (this._ecdictCancelled) return;
+                            try {
+                                await this.db.importEcdictBatch(msg.records);
+                            } catch (err) {
+                                await failImport('ECDICT 写入失败：' + ((err && err.message) || err), err);
+                                return;
+                            }
+                            if (this._ecdictCancelled) return;
+                            const total = msg.total || file.size || 0;
+                            const pct = total ? Math.min(99, Math.round((msg.loaded / total) * 100)) : 0;
+                            this._ecdictProgressPct = pct;
+                            this._ecdictImportedRows = msg.count || this._ecdictImportedRows;
+                            this._ecdictStatusText = `正在导入 ${Number(this._ecdictImportedRows).toLocaleString('zh-CN')} 条（${pct}%）…`;
+                            worker.postMessage({ type: 'ack' });
+                            const now = Date.now();
+                            if (now - lastUiUpdate > 200) {
+                                lastUiUpdate = now;
+                                await this.refreshEcdictSettings();
+                            }
+                            return;
+                        }
+
+                        if (msg.type === 'done') {
+                            if (!this._ecdictImporting || this._ecdictCancelled) return;
+                            cleanupWorker();
+                            const count = await this.db.getEcdictCount().catch(() => msg.count || 0);
+                            const skipped = Number(msg.skipped || 0);
+                            await this.db.saveEcdictMeta({
+                                status: 'ready',
+                                count,
+                                importedAt: new Date().toISOString(),
+                                source: file.name || 'ecdict.csv',
+                                schema: 1
+                            }).catch((err) => console.warn('ECDICT 元数据写入失败:', err));
+                            this._ecdictImporting = false;
+                            this._ecdictStatusText = '';
+                            this._ecdictProgressPct = 100;
+                            await this.refreshEcdictSettings();
+                            await this.refreshLookupModalEcdictButton();
+                            this.showNotification(
+                                `ECDICT 导入完成：${Number(count).toLocaleString('zh-CN')} 词条` + (skipped ? `（跳过 ${skipped} 行）` : ''),
+                                'success'
+                            );
+                            return;
+                        }
+
+                        if (msg.type === 'error') {
+                            await failImport('ECDICT 导入失败：' + (msg.message || '解析错误'));
+                        }
+                    };
+
+                    worker.onerror = (event) => {
+                        failImport('ECDICT 导入失败：' + ((event && event.message) || 'Worker 运行错误'));
+                    };
+
+                    worker.postMessage({ type: 'start', file, batchSize: 1000 });
+                }
+
+                async cancelEcdictImport() {
+                    if (!this._ecdictImporting) return;
+                    this._ecdictCancelled = true;
+                    this._ecdictImporting = false;
+                    this._ecdictStatusText = '';
+                    this._ecdictProgressPct = 0;
+                    if (this._ecdictWorker) {
+                        try { this._ecdictWorker.terminate(); } catch (e) {}
+                        this._ecdictWorker = null;
+                    }
+                    const count = await this.db.getEcdictCount().catch(() => 0);
+                    await this.db.saveEcdictMeta({
+                        status: 'incomplete',
+                        count,
+                        importedAt: new Date().toISOString(),
+                        source: 'ecdict.csv'
+                    }).catch(() => {});
+                    await this.refreshEcdictSettings();
+                    this.showNotification('已取消 ECDICT 导入；已写入的部分保留，可删除或重新导入', 'info');
+                }
+
+                async deleteEcdict() {
+                    if (this._ecdictImporting) {
+                        this.showNotification('请先取消正在进行的 ECDICT 导入', 'warning');
+                        return;
+                    }
+                    if (!confirm('删除已导入的 ECDICT 词典？\n\n学习数据、单词库和复习进度不受影响。')) return;
+                    try {
+                        await this.db.clearEcdict();
+                        await this.refreshEcdictSettings();
+                        await this.refreshLookupModalEcdictButton();
+                        this.showNotification('ECDICT 词典已删除', 'success');
+                    } catch (err) {
+                        console.error('删除 ECDICT 失败:', err);
+                        this.showNotification('删除 ECDICT 失败', 'error');
+                    }
+                }
+
+                async refreshLookupModalEcdictButton() {
+                    const btn = document.getElementById('lookupModalEcdictBtn');
+                    if (!btn) return;
+                    try {
+                        const meta = await this.db.getEcdictMeta();
+                        btn.style.display = (meta && meta.status === 'ready' && Number(meta.count) > 0) ? '' : 'none';
+                    } catch (e) {
+                        btn.style.display = 'none';
+                    }
+                }
+
+                async lookupModalEcdict() {
+                    const word = this.lookupModalWord;
+                    const resultEl = document.getElementById('lookupModalEcdictResult');
+                    if (!word || !resultEl) return;
+                    resultEl.style.display = 'block';
+                    resultEl.innerHTML = '<div class="mw-loading"><i class="fas fa-spinner fa-spin"></i> 正在查询 ECDICT…</div>';
+                    const stillCurrent = () => this.lookupModalWord
+                        && this.lookupModalWord.toLowerCase() === String(word).toLowerCase();
+                    try {
+                        const meta = await this.db.getEcdictMeta();
+                        if (!stillCurrent()) return;
+                        if (!meta || meta.status !== 'ready') {
+                            resultEl.innerHTML = '<p class="empty-state">ECDICT 词典未安装或导入未完成，请先在设置中导入。</p>';
+                            await this.refreshLookupModalEcdictButton();
+                            return;
+                        }
+                        const entry = await this.db.getEcdictEntry(word);
+                        if (!stillCurrent()) return;
+                        if (!entry) {
+                            resultEl.innerHTML = `<p class="empty-state">ECDICT 未收录「${this.escapeHtml(String(word))}」</p>`;
+                            return;
+                        }
+                        const escAttr = (value) => this.escapeHtml(String(value)).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                        const html = (window.ecdict && window.ecdict.renderEntry)
+                            ? window.ecdict.renderEntry(entry, { esc: (value) => this.escapeHtml(String(value)), escAttr })
+                            : '';
+                        resultEl.innerHTML = html || '<p class="empty-state">ECDICT 词条解析失败</p>';
+                        resultEl.querySelectorAll('.ecdict-en-text').forEach((node) => this.makeClickable(node));
+                        resultEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    } catch (err) {
+                        console.error('ECDICT 查询失败:', err);
+                        resultEl.innerHTML = '<p class="mw-error">ECDICT 查询失败，请重试</p>';
+                    }
+                }
+
                 async importData(file) {
                     if (!file) return;
-                    if (!confirm('导入数据将覆盖当前所有数据，是否继续？')) return;
-                    if (!confirm('⚠️ 警告：此操作将删除所有现有数据（包括单词、进度、生词本等），确定要继续吗？')) return;
+                    if (!confirm('导入数据将覆盖当前所有学习数据，是否继续？')) return;
+                    if (!confirm('⚠️ 警告：此操作将删除所有现有学习数据（包括单词、进度、生词本等），外部 ECDICT 词典会保留。确定要继续吗？')) return;
 
                     try {
                         this.showLoader('正在读取文件...');
@@ -3530,8 +3882,7 @@
                         }
 
                         this.showLoader('正在清空旧数据...');
-                        await this.db.clearAllData();
-                        await this.db.ready();
+                        await this.db.clearUserData();
 
                         const listIdMap = {};
                         if (importData.wordLists && importData.wordLists.length > 0) {
@@ -3715,7 +4066,13 @@
 
                 async clearAllData() {
                     if (!confirm('确定要清空所有数据吗？此操作不可恢复。')) return;
-                    if (!confirm('再次确认：所有学习记录、单词、单词库、设置都将被删除？')) return;
+                    if (!confirm('再次确认：所有学习记录、单词、单词库、设置，以及已导入的 ECDICT 词典都将被删除？')) return;
+                    if (this._ecdictWorker) {
+                        try { this._ecdictWorker.terminate(); } catch (e) {}
+                        this._ecdictWorker = null;
+                    }
+                    this._ecdictImporting = false;
+                    this._ecdictCancelled = false;
                     try {
                         this.showLoader('正在清空数据...');
                         await this.db.clearAllData();
@@ -4301,16 +4658,25 @@
                         aiResultEl.style.display = 'none';
                         aiResultEl.innerHTML = '';
                     }
+                    const ecdictResultEl = document.getElementById('lookupModalEcdictResult');
+                    if (ecdictResultEl) {
+                        ecdictResultEl.style.display = 'none';
+                        ecdictResultEl.innerHTML = '';
+                    }
                     const mwCacheBtn = document.getElementById('lookupModalMwCacheBtn');
                     const aiCacheBtn = document.getElementById('lookupModalAiCacheBtn');
                     if (mwCacheBtn) mwCacheBtn.style.display = 'none';
                     if (aiCacheBtn) aiCacheBtn.style.display = 'none';
                     modal.style.display = 'flex';
                     this.refreshLookupModalCacheButtons(word);
+                    this.refreshLookupModalEcdictButton();
                     // 拉取 free dict 并渲染
+                    const requestedWord = word;
                     try {
-                        const data = await this.dictionaryAPI.fetchWordData(word);
-                        if (titleEl) titleEl.textContent = data.word || word;
+                        const data = await this.dictionaryAPI.fetchWordData(requestedWord);
+                        // 用户可能已切换到别的单词，避免旧请求覆盖新弹窗
+                        if (!this.lookupModalWord || this.lookupModalWord.toLowerCase() !== requestedWord.toLowerCase()) return;
+                        if (titleEl) titleEl.textContent = data.word || requestedWord;
                         this.renderDictDetails(data, freeDictEl);
                         // 顶部补一行音标 + 释义摘要，便于没展开 details 也能看到
                         const summary = [];
@@ -4326,6 +4692,7 @@
                             setTimeout(() => this.speakWord(word), 300);
                         }
                     } catch (e) {
+                        if (!this.lookupModalWord || this.lookupModalWord.toLowerCase() !== requestedWord.toLowerCase()) return;
                         if (freeDictEl) freeDictEl.innerHTML = '<p class="empty-state">词典数据加载失败</p>';
                     }
                 }
@@ -4338,6 +4705,11 @@
                     if (aiResultEl) {
                         aiResultEl.style.display = 'none';
                         aiResultEl.innerHTML = '';
+                    }
+                    const ecdictResultEl = document.getElementById('lookupModalEcdictResult');
+                    if (ecdictResultEl) {
+                        ecdictResultEl.style.display = 'none';
+                        ecdictResultEl.innerHTML = '';
                     }
                 }
 				async addLookupWordToNewWords() {
@@ -4466,9 +4838,11 @@
                     if (this.lookupModalWord && this.lookupModalWord.toLowerCase() !== String(word).toLowerCase()) return;
                     try {
                         const cache = await this.db.getWordCache(word);
+                        if (this.lookupModalWord && this.lookupModalWord.toLowerCase() !== String(word).toLowerCase()) return;
                         mwCacheBtn.style.display = (cache && cache.mw) ? '' : 'none';
                         aiCacheBtn.style.display = (cache && cache.ai) ? '' : 'none';
                     } catch (e) {
+                        if (this.lookupModalWord && this.lookupModalWord.toLowerCase() !== String(word).toLowerCase()) return;
                         mwCacheBtn.style.display = 'none';
                         aiCacheBtn.style.display = 'none';
                     }

@@ -1,6 +1,6 @@
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 9;
+            const DB_VERSION = 10;
 
             const STORES = {
                 WORDS: 'words',
@@ -13,7 +13,9 @@
                 SETTINGS: 'settings',
                 LISTENING_FILES: 'listening_files',
                 AUDIO_SEGMENTS: 'audio_segments',
-                WORD_CACHE: 'word_cache'
+                WORD_CACHE: 'word_cache',
+                ECDICT: 'ecdict',
+                ECDICT_META: 'ecdict_meta'
             };
 
             class WordDatabase {
@@ -293,6 +295,15 @@
 									db.createObjectStore(STORES.WORD_CACHE, { keyPath: 'word' });
 								}
 							}
+							if (oldVersion < 10) {
+								console.log('迁移到版本 10：添加 ECDICT 外部词典 stores');
+								if (!db.objectStoreNames.contains(STORES.ECDICT)) {
+									db.createObjectStore(STORES.ECDICT, { keyPath: 'w' });
+								}
+								if (!db.objectStoreNames.contains(STORES.ECDICT_META)) {
+									db.createObjectStore(STORES.ECDICT_META, { keyPath: 'key' });
+								}
+							}
                         };
                         
                         request.onblocked = () => {
@@ -345,6 +356,14 @@
 
                     if (!db.objectStoreNames.contains(STORES.WORD_CACHE)) {
                         db.createObjectStore(STORES.WORD_CACHE, { keyPath: 'word' });
+                    }
+
+                    if (!db.objectStoreNames.contains(STORES.ECDICT)) {
+                        db.createObjectStore(STORES.ECDICT, { keyPath: 'w' });
+                    }
+
+                    if (!db.objectStoreNames.contains(STORES.ECDICT_META)) {
+                        db.createObjectStore(STORES.ECDICT_META, { keyPath: 'key' });
                     }
                 }
 
@@ -1374,6 +1393,112 @@
                         settings,
                         wordLists
                     };
+                }
+
+                // ===== ECDICT 外部词典 =====
+                async getEcdictMeta() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.ECDICT_META], 'readonly');
+                        const request = transaction.objectStore(STORES.ECDICT_META).get('ecdict');
+                        request.onsuccess = () => resolve(request.result || null);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async saveEcdictMeta(meta) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.ECDICT_META], 'readwrite');
+                        const store = transaction.objectStore(STORES.ECDICT_META);
+                        const record = { ...meta, key: 'ecdict' };
+                        const request = store.put(record);
+                        request.onsuccess = () => resolve(record);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getEcdictEntry(word) {
+                    await this.ready();
+                    const base = String(word || '').trim().toLowerCase().replace(/[’]/g, "'");
+                    if (!base) return null;
+                    const variants = [];
+                    const add = (value) => {
+                        const v = String(value || '').trim();
+                        if (v && !variants.includes(v)) variants.push(v);
+                    };
+                    add(base);
+                    add(base.replace(/['’]s$/, ''));
+                    add(base.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ''));
+                    add(base.replace(/[^a-z0-9' ]+/g, ''));
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.ECDICT], 'readonly');
+                        const store = transaction.objectStore(STORES.ECDICT);
+                        let index = 0;
+                        const next = () => {
+                            if (index >= variants.length) { resolve(null); return; }
+                            const request = store.get(variants[index++]);
+                            request.onsuccess = () => {
+                                if (request.result) resolve(request.result);
+                                else next();
+                            };
+                            request.onerror = () => reject(request.error);
+                        };
+                        next();
+                    });
+                }
+
+                async importEcdictBatch(records) {
+                    await this.ready();
+                    if (!Array.isArray(records) || records.length === 0) return 0;
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.ECDICT], 'readwrite');
+                        transaction.oncomplete = () => resolve(records.length);
+                        transaction.onerror = (e) => reject(e.target.error || new Error('ECDICT transaction error'));
+                        transaction.onabort = () => reject(transaction.error || new Error('ECDICT transaction aborted'));
+                        const store = transaction.objectStore(STORES.ECDICT);
+                        for (const record of records) {
+                            if (!record || !record.w) continue;
+                            store.put(record);
+                        }
+                    });
+                }
+
+                async getEcdictCount() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.ECDICT], 'readonly');
+                        const request = transaction.objectStore(STORES.ECDICT).count();
+                        request.onsuccess = () => resolve(request.result || 0);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async clearEcdict() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.ECDICT, STORES.ECDICT_META], 'readwrite');
+                        transaction.oncomplete = () => resolve();
+                        transaction.onerror = (e) => reject(e.target.error || new Error('清空 ECDICT 失败'));
+                        transaction.objectStore(STORES.ECDICT).clear();
+                        transaction.objectStore(STORES.ECDICT_META).delete('ecdict');
+                    });
+                }
+
+                // 导入学习数据时只清用户数据，保留外部词典（ECDICT）
+                async clearUserData() {
+                    await this.ready();
+                    const names = [
+                        STORES.WORDS, STORES.WORD_LISTS, STORES.USER_PROGRESS, STORES.NEW_WORDS,
+                        STORES.DAILY_PLAN, STORES.LEARNING_HISTORY, STORES.NOVELS, STORES.SETTINGS,
+                        STORES.LISTENING_FILES, STORES.AUDIO_SEGMENTS, STORES.WORD_CACHE
+                    ].filter(name => this.db.objectStoreNames.contains(name));
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction(names, 'readwrite');
+                        transaction.oncomplete = () => resolve();
+                        transaction.onerror = (e) => reject(e.target.error || new Error('清空学习数据失败'));
+                        names.forEach(name => transaction.objectStore(name).clear());
+                    });
                 }
 
                 async clearAllData() {

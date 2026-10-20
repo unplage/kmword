@@ -6,14 +6,14 @@
 
 - **间隔重复** — FSRS-6 算法，认词/拼写两种模式，熟悉度追踪，按遗忘曲线自动安排复习
 - **单词分级** — 1~5 级难度，支持筛选复习
-- **词典** — Free Dictionary API（默认） + Merriam-Webster API（可选，免费申请） + Wiktionary 兜底
+- **词典** — Free Dictionary API（默认） + Merriam-Webster API（可选，免费申请） + Wiktionary 兜底 + 可选导入 ECDICT 离线全量词典
 - **AI 分析** — 可选接入智谱 GLM / DeepSeek / 小米 MiMo / 通义千问 / 自定义 OpenAI 兼容接口；支持批量导入 AI 释义缓存
 - **单词库** — 多词库管理，库内单词唯一，库间可重复；支持导入 TXT/MD/HTML
 - **阅读模块** — 上传英文文章，全文 TTS 朗读（播放/暂停/停止，`onboundary` 词级高亮），点击任意单词查词，阅读位置自动记忆，工具栏可折叠
 - **听力模块** — 上传文章生成分段听力音频（MiMo 云 TTS），支持断点续传，播放位置自动记忆
 - **生词本** — 独立收集困难单词
 - **学习计划** — 每日学习目标设置
-- **数据导出/导入** — 完整 JSON 备份（含阅读文章、词典与 AI 释义缓存）
+- **数据导出/导入** — JSON 备份（含阅读文章、韦氏/AI 释义缓存；不含 ECDICT 外部词典）
 - **PWA** — 离线可用，可安装到桌面
 - **主题** — 浅色/深色/跟随系统
 - **快捷键**（学习页面）— `1`/`←` 不认识，`2`/`→` 认识，`Space` 发音，`d` 详情
@@ -60,6 +60,16 @@ python3 build_ai_gloss.py --backend mimo --concise --limit 20
 - API Key 从 opencode 的 `~/.local/share/opencode/auth.json` 读取；也可自行改用环境变量
 - 生成完成后，按上面的导入方式在 PWA 中导入即可
 
+## ECDICT 离线词典
+
+设置 → 数据管理 → 「导入 ECDICT 词典」，选择 [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 的 `ecdict.csv`（本仓库根目录也附带了一份 `ecdict.csv`，可直接使用）：
+
+- **规模** — 约 77 万词条，CSV 约 63MB，导入后浏览器占用约 150MB，仅保存在本机
+- **查词** — 导入完成后，查词弹窗出现「ECDICT」按钮，展示音标、考试标签、柯林斯星级、BNC/COCA 排名、中英文释义与词形变化
+- **备份** — ECDICT 属于外部词典，不进入「导出学习数据」的 JSON 备份；导入备份也不会删除已安装的词典
+- **删除** — 可在同一位置删除词典，不影响单词、复习进度和生词本
+- **许可** — ECDICT 使用 MIT License，详见 `ECDICT-LICENSE.txt`；词条来源 attribution 显示在释义底部
+
 ## 听力模块
 
 基于小米 MiMo 云 TTS（模型 `mimo-v2.5-tts`，需在设置中配置 MiMo API Key）将文章合成为分段听力音频：
@@ -77,5 +87,5 @@ python3 build_ai_gloss.py --backend mimo --concise --limit 20
 |---|---|---|---|
 | KyleBing/english-vocabulary | CET4/CET6、考研、SAT | TXT/JSON 格式，结构清晰 | [GitHub](https://github.com/KyleBing/english-vocabulary) |
 | kajweb/dict | 四级、六级、考研、雅思、托福、SAT、GMAT、GRE | 综合词库，覆盖面最全 | [GitHub](https://github.com/kajweb/dict) |
-| skywind3000/ECDICT | 全品类 | 77 万+词条，含音标、释义、例句 | [GitHub](https://github.com/skywind3000/ECDICT) |
+| skywind3000/ECDICT | 全品类 | 77 万+词条，含音标、释义、例句；可在设置中导入为离线词典 | [GitHub](https://github.com/skywind3000/ECDICT) |
 | fanhongtao/IELTS | 雅思专项 | 专攻雅思词汇 | [GitHub](https://github.com/fanhongtao/IELTS) |
