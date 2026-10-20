@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v48';  // 每次更新时递增
+const CACHE_VERSION = 'v50';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
@@ -17,6 +17,7 @@ const STATIC_ASSETS = [
     `${CURRENT_PATH}/js/wiktionary.js`,
     `${CURRENT_PATH}/js/ecdict.js`,
     `${CURRENT_PATH}/js/dictionary-api.js`,
+    `${CURRENT_PATH}/js/stats.js`,
     `${CURRENT_PATH}/js/ecdict-worker.js`,
     `${CURRENT_PATH}/js/db.js`,
     `${CURRENT_PATH}/js/novel-processor.js`,

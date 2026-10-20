@@ -1,6 +1,6 @@
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 11;
+            const DB_VERSION = 12;
 
             const STORES = {
                 WORDS: 'words',
@@ -16,8 +16,12 @@
                 WORD_CACHE: 'word_cache',
                 ECDICT: 'ecdict',
                 ECDICT_META: 'ecdict_meta',
-                REVIEW_LOG: 'review_log'
+                REVIEW_LOG: 'review_log',
+                SENTENCE_AUDIO: 'sentence_audio'
             };
+
+            const SENTENCE_AUDIO_MAX = 40;
+            const SENTENCE_AUDIO_MAX_BYTES = 600 * 1024;
 
             const LEECH_THRESHOLD = 8;
             const DEFAULT_RETENTION = 0.9;
@@ -384,6 +388,13 @@
 									logStore.createIndex('wordId', 'wordId', { unique: false });
 								}
 							}
+							if (oldVersion < 12) {
+								console.log('迁移到版本 12：添加例句音频缓存 store');
+								if (!db.objectStoreNames.contains(STORES.SENTENCE_AUDIO)) {
+									const audioStore = db.createObjectStore(STORES.SENTENCE_AUDIO, { keyPath: 'key' });
+									audioStore.createIndex('cachedAt', 'cachedAt', { unique: false });
+								}
+							}
                         };
                         
                         request.onblocked = () => {
@@ -450,6 +461,11 @@
                         const logStore = db.createObjectStore(STORES.REVIEW_LOG, { keyPath: 'id', autoIncrement: true });
                         logStore.createIndex('review', 'review', { unique: false });
                         logStore.createIndex('wordId', 'wordId', { unique: false });
+                    }
+
+                    if (!db.objectStoreNames.contains(STORES.SENTENCE_AUDIO)) {
+                        const audioStore = db.createObjectStore(STORES.SENTENCE_AUDIO, { keyPath: 'key' });
+                        audioStore.createIndex('cachedAt', 'cachedAt', { unique: false });
                     }
                 }
 
@@ -1005,6 +1021,80 @@
                     return { imported, invalid };
                 }
 
+                // ===== 例句音频缓存（MiMo 生成后缓存，系统 TTS 不缓存）=====
+                async getSentenceAudio(key) {
+                    await this.ready();
+                    if (!key) return null;
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readonly');
+                        const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                        const request = store.get(key);
+                        request.onsuccess = () => resolve(request.result || null);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async saveSentenceAudio(record) {
+                    await this.ready();
+                    if (!record || !record.key || !record.pcm) return null;
+                    if (record.pcm.length > SENTENCE_AUDIO_MAX_BYTES) return null;
+                    const data = {
+                        key: record.key,
+                        text: record.text || '',
+                        voice: record.voice || '',
+                        style: record.style || '',
+                        bytes: record.pcm.length,
+                        pcm: record.pcm,
+                        cachedAt: new Date().toISOString()
+                    };
+                    await new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                        const request = store.put(data);
+                        request.onsuccess = () => resolve(data);
+                        request.onerror = () => reject(request.error);
+                    });
+                    this.trimSentenceAudio().catch(() => {});
+                    return data;
+                }
+
+                // 保留最近 N 条例句音频，避免 IndexedDB 无限增长
+                async trimSentenceAudio(max = SENTENCE_AUDIO_MAX) {
+                    await this.ready();
+                    const records = await new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readonly');
+                        const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                        const request = store.getAll();
+                        request.onsuccess = () => resolve(request.result || []);
+                        request.onerror = () => reject(request.error);
+                    });
+                    if (records.length <= max) return 0;
+                    records.sort((a, b) => String(a.cachedAt || '').localeCompare(String(b.cachedAt || '')));
+                    const excess = records.slice(0, records.length - max);
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                        for (const record of excess) {
+                            try { store.delete(record.key); } catch (e) {}
+                        }
+                        transaction.oncomplete = () => resolve(excess.length);
+                    });
+                }
+
+                async clearSentenceAudio() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                        const request = store.clear();
+                        request.onsuccess = () => resolve();
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
                 // 导出标准 FSRS review log CSV（可用官方 fsrs-analyzer 优化参数）
                 exportReviewLogCsv(logs) {
                     const rows = Array.isArray(logs) ? logs : [];
@@ -1306,6 +1396,18 @@
                             });
                             resolve(stats);
                         };
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                // 全部学习历史（统计页按北京时间分桶用）
+                async getAllLearningHistory() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.LEARNING_HISTORY], 'readonly');
+                        const store = transaction.objectStore(STORES.LEARNING_HISTORY);
+                        const request = store.getAll();
+                        request.onsuccess = () => resolve(request.result || []);
                         request.onerror = () => reject(request.error);
                     });
                 }

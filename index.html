@@ -217,6 +217,7 @@
                     <div class="example-section">
                         <h3>例句</h3>
                         <p id="wordExample">This is an example sentence.</p>
+                        <button type="button" class="example-play" id="cardExamplePlay" data-sentence="" title="朗读例句" aria-label="朗读例句" style="display:none;"><i class="fas fa-volume-up"></i></button>
                     </div>
                     
                     <div class="collins-section">
@@ -673,53 +674,121 @@
 
         <!-- 统计页面 -->
         <section id="statsPage" class="page" aria-label="统计">
-            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                 <h2>统计</h2>
-                <button class="action-btn small" id="statsBackBtn">
-                    <i class="fas fa-arrow-left"></i> 返回首页
-                </button>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="stats-range" id="statsRange">
+                        <button type="button" class="stats-range-btn" data-range="7">7 天</button>
+                        <button type="button" class="stats-range-btn active" data-range="30">30 天</button>
+                        <button type="button" class="stats-range-btn" data-range="90">90 天</button>
+                    </div>
+                    <button class="action-btn small" id="statsExportBtn">
+                        <i class="fas fa-download"></i> 导出 CSV
+                    </button>
+                    <button class="action-btn small" id="statsBackBtn">
+                        <i class="fas fa-arrow-left"></i> 返回首页
+                    </button>
+                </div>
             </div>
             <div class="stats-container">
-                <!-- 顶部 4 张卡片 -->
+                <!-- 核心指标 -->
                 <div class="daily-summary" id="statsContent">
-                    <div class="summary-card">
-                        <h3>连续学习</h3>
-                        <div class="streak" id="statStreak">0</div>
-                        <p class="summary-sub">天</p>
-                    </div>
                     <div class="summary-card">
                         <h3>今日学习</h3>
                         <div class="streak" id="statToday">0</div>
-                        <p class="summary-sub">个</p>
+                        <p class="summary-sub">次</p>
                     </div>
                     <div class="summary-card">
-                        <h3>已掌握</h3>
-                        <div class="streak" id="statMastered">0</div>
-                        <p class="summary-sub">个</p>
+                        <h3>已学单词</h3>
+                        <div class="streak" id="statStudied">0</div>
+                        <p class="summary-sub" id="statStudiedHint">—</p>
                     </div>
                     <div class="summary-card">
-                        <h3>近30天正确率</h3>
-                        <div class="streak" id="statAccuracy">0%</div>
+                        <h3>成熟词</h3>
+                        <div class="streak" id="statMatured">0</div>
+                        <p class="summary-sub">稳定 ≥ 21 天</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>平均保持率</h3>
+                        <div class="streak" id="statRetention">—</div>
+                        <p class="summary-sub" id="statRetentionHint">目标 —</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>真实回忆率</h3>
+                        <div class="streak" id="statRecall">—</div>
+                        <p class="summary-sub" id="statRecallHint">近 30 天</p>
+                    </div>
+                    <div class="summary-card">
+                        <h3>待复习</h3>
+                        <div class="streak" id="statDue">0</div>
+                        <p class="summary-sub" id="statDueHint">含积压 —</p>
                     </div>
                 </div>
 
-                <!-- 近 30 天活动柱状图 -->
+                <!-- FSRS 状态与稳定性 -->
+                <div class="stats-chart-card">
+                    <h3>记忆状态分布（FSRS）</h3>
+                    <div class="state-dist" id="statsStateDist"></div>
+                    <p class="stats-hint" id="statsStateHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>记忆稳定性分布</h3>
+                    <div class="mastery-dist" id="statsStability"></div>
+                    <p class="stats-hint" id="statsStabilityHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>未来 14 天复习负荷</h3>
+                    <div class="activity-chart" id="statsForecast"></div>
+                    <p class="stats-hint" id="statsForecastHint"></p>
+                </div>
+
+                <!-- 记忆分析 -->
+                <div class="stats-chart-card">
+                    <h3>实际回忆率 vs FSRS 理论曲线</h3>
+                    <div class="recall-curve" id="statsRecallCurve"></div>
+                    <p class="stats-hint" id="statsRecallCurveHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>四档评分分布与平均间隔</h3>
+                    <div class="mastery-dist" id="statsRatingDist"></div>
+                    <p class="stats-hint" id="statsRatingHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>难度 × 回忆率</h3>
+                    <div class="mastery-dist" id="statsDifficulty"></div>
+                    <p class="stats-hint" id="statsDifficultyHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>易忘词 Top 10</h3>
+                    <div class="hard-word-list" id="statsHardWords"></div>
+                </div>
+
+                <!-- 行为维度 -->
+                <div class="stats-chart-card">
+                    <h3>学习时段分布</h3>
+                    <div class="hour-heat" id="statsHourHeat"></div>
+                    <p class="stats-hint" id="statsHourHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>近 26 周学习活跃度</h3>
+                    <div class="calendar-heat" id="statsActivityHeat"></div>
+                    <p class="stats-hint" id="statsActivityHint"></p>
+                </div>
+                <div class="stats-chart-card">
+                    <h3>词库维度</h3>
+                    <div class="stats-table-wrap" id="statsByList"></div>
+                </div>
+
+                <!-- 原有图表 -->
                 <div class="stats-chart-card">
                     <h3>近 30 天学习量</h3>
-                    <div id="activityChart" class="activity-chart"></div>
+                    <div class="activity-chart" id="activityChart"></div>
                     <p class="empty-state" id="activityEmpty" style="display:none;">暂无学习记录</p>
                 </div>
 
-                <!-- 掌握度分布 -->
-                <div class="stats-chart-card">
-                    <h3>掌握度分布</h3>
-                    <div id="masteryDist" class="mastery-dist"></div>
-                </div>
-
-                <!-- 正确率趋势 -->
                 <div class="stats-chart-card">
                     <h3>近 7 天正确率</h3>
-                    <div id="accuracyTrend" class="accuracy-trend"></div>
+                    <div class="accuracy-trend" id="accuracyTrend"></div>
                 </div>
             </div>
         </section>
@@ -744,6 +813,7 @@
     <script src="js/wiktionary.js"></script>
     <script src="js/ecdict.js"></script>
     <script src="js/dictionary-api.js"></script>
+    <script src="js/stats.js"></script>
     <script src="js/db.js"></script>
     <script src="js/novel-processor.js"></script>
     <script src="js/tts-generator.js"></script>

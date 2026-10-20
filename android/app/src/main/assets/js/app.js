@@ -570,6 +570,8 @@
                 async init() {
                     console.log('应用初始化开始');
                     try {
+                        // 先绑定事件，保证网络探测期间界面依然可交互
+                        this.bindEvents();
                         this.registerServiceWorker();
                         this.setupNetworkListeners();
                         await this.db.ready();
@@ -600,7 +602,7 @@
                         console.error('应用初始化失败:', error);
                         this.showNotification('应用初始化失败，部分功能可能受限', 'error');
                     } finally {
-                        this.bindEvents();
+                        this._initialized = true;
                     }
                 }
 
@@ -746,6 +748,33 @@
                     document.getElementById('savePlanBtn')?.addEventListener('click', () => this.saveDailyPlan());
 
                     document.getElementById('statsBtn')?.addEventListener('click', () => this.showStats());
+                    // 统计页：时间范围切换 / 导出 / 易忘词跳转
+                    document.getElementById('statsRange')?.addEventListener('click', (e) => {
+                        const btn = e.target.closest('.stats-range-btn');
+                        if (!btn) return;
+                        const range = parseInt(btn.dataset.range, 10);
+                        if (!Number.isFinite(range)) return;
+                        this._statsRange = range;
+                        document.querySelectorAll('#statsRange .stats-range-btn').forEach(item => {
+                            item.classList.toggle('active', item === btn);
+                        });
+                        this.loadStatsPage();
+                    });
+                    document.getElementById('statsExportBtn')?.addEventListener('click', () => this.exportStatsCsv());
+                    document.getElementById('statsHardWords')?.addEventListener('click', (e) => {
+                        const item = e.target.closest('.hard-word-text');
+                        if (!item) return;
+                        const wordId = parseInt(item.dataset.wordid, 10);
+                        const word = item.dataset.word || '';
+                        const open = async () => {
+                            if (word) { this.openWordLookup(word); return; }
+                            if (!Number.isNaN(wordId)) {
+                                const w = await this.db.getWordById(wordId);
+                                if (w && w.word) this.openWordLookup(w.word);
+                            }
+                        };
+                        open().catch(err => console.warn('打开词条失败:', err));
+                    });
                     document.getElementById('statsBackBtn')?.addEventListener('click', () => this.switchPage('home'));
 
                     document.getElementById('startReviewSession')?.addEventListener('click', () => this.startReviewSession());
@@ -776,6 +805,14 @@
                         if (target && target.dataset.word) {
                             this.openWordLookup(target.dataset.word);
                         }
+                    });
+                    // 例句朗读按钮（事件委托，避免内联 onclick 处理含引号的例句）
+                    document.addEventListener('click', (e) => {
+                        const btn = e.target.closest && e.target.closest('.example-play');
+                        if (!btn) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.speakSentence(btn.dataset.sentence || '', btn);
                     });
                     document.getElementById('lookupModalClose')?.addEventListener('click', () => this.closeWordLookup());
                     document.getElementById('wordLookupModal')?.addEventListener('click', (e) => {
@@ -1367,6 +1404,7 @@
                         if (wordPhonetic) wordPhonetic.textContent = freshData.phonetic;
                         if (wordMeaning) wordMeaning.textContent = freshData.meaning;
                         if (wordExample) wordExample.textContent = freshData.example || '暂无例句';
+                        this.updateCardExampleButton(freshData.example);
                         this.updateDictionaryDetails(freshData);
                         this.currentAudioUrl = freshData.audioUrl;
                         const autoPlay = await this.db.getSetting('autoPlaySound');
@@ -1383,6 +1421,7 @@
                         if (wordPhonetic) wordPhonetic.textContent = wordData.phonetic || '/ˈwɜːd/';
                         if (wordMeaning) wordMeaning.textContent = wordData.meaning || '暂无释义';
                         if (wordExample) wordExample.textContent = wordData.example || '暂无例句';
+                        this.updateCardExampleButton(wordData.example);
                     }
                     const difficultyBadge = document.getElementById('difficultyBadge');
                     if (difficultyBadge) {
@@ -1433,6 +1472,20 @@
                         contextEl.style.display = 'none';
                     }
                     this.hideLoader();
+                }
+
+                // 学习卡片例句的朗读按钮
+                updateCardExampleButton(example) {
+                    const btn = document.getElementById('cardExamplePlay');
+                    if (!btn) return;
+                    const sentence = this.sanitizeSentence(example);
+                    if (!sentence || sentence === '暂无例句') {
+                        btn.style.display = 'none';
+                        btn.dataset.sentence = '';
+                        return;
+                    }
+                    btn.dataset.sentence = sentence;
+                    btn.style.display = '';
                 }
 
                 // 根据当前学习模式（认词/拼写）调整卡片可见性
@@ -1535,7 +1588,7 @@
 							html += `<div class="meaning-item" style="margin-bottom: 15px;">`;
 							if (meaning.partOfSpeech) html += `<div class="part-of-speech">${esc(meaning.partOfSpeech)}</div>`;
 							if (meaning.definition) html += `<div class="definition">${esc(meaning.definition)}</div>`;
-							if (meaning.example) html += `<div class="example"><em>例句:</em> ${esc(meaning.example)}</div>`;
+							if (meaning.example) html += `<div class="example"><em>例句:</em> ${esc(meaning.example)}${this.examplePlayButton(meaning.example)}</div>`;
 							if (meaning.synonyms && meaning.synonyms.length > 0) {
 								html += `<div style="margin-top: 6px; font-size: 0.9rem;">`;
 								html += `<span style="color: var(--gray-color); font-weight: 500;">同义词：</span>`;
@@ -1587,7 +1640,7 @@
 									allHtml += '<div class="meaning-item" style="margin-bottom: 15px;">';
 									if (m.partOfSpeech) allHtml += '<div class="part-of-speech">' + self.escapeHtml(m.partOfSpeech) + '</div>';
 									if (m.definition) allHtml += '<div class="definition">' + self.escapeHtml(m.definition) + '</div>';
-									if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + self.escapeHtml(m.example) + '</div>';
+									if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + self.escapeHtml(m.example) + self.examplePlayButton(m.example) + '</div>';
 									allHtml += '</div>';
 								});
 								this.closest('.dictionary-details').insertAdjacentHTML('beforeend', allHtml);
@@ -1763,9 +1816,9 @@
                 }
 
                 async completeLearningSession() {
-                    const stats = await this.db.getLearningStats(1);
-                    const correct = stats.correct;
-                    const total = stats.total;
+                    const todayHistory = await this.db.getTodayHistory();
+                    const total = todayHistory.length;
+                    const correct = todayHistory.filter(item => item.correct).length;
                     const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
                     const pendingCount = (this._pendingLearning || []).length;
                     let message = '恭喜完成今日学习！';
@@ -3076,7 +3129,19 @@
                                         <span id="ttsSpeedValue" style="font-size:0.9rem; color:var(--gray-color); text-align:center;">0 (正常)</span>
                                     </div>
                                 </div>
+                                <div class="setting-item">
+                                    <label for="sentenceTtsEngine">例句播放策略</label>
+                                    <div class="setting-control">
+                                        <select id="sentenceTtsEngine">
+                                            <option value="auto">自动（有 MiMo Key 用云端，否则系统语音）</option>
+                                            <option value="system">系统语音（免费、离线可用）</option>
+                                            <option value="mimo">MiMo 云端（默认语音）</option>
+                                            <option value="follow">跟随全文朗读引擎</option>
+                                        </select>
+                                    </div>
+                                </div>
                                 <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">引擎仅影响阅读器全文朗读；单词发音仍使用系统语音或词典音频。MiMo API Key 请到 Xiaomi MiMo 开放平台获取。</p>
+                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:6px;">例句朗读会打断正在进行的全文朗读；MiMo 云端生成成功的例句音频会缓存到本地（系统语音不缓存）。</p>
                             </div>
                             <div class="settings-section">
                                 <h3>AI 分析设置</h3>
@@ -3437,6 +3502,7 @@
                         };
                         this._savedSpeaker = settings.ttsSpeaker || '';
                         setSelect('ttsVoice', settings.ttsVoice);
+                        setSelect('sentenceTtsEngine', settings.sentenceTtsEngine || 'auto');
                         if (settings.ttsSpeed != null) {
                             const el = document.getElementById('ttsSpeed');
                             if (el) el.value = settings.ttsSpeed;
@@ -3500,6 +3566,7 @@
                             mimoVoice: getSelect('mimoVoice') || 'mimo_default',
                             mimoStyle: getSelect('mimoStyle') || 'standard',
                             mimoStyleCustom: getInputValue('mimoStyleCustom') || '',
+                            sentenceTtsEngine: getSelect('sentenceTtsEngine') || 'auto',
                             llmProvider: getSelect('llmProvider') || 'zhipu',
                             llmApiBase: (getInputValue('llmApiBase') || '').trim(),
                             llmApiKey: getInputValue('llmApiKey'),
@@ -4450,39 +4517,442 @@
                     }
                 }
 
+                // ===== 统计页（FSRS 维度）=====
                 async loadStatsPage() {
                     try {
-                        const streak = await this.db.getSetting('learningStreak') || 0;
-                        const todayStats = await this.db.getLearningStats(1);
-                        const monthStats = await this.db.getLearningStats(30);
-                        const progressStats = await this.db.getProgressStats();
-                        const accuracy = monthStats.total > 0
-                            ? Math.round((monthStats.correct / monthStats.total) * 100)
-                            : 0;
+                        const S = window.statsUtil;
+                        if (!S) {
+                            console.warn('统计模块未加载');
+                            return;
+                        }
+                        const range = this._statsRange || 30;
+                        const now = new Date();
+                        const [progress, logs, words, lists, history, todayHistory, plan, retentionSetting] = await Promise.all([
+                            this.db.getAllProgress(),
+                            this.db.getReviewLogs(),
+                            this.db.getAllWords(),
+                            this.db.getWordLists(),
+                            this.db.getAllLearningHistory(),
+                            this.db.getTodayHistory(),
+                            this.db.getDailyPlan(),
+                            this.db.getSetting('fsrsRequestRetention')
+                        ]);
+
+                        // 只统计所选时间范围内的复习日志
+                        const cutoff = now.getTime() - range * 86400000;
+                        const rangeLogs = (logs || []).filter(log => {
+                            const t = log && log.review ? new Date(log.review).getTime() : 0;
+                            return t >= cutoff;
+                        });
+
+                        const progressAgg = S.aggregateProgress(progress || [], {
+                            now,
+                            fsrs: this.db.srs(),
+                            cardFromProgress: (p, n) => this.db.cardFromProgress(p, n)
+                        });
+                        const forecast = S.forecastDue(progress || [], { now, days: 14 });
+                        const logAgg = S.aggregateReviewLog(rangeLogs, { now });
+                        const heat = S.activityHeatmap(history || [], { now, weeks: 26 });
+                        const hour = S.hourlyHeatmap(rangeLogs);
+                        const progressMap = new Map((progress || []).map(p => [p.wordId, p]));
+                        const byList = S.aggregateByList(words || [], progressMap, lists || []);
+                        const hard = S.hardWords(progress || [], { limit: 10, now });
+
+                        // 学习量按北京时间分桶
+                        const byDay = {};
+                        for (const item of history || []) {
+                            const key = S.dayKey(item.date);
+                            if (!key) continue;
+                            if (!byDay[key]) byDay[key] = { total: 0, correct: 0 };
+                            byDay[key].total++;
+                            if (item.correct) byDay[key].correct++;
+                        }
+
+                        this._statsData = { range, now, progressAgg, forecast, logAgg, heat, hour, byList, hard, byDay, words, progress };
 
                         const setText = (id, v) => {
                             const el = document.getElementById(id);
                             if (el) el.textContent = v;
                         };
-                        setText('statStreak', streak);
-                        setText('statToday', todayStats.total);
-                        setText('statMastered', progressStats.mastered);
-                        setText('statAccuracy', `${accuracy}%`);
+                        setText('statToday', (todayHistory || []).length);
+                        setText('statStudied', progressAgg.total);
+                        setText('statStudiedHint', `共 ${(words || []).length} 个词`);
+                        setText('statMatured', progressAgg.matured);
+                        setText('statRetention', progressAgg.avgRetrievability != null
+                            ? `${Math.round(progressAgg.avgRetrievability * 100)}%`
+                            : '—');
+                        setText('statRetentionHint', `目标 ${Math.round((retentionSetting || 0.9) * 100)}%`);
+                        setText('statRecall', logAgg.recallRate != null
+                            ? `${Math.round(logAgg.recallRate * 100)}%`
+                            : '—');
+                        setText('statRecallHint', `近 ${range} 天 · ${logAgg.total} 次复习`);
+                        setText('statDue', forecast.days[0] ? forecast.days[0].count : 0);
+                        setText('statDueHint', forecast.overdue > 0 ? `含积压 ${forecast.overdue} 个` : '无积压');
 
-                        this.renderActivityChart(monthStats.byDay);
-                        this.renderMasteryDist(progressStats.distribution);
-                        this.renderAccuracyTrend(monthStats.byDay);
+                        this.renderStatsStateDist(progressAgg);
+                        this.renderStatsStability(progressAgg);
+                        this.renderStatsForecast(forecast, plan);
+                        this.renderStatsRecallCurve(logAgg, progressAgg);
+                        this.renderStatsRatingDist(logAgg);
+                        this.renderStatsDifficulty(logAgg);
+                        this.renderStatsHardWords(hard, words);
+                        this.renderStatsHourHeat(hour, range);
+                        this.renderStatsActivityHeat(heat);
+                        this.renderStatsByList(byList);
+                        this.renderActivityChart(byDay, 30);
+                        this.renderAccuracyTrend(byDay, 7);
                     } catch (error) {
                         console.error('加载统计页面失败:', error);
+                        this.showNotification('加载统计数据失败', 'error');
                     }
                 }
 
-                // 近 30 天柱状图：byDay = { 'YYYY-MM-DD': { total, correct } }
-                renderActivityChart(byDay) {
+                // 记忆状态分布（New / Learning / Review / Relearning）
+                renderStatsStateDist(agg) {
+                    const el = document.getElementById('statsStateDist');
+                    const hint = document.getElementById('statsStateHint');
+                    if (!el) return;
+                    const defs = [
+                        { key: 'new', label: '新词', color: '#9E9E9E' },
+                        { key: 'learning', label: '学习中', color: '#FF9800' },
+                        { key: 'review', label: '复习中', color: '#4CAF50' },
+                        { key: 'relearning', label: '重学中', color: '#F44336' }
+                    ];
+                    const total = agg.total || 0;
+                    if (!total) {
+                        el.innerHTML = '<p class="empty-state">暂无学习数据</p>';
+                        if (hint) hint.textContent = '';
+                        return;
+                    }
+                    const segments = defs.map(def => {
+                        const count = agg.states[def.key] || 0;
+                        const pct = total ? (count / total) * 100 : 0;
+                        if (!count) return '';
+                        return `<div class="state-seg" style="width:${pct}%;background:${def.color};" title="${def.label} ${count}">${pct >= 8 ? pct.toFixed(0) + '%' : ''}</div>`;
+                    }).join('');
+                    const legend = defs.map(def => {
+                        const count = agg.states[def.key] || 0;
+                        const pct = total ? Math.round((count / total) * 100) : 0;
+                        return `<span><i style="background:${def.color};"></i>${def.label} ${count}（${pct}%）</span>`;
+                    }).join('');
+                    el.innerHTML = `<div class="state-bar">${segments}</div><div class="state-legend">${legend}</div>`;
+                    if (hint) {
+                        hint.textContent = `共 ${total} 个词进入学习；平均难度 ${agg.avgDifficulty.toFixed(1)}/10，平均遗忘 ${agg.avgLapses.toFixed(2)} 次，易忘词 ${agg.leeches} 个。`;
+                    }
+                }
+
+                // 记忆稳定性分布
+                renderStatsStability(agg) {
+                    const el = document.getElementById('statsStability');
+                    const hint = document.getElementById('statsStabilityHint');
+                    if (!el) return;
+                    const buckets = ['<7', '7-30', '30-90', '>90'];
+                    const labels = { '<7': '不足 1 周', '7-30': '1-4 周', '30-90': '1-3 月', '>90': '3 月以上' };
+                    const colors = ['#F44336', '#FF9800', '#2196F3', '#4CAF50'];
+                    const max = Math.max(1, ...buckets.map(b => agg.stabilityBuckets[b] || 0));
+                    el.innerHTML = buckets.map((b, i) => {
+                        const count = agg.stabilityBuckets[b] || 0;
+                        const pct = (count / max) * 100;
+                        return `<div class="mastery-row">
+                            <span class="mastery-label">${labels[b]}</span>
+                            <div class="mastery-bar-track"><div class="mastery-bar-fill" style="width:${pct}%;background:${colors[i]};"></div></div>
+                            <span class="mastery-count">${count}</span>
+                        </div>`;
+                    }).join('');
+                    if (hint) {
+                        const dist = Object.values(agg.retrievabilityBuckets).reduce((a, b) => a + b, 0);
+                        const low = (agg.retrievabilityBuckets['<50%'] || 0) + (agg.retrievabilityBuckets['50-70%'] || 0);
+                        hint.textContent = dist
+                            ? `中位稳定性 ${agg.medianStability.toFixed(1)} 天；${low} 个词当前保持率低于 70%，建议今天优先复习。`
+                            : '暂无复习阶段卡片，完成首次学习后即可看到稳定性分布。';
+                    }
+                }
+
+                // 未来 14 天复习负荷
+                renderStatsForecast(forecast, plan) {
+                    const el = document.getElementById('statsForecast');
+                    const hint = document.getElementById('statsForecastHint');
+                    if (!el) return;
+                    const max = Math.max(1, ...forecast.days.map(d => d.count));
+                    const goal = (plan && plan.reviewGoal) || 0;
+                    el.innerHTML = forecast.days.map(d => {
+                        const pct = (d.count / max) * 100;
+                        const over = goal > 0 && d.count > goal;
+                        const label = `${d.date.getMonth() + 1}/${d.date.getDate()}`;
+                        const color = over ? 'var(--danger-color)' : 'var(--secondary-color)';
+                        return `<div class="activity-bar" title="${label}: ${d.count} 个${over ? '（超出每日复习目标）' : ''}">
+                            <div class="activity-bar-fill" style="height:${pct}%;background:${color};"></div>
+                            <span class="activity-bar-label">${label}</span>
+                        </div>`;
+                    }).join('');
+                    if (hint) {
+                        const total = forecast.total + forecast.overdue;
+                        const avg = (forecast.total / Math.max(1, forecast.days.length)).toFixed(1);
+                        hint.textContent = `未来 14 天共需复习 ${total} 个词，日均 ${avg} 个${goal ? `（每日目标 ${goal} 个）` : ''}${forecast.overdue ? `；另有 ${forecast.overdue} 个已过期待补` : ''}。`;
+                    }
+                }
+
+                // 实际回忆率 vs FSRS 理论曲线
+                renderStatsRecallCurve(logAgg, progressAgg) {
+                    const el = document.getElementById('statsRecallCurve');
+                    const hint = document.getElementById('statsRecallCurveHint');
+                    if (!el) return;
+                    const rows = logAgg.elapsedList || [];
+                    if (!rows.some(r => r.total > 0)) {
+                        el.innerHTML = '<p class="empty-state">暂无复习日志，积累后可分析实际回忆率</p>';
+                        if (hint) hint.textContent = '';
+                        return;
+                    }
+                    const fsrs = this.db.srs();
+                    const stability = progressAgg.medianStability > 0 ? progressAgg.medianStability : 10;
+                    const html = rows.map(row => {
+                        if (!row.total) {
+                            return `<div class="recall-row"><span class="recall-label">${row.bucket} 天</span>
+                                <div class="recall-track"></div><span class="recall-value">无数据</span></div>`;
+                        }
+                        const rate = row.rate * 100;
+                        const theory = row.avgElapsed > 0 && fsrs && typeof fsrs.forgetting_curve === 'function'
+                            ? fsrs.forgetting_curve(row.avgElapsed, stability) * 100
+                            : null;
+                        const marker = theory != null
+                            ? `<div class="recall-theory" style="left:${Math.min(100, Math.max(0, theory))}%;" title="FSRS 理论 ${theory.toFixed(0)}%"></div>`
+                            : '';
+                        return `<div class="recall-row">
+                            <span class="recall-label">${row.bucket} 天</span>
+                            <div class="recall-track">
+                                <div class="recall-fill" style="width:${Math.min(100, rate)}%;"></div>
+                                ${marker}
+                            </div>
+                            <span class="recall-value">实际 ${rate.toFixed(0)}%${theory != null ? ` / 理论 ${theory.toFixed(0)}%` : ''}</span>
+                        </div>`;
+                    }).join('');
+                    el.innerHTML = html + `<div class="recall-legend"><span><i class="legend-actual"></i>实际回忆率</span><span><i class="legend-theory"></i>FSRS 理论值（中位稳定性 ${stability.toFixed(1)} 天）</span></div>`;
+                    if (hint) {
+                        const diff = logAgg.elapsedList.filter(r => r.total > 0 && r.rate != null)
+                            .map(r => r.rate * 100 - (fsrs && typeof fsrs.forgetting_curve === 'function'
+                                ? fsrs.forgetting_curve(r.avgElapsed, stability) * 100 : 0));
+                        const avgDiff = diff.length ? diff.reduce((a, b) => a + b, 0) / diff.length : 0;
+                        hint.textContent = diff.length
+                            ? `实际回忆率平均比 FSRS 理论值${avgDiff >= 0 ? '高' : '低'} ${Math.abs(avgDiff).toFixed(0)} 个百分点：${avgDiff >= 0 ? '模型偏保守，可适当上调目标保持率' : '模型偏乐观，建议下调目标保持率或增加复习频率'}。`
+                            : '';
+                    }
+                }
+
+                // 四档评分分布与平均间隔
+                renderStatsRatingDist(logAgg) {
+                    const el = document.getElementById('statsRatingDist');
+                    const hint = document.getElementById('statsRatingHint');
+                    if (!el) return;
+                    const defs = [
+                        { rating: 1, label: '不认识', color: '#F44336' },
+                        { rating: 2, label: '困难', color: '#FF9800' },
+                        { rating: 3, label: '认识', color: '#2196F3' },
+                        { rating: 4, label: '简单', color: '#4CAF50' }
+                    ];
+                    const total = logAgg.total || 0;
+                    if (!total) {
+                        el.innerHTML = '<p class="empty-state">暂无复习日志</p>';
+                        if (hint) hint.textContent = '';
+                        return;
+                    }
+                    const max = Math.max(1, ...defs.map(d => logAgg.ratingDist[d.rating] || 0));
+                    el.innerHTML = defs.map(def => {
+                        const count = logAgg.ratingDist[def.rating] || 0;
+                        const pct = (count / max) * 100;
+                        const ratio = total ? Math.round((count / total) * 100) : 0;
+                        const avg = (logAgg.ratingList.find(r => r.rating === def.rating) || {}).avgInterval || 0;
+                        return `<div class="mastery-row">
+                            <span class="mastery-label">${def.label}</span>
+                            <div class="mastery-bar-track"><div class="mastery-bar-fill" style="width:${pct}%;background:${def.color};"></div></div>
+                            <span class="mastery-count">${count}</span>
+                            <span class="mastery-extra">${ratio}% · 均 ${avg.toFixed(1)} 天</span>
+                        </div>`;
+                    }).join('');
+                    if (hint) {
+                        const hardShare = total ? ((logAgg.ratingDist[1] + logAgg.ratingDist[2]) / total) : 0;
+                        hint.textContent = `困难/不认识占比 ${(hardShare * 100).toFixed(0)}%；用四档评分可以让 FSRS 更准确地估计难度与稳定性。`;
+                    }
+                }
+
+                // 难度 × 回忆率
+                renderStatsDifficulty(logAgg) {
+                    const el = document.getElementById('statsDifficulty');
+                    const hint = document.getElementById('statsDifficultyHint');
+                    if (!el) return;
+                    const rows = (logAgg.difficultyList || []).filter(r => r.total > 0);
+                    if (!rows.length) {
+                        el.innerHTML = '<p class="empty-state">暂无数据</p>';
+                        if (hint) hint.textContent = '';
+                        return;
+                    }
+                    const max = Math.max(1, ...rows.map(r => r.total));
+                    el.innerHTML = rows.map(row => {
+                        const pct = (row.total / max) * 100;
+                        const rate = row.rate != null ? Math.round(row.rate * 100) : 0;
+                        const color = rate >= 85 ? '#4CAF50' : (rate >= 65 ? '#FF9800' : '#F44336');
+                        return `<div class="mastery-row">
+                            <span class="mastery-label">难度 ${row.bucket}</span>
+                            <div class="mastery-bar-track"><div class="mastery-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+                            <span class="mastery-count">${row.total}</span>
+                            <span class="mastery-extra">回忆率 ${rate}%</span>
+                        </div>`;
+                    }).join('');
+                    if (hint) {
+                        const worst = rows.slice().sort((a, b) => (a.rate || 0) - (b.rate || 0))[0];
+                        hint.textContent = worst ? `难度 ${worst.bucket} 的词回忆率最低（${Math.round((worst.rate || 0) * 100)}%），可优先安排这些词。` : '';
+                    }
+                }
+
+                // 易忘词 Top 10
+                renderStatsHardWords(hard, words) {
+                    const el = document.getElementById('statsHardWords');
+                    if (!el) return;
+                    if (!hard || !hard.length) {
+                        el.innerHTML = '<p class="empty-state">太棒了，暂无易忘词</p>';
+                        return;
+                    }
+                    const wordMap = new Map((words || []).map(w => [w.id, w.word]));
+                    el.innerHTML = hard.map(item => {
+                        const word = wordMap.get(item.wordId) || `词 #${item.wordId}`;
+                        const stability = item.stability ? `${item.stability.toFixed(1)} 天` : '—';
+                        return `<div class="hard-word-row">
+                            <span class="hard-word-text" data-wordid="${item.wordId}" data-word="${this.escapeHtml(word)}">${this.escapeHtml(word)}</span>
+                            <span class="hard-word-meta">遗忘 ${item.lapses} 次</span>
+                            <span class="hard-word-meta">稳定 ${stability}</span>
+                            <span class="hard-word-meta">难度 ${item.difficulty.toFixed(1)}</span>
+                            ${item.isLeech ? '<span class="leech-badge">易忘词</span>' : ''}
+                        </div>`;
+                    }).join('');
+                }
+
+                // 学习时段分布
+                renderStatsHourHeat(hours, range) {
+                    const el = document.getElementById('statsHourHeat');
+                    const hint = document.getElementById('statsHourHint');
+                    if (!el) return;
+                    const max = Math.max(1, ...hours);
+                    el.innerHTML = hours.map((count, hour) => {
+                        const ratio = count / max;
+                        const alpha = count === 0 ? 0 : 0.2 + ratio * 0.8;
+                        return `<div class="hour-cell" style="background:${count ? `rgba(76,175,80,${alpha.toFixed(2)})` : 'var(--light-color)'}" title="${hour}:00 · ${count} 次"></div>`;
+                    }).join('');
+                    if (hint) {
+                        let best = 0;
+                        for (let i = 1; i < hours.length; i++) if (hours[i] > hours[best]) best = i;
+                        const total = hours.reduce((a, b) => a + b, 0);
+                        hint.textContent = total
+                            ? `近 ${range} 天共 ${total} 次复习，最活跃时段为 ${best}:00-${best + 1}:00（${hours[best]} 次）。`
+                            : `近 ${range} 天暂无复习记录。`;
+                    }
+                }
+
+                // 近 26 周活跃热力图
+                renderStatsActivityHeat(heat) {
+                    const el = document.getElementById('statsActivityHeat');
+                    const hint = document.getElementById('statsActivityHint');
+                    if (!el) return;
+                    const max = Math.max(1, heat.max);
+                    el.innerHTML = heat.columns.map(col => {
+                        return `<div class="calendar-col">${col.map(cell => {
+                            const ratio = cell.count / max;
+                            const alpha = cell.count === 0 ? 0 : 0.2 + ratio * 0.8;
+                            return `<div class="calendar-cell" style="${cell.count ? `background:rgba(76,175,80,${alpha.toFixed(2)})` : ''}" title="${cell.key} · ${cell.count} 次"></div>`;
+                        }).join('')}</div>`;
+                    }).join('');
+                    if (hint) {
+                        const active = heat.cells.filter(c => c.count > 0).length;
+                        hint.textContent = `近 26 周有 ${active} 天学习记录，单日最多 ${heat.max} 次。`;
+                    }
+                }
+
+                // 词库维度
+                renderStatsByList(rows) {
+                    const el = document.getElementById('statsByList');
+                    if (!el) return;
+                    if (!rows || !rows.length) {
+                        el.innerHTML = '<p class="empty-state">暂无词库数据</p>';
+                        return;
+                    }
+                    const headers = ['词库', '总词数', '已学', '成熟', '易忘', '待复习', '平均遗忘'];
+                    const body = rows.map(row => `<tr>
+                        <td>${this.escapeHtml(row.name)}</td>
+                        <td>${row.total}</td>
+                        <td>${row.studied}</td>
+                        <td>${row.mature}</td>
+                        <td>${row.leeches}</td>
+                        <td>${row.due}</td>
+                        <td>${row.studied ? (row.lapses / row.studied).toFixed(2) : '—'}</td>
+                    </tr>`).join('');
+                    el.innerHTML = `<table class="stats-table">
+                        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+                        <tbody>${body}</tbody>
+                    </table>`;
+                }
+
+                // 导出统计 CSV
+                exportStatsCsv() {
+                    try {
+                        const S = window.statsUtil;
+                        const data = this._statsData;
+                        if (!S || !data) {
+                            this.showNotification('暂无可导出的统计数据', 'warning');
+                            return;
+                        }
+                        const rows = [];
+                        rows.push({ 指标: '统计区间(天)', 数值: data.range });
+                        rows.push({ 指标: '已学单词', 数值: data.progressAgg.total });
+                        rows.push({ 指标: '成熟词(稳定≥21天)', 数值: data.progressAgg.matured });
+                        rows.push({ 指标: '平均保持率', 数值: data.progressAgg.avgRetrievability != null ? (data.progressAgg.avgRetrievability * 100).toFixed(1) + '%' : '—' });
+                        rows.push({ 指标: '真实回忆率', 数值: data.logAgg.recallRate != null ? (data.logAgg.recallRate * 100).toFixed(1) + '%' : '—' });
+                        rows.push({ 指标: '复习总次数', 数值: data.logAgg.total });
+                        for (const row of data.logAgg.ratingList) {
+                            rows.push({ 指标: `评分${row.rating}次数`, 数值: row.count });
+                            rows.push({ 指标: `评分${row.rating}平均间隔(天)`, 数值: row.avgInterval.toFixed(2) });
+                        }
+                        for (const row of data.logAgg.elapsedList) {
+                            rows.push({ 指标: `间隔${row.bucket}天回忆率`, 数值: row.rate != null ? (row.rate * 100).toFixed(1) + '%' : '—' });
+                            rows.push({ 指标: `间隔${row.bucket}天样本数`, 数值: row.total });
+                        }
+                        for (const row of data.logAgg.difficultyList) {
+                            rows.push({ 指标: `难度${row.bucket}回忆率`, 数值: row.rate != null ? (row.rate * 100).toFixed(1) + '%' : '—' });
+                        }
+                        for (const day of data.forecast.days) {
+                            rows.push({ 指标: `到期量${day.key}`, 数值: day.count });
+                        }
+                        for (const row of data.byList) {
+                            rows.push({ 指标: `词库[${row.name}]总词数`, 数值: row.total });
+                            rows.push({ 指标: `词库[${row.name}]已学`, 数值: row.studied });
+                            rows.push({ 指标: `词库[${row.name}]成熟`, 数值: row.mature });
+                            rows.push({ 指标: `词库[${row.name}]易忘`, 数值: row.leeches });
+                        }
+                        const csv = S.toCsv(rows, ['指标', '数值']);
+                        const filename = `kmword-stats-${new Date().toISOString().split('T')[0]}.csv`;
+                        if (typeof Android !== 'undefined' && Android.saveFile) {
+                            Android.saveFile(filename, csv);
+                        } else {
+                            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }
+                        this.showNotification('统计数据已导出', 'success');
+                    } catch (error) {
+                        console.error('导出统计数据失败:', error);
+                        this.showNotification('导出统计数据失败', 'error');
+                    }
+                }
+
+                // 学习量柱状图：byDay = { 'YYYY-MM-DD': { total, correct } }（北京时间日键）
+                renderActivityChart(byDay, days = 30) {
                     const container = document.getElementById('activityChart');
                     const empty = document.getElementById('activityEmpty');
                     if (!container) return;
-                    const days = 30;
+                    const S = window.statsUtil;
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     const bars = [];
@@ -4491,7 +4961,7 @@
                     for (let i = days - 1; i >= 0; i--) {
                         const d = new Date(today);
                         d.setDate(d.getDate() - i);
-                        const key = d.toISOString().split('T')[0];
+                        const key = S ? S.dayKey(d) : d.toISOString().split('T')[0];
                         const stat = byDay[key] || { total: 0, correct: 0 };
                         entries.push({ key, stat, date: d });
                         if (stat.total > maxTotal) maxTotal = stat.total;
@@ -4519,42 +4989,19 @@
                     container.innerHTML = bars.join('');
                 }
 
-                // 掌握度分布：familiarity 0-5 共 6 根条
-                renderMasteryDist(distribution) {
-                    const container = document.getElementById('masteryDist');
-                    if (!container) return;
-                    const labels = ['陌生', '初识', '了解', '熟悉', '熟练', '掌握'];
-                    const colors = ['#F44336', '#FF9800', '#FFC107', '#2196F3', '#4CAF50', '#388E3C'];
-                    const max = Math.max(1, ...Object.values(distribution));
-                    let html = '';
-                    for (let i = 0; i <= 5; i++) {
-                        const count = distribution[i] || 0;
-                        const widthPct = (count / max) * 100;
-                        html += `
-                            <div class="mastery-row">
-                                <span class="mastery-label">${i}★ ${labels[i]}</span>
-                                <div class="mastery-bar-track">
-                                    <div class="mastery-bar-fill" style="width:${widthPct}%; background:${colors[i]};"></div>
-                                </div>
-                                <span class="mastery-count">${count}</span>
-                            </div>
-                        `;
-                    }
-                    container.innerHTML = html;
-                }
-
-                // 近 7 天正确率折线（用柱状表示，简洁无依赖）
-                renderAccuracyTrend(byDay) {
+                // 正确率趋势（用柱状表示，简洁无依赖）
+                renderAccuracyTrend(byDay, days = 7) {
                     const container = document.getElementById('accuracyTrend');
                     if (!container) return;
+                    const S = window.statsUtil;
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     const rows = [];
                     let anyData = false;
-                    for (let i = 6; i >= 0; i--) {
+                    for (let i = days - 1; i >= 0; i--) {
                         const d = new Date(today);
                         d.setDate(d.getDate() - i);
-                        const key = d.toISOString().split('T')[0];
+                        const key = S ? S.dayKey(d) : d.toISOString().split('T')[0];
                         const stat = byDay[key] || { total: 0, correct: 0 };
                         const rate = stat.total > 0 ? Math.round((stat.correct / stat.total) * 100) : 0;
                         if (stat.total > 0) anyData = true;
@@ -4698,6 +5145,150 @@
                         }
                     }
                     this.speakWithSynthesis(word);
+                }
+
+                // ===== 例句朗读 =====
+                examplePlayButton(text, extraClass) {
+                    const sentence = this.sanitizeSentence(text);
+                    if (!sentence) return '';
+                    const attr = this.escapeHtml(sentence).replace(/"/g, '&quot;');
+                    const cls = extraClass ? ' ' + extraClass : '';
+                    return `<button type="button" class="example-play${cls}" data-sentence="${attr}" title="朗读例句" aria-label="朗读例句"><i class="fas fa-volume-up"></i></button>`;
+                }
+
+                sanitizeSentence(text) {
+                    const raw = String(text == null ? '' : text)
+                        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (!raw) return '';
+                    if (raw.length > 300) return raw.slice(0, 300);
+                    return raw;
+                }
+
+                sentenceAudioKey(text, voice, style, styleCustom) {
+                    return `${text}||${voice || ''}||${style || ''}||${styleCustom || ''}`;
+                }
+
+                async resolveSentenceEngine() {
+                    let setting = 'auto';
+                    try { setting = (await this.db.getSetting('sentenceTtsEngine')) || 'auto'; } catch (e) {}
+                    const hasKey = !!(this.mimoConfig && this.mimoConfig.apiKey);
+                    if (setting === 'system') return 'system';
+                    if (setting === 'mimo') return hasKey ? 'mimo' : 'system';
+                    if (setting === 'follow') {
+                        return (this.mimoConfig.engine === 'mimo' && hasKey) ? 'mimo' : 'system';
+                    }
+                    return hasKey ? 'mimo' : 'system';
+                }
+
+                setSentenceButtonState(btn, playing) {
+                    if (!btn) return;
+                    if (playing) {
+                        btn.classList.add('playing');
+                        btn.setAttribute('aria-busy', 'true');
+                    } else {
+                        btn.classList.remove('playing');
+                        btn.removeAttribute('aria-busy');
+                    }
+                }
+
+                stopSentenceAudio() {
+                    const btn = this._sentenceButton;
+                    if (btn) this.setSentenceButtonState(btn, false);
+                    this._sentenceButton = null;
+                    if (this.speechSynthesis) {
+                        try { this.speechSynthesis.cancel(); } catch (e) {}
+                    }
+                }
+
+                speakSentenceSystem(text, handlers = {}) {
+                    if (!this.speechSynthesis) {
+                        if (handlers.onError) handlers.onError('语音合成不可用');
+                        return false;
+                    }
+                    try { this.speechSynthesis.cancel(); } catch (e) {}
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.rate = 0.9;
+                    const voice = this.voices.find(v => v.lang && v.lang.startsWith('en')) || null;
+                    if (voice) utterance.voice = voice;
+                    utterance.onstart = () => { if (handlers.onStart) handlers.onStart(); };
+                    utterance.onend = () => { if (handlers.onEnd) handlers.onEnd(); };
+                    utterance.onerror = () => { if (handlers.onError) handlers.onError('语音合成失败'); };
+                    this.speechSynthesis.speak(utterance);
+                    return true;
+                }
+
+                async speakSentenceMimo(text, handlers = {}) {
+                    const voice = (this.mimoConfig && this.mimoConfig.voice) || 'mimo_default';
+                    const style = (this.mimoConfig && this.mimoConfig.style) || 'standard';
+                    const styleCustom = (this.mimoConfig && this.mimoConfig.styleCustom) || '';
+                    let rate = 1;
+                    try {
+                        const speed = (await this.db.getSetting('ttsSpeed')) || 0;
+                        rate = Math.max(0.3, Math.min(2, 1 + speed * 0.07));
+                    } catch (e) {}
+                    const key = this.sentenceAudioKey(text, voice, style, styleCustom);
+                    let cached = null;
+                    try { cached = await this.db.getSentenceAudio(key); } catch (e) {}
+                    if (cached && cached.pcm) {
+                        this.mimoPlayPcm(cached.pcm, {
+                            rate,
+                            onStart: handlers.onStart,
+                            onEnd: handlers.onEnd,
+                            onError: handlers.onError
+                        });
+                        return;
+                    }
+                    const chunks = [];
+                    this.mimoSpeak({
+                        text, voice, rate, style, styleCustom,
+                        collect: (chunk) => { if (chunks.length < 400) chunks.push(chunk); },
+                        onStart: handlers.onStart,
+                        onEnd: () => {
+                            try {
+                                const pcm = this.concatBase64Chunks(chunks);
+                                if (pcm) this.db.saveSentenceAudio({ key, text, voice, style, pcm }).catch(() => {});
+                            } catch (e) {}
+                            if (handlers.onEnd) handlers.onEnd();
+                        },
+                        onError: (err) => { if (handlers.onError) handlers.onError(err); }
+                    });
+                }
+
+                // 播放例句：按设置选择 MiMo 云端或系统语音，MiMo 失败自动降级；会打断全文朗读
+                async speakSentence(text, btn) {
+                    const content = this.sanitizeSentence(text);
+                    if (!content) return;
+                    if (this.readerTTS) this.stopReaderTTS();
+                    this.stopSentenceAudio();
+                    if (btn) {
+                        this._sentenceButton = btn;
+                        this.setSentenceButtonState(btn, true);
+                    }
+                    const handlers = {
+                        onStart: () => { if (btn) this.setSentenceButtonState(btn, true); },
+                        onEnd: () => {
+                            if (btn) this.setSentenceButtonState(btn, false);
+                            if (this._sentenceButton === btn) this._sentenceButton = null;
+                        },
+                        onError: () => {
+                            if (btn) this.setSentenceButtonState(btn, false);
+                            if (this._sentenceButton === btn) this._sentenceButton = null;
+                        }
+                    };
+                    const engine = await this.resolveSentenceEngine();
+                    if (engine === 'mimo') {
+                        this.speakSentenceMimo(content, {
+                            onStart: handlers.onStart,
+                            onEnd: handlers.onEnd,
+                            onError: () => {
+                                this.speakSentenceSystem(content, handlers);
+                            }
+                        });
+                        return;
+                    }
+                    this.speakSentenceSystem(content, handlers);
                 }
 
                 async addWordToStudy(wordId) {
@@ -4854,7 +5445,7 @@
 									if (def.examples && def.examples.length > 0) {
 										block += `<div style="margin-top:4px; margin-left:12px; font-style:italic; color:var(--gray-color); font-size:0.95rem;">`;
 										def.examples.forEach(ex => {
-											block += `<div>“${ex}”</div>`;
+											block += `<div>“${ex}”${this.examplePlayButton(ex)}</div>`;
 										});
 										block += `</div>`;
 									}
@@ -4887,7 +5478,7 @@
 									});
 									entry.synonymsInfo.examples.forEach(ex => {
 										let cleanEx = ex.replace(/\{.*?\}/g, '').trim();
-										html += `<div style="font-style:italic; color:var(--gray-color); margin:6px 0 6px 16px;">“${cleanEx}”</div>`;
+										html += `<div style="font-style:italic; color:var(--gray-color); margin:6px 0 6px 16px;">“${cleanEx}”${this.examplePlayButton(cleanEx)}</div>`;
 									});
 									html += '</div>';
 								}
@@ -5647,7 +6238,7 @@
                     return res;
                 }
 
-                mimoSpeak({ text, voice, rate, style, styleCustom, onStart, onEnd, onError }) {
+                mimoSpeak({ text, voice, rate, style, styleCustom, onStart, onEnd, onError, collect }) {
                     const ctx = this._mimoEnsureCtx();
                     if (!ctx) {
                         if (onError) onError('当前浏览器不支持 Web Audio');
@@ -5661,6 +6252,9 @@
                     let started = false;
                     let nextTime = 0;
                     const schedulePCM = (pcmBase64) => {
+                        if (typeof collect === 'function') {
+                            try { collect(pcmBase64); } catch (e) {}
+                        }
                         const float32 = this._decodePCM16(pcmBase64);
                         if (!float32 || float32.length === 0) return;
                         const buffer = ctx.createBuffer(1, float32.length, 24000);
@@ -5742,6 +6336,51 @@
                         });
                         if (onError) onError((err && err.message) || String(err));
                     });
+                }
+
+                // 把多段 base64 PCM 分片拼接为一段完整音频（用于缓存）
+                concatBase64Chunks(chunks) {
+                    try {
+                        const list = Array.isArray(chunks) ? chunks : [];
+                        if (!list.length) return '';
+                        let binary = '';
+                        for (const chunk of list) {
+                            const part = atob(chunk);
+                            for (let i = 0; i < part.length; i += 8192) {
+                                binary += part.substr(i, 8192);
+                            }
+                        }
+                        return btoa(binary);
+                    } catch (e) {
+                        return '';
+                    }
+                }
+
+                // 播放一段完整的 base64 PCM16 音频（缓存命中时使用）
+                mimoPlayPcm(base64, options = {}) {
+                    const ctx = this._mimoEnsureCtx();
+                    if (!ctx) {
+                        if (options.onError) options.onError('当前浏览器不支持 Web Audio');
+                        return;
+                    }
+                    this.mimoStop();
+                    const float32 = this._decodePCM16(base64);
+                    if (!float32 || float32.length === 0) {
+                        if (options.onError) options.onError('音频数据无效');
+                        return;
+                    }
+                    const buffer = ctx.createBuffer(1, float32.length, 24000);
+                    buffer.copyToChannel(float32, 0);
+                    const src = ctx.createBufferSource();
+                    src.buffer = buffer;
+                    src.playbackRate.value = options.rate || 1;
+                    src.connect(ctx.destination);
+                    this._mimoSources = [src];
+                    src.onended = () => {
+                        if (options.onEnd) options.onEnd();
+                    };
+                    src.start();
+                    if (options.onStart) options.onStart();
                 }
 
                 mimoStop() {
