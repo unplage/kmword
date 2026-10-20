@@ -331,139 +331,44 @@
                     return distribution;
                 }
 
-                async getDictionaryData(word) {
+                async getDictionaryData(word, signal) {
                     if (this.dictionaryCache.has(word)) {
                         return this.dictionaryCache.get(word);
                     }
-                    // 1) 主源：Free Dictionary API
-                    const freeResult = await this._fetchFreeDict(word);
-                    if (freeResult) {
-                        this.dictionaryCache.set(word, freeResult);
-                        return freeResult;
+                    const shared = (typeof window !== 'undefined' && window.dictionaryAPI) ? window.dictionaryAPI : null;
+                    const externalSignal = signal || (this.abortController ? this.abortController.signal : undefined);
+                    if (!shared || typeof shared.fetchWordData !== 'function') {
+                        return this.getFallbackData(word);
                     }
-                    // 2) 备用源：Wiktionary（主源失败/未收录时自动切换）
-                    const wikResult = await this._fetchWiktionary(word);
-                    if (wikResult) {
-                        this.dictionaryCache.set(word, wikResult);
-                        return wikResult;
-                    }
-                    // 3) 两源均明确未收录 → 缓存“未找到”；网络/超时错误不缓存以便重试
-                    if (freeResult === false && wikResult === false) {
-                        const fallbackData = this.getFallbackData(word);
-                        this.dictionaryCache.set(word, fallbackData);
-                        return fallbackData;
-                    }
-                    return this.getFallbackData(word);
-                }
-
-                // 主源：Free Dictionary API。返回 解析对象 / null（网络错误、超时，可重试）/ false（明确 404）
-                async _fetchFreeDict(word) {
-                    this.abortController = new AbortController();
-                    let timedOut = false;
-                    const timeoutId = setTimeout(() => {
-                        timedOut = true;
-                        console.log(`获取单词"${word}"超时，已中止请求`);
-                        this.abortController.abort();
-                    }, 10000);
                     try {
-                        const response = await fetch(
-                            `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
-                            { signal: this.abortController.signal }
-                        );
-                        if (response.status === 404) return false;
-                        if (!response.ok) throw new Error(`API响应错误: ${response.status}`);
-                        const data = await response.json();
-                        if (!Array.isArray(data) || data.length === 0) return false;
-                        return this.parseDictionaryResponse(data, word);
-                    } catch (error) {
-                        if (error.name === 'AbortError' && !timedOut) {
-                            console.log(`获取单词"${word}"被取消`);
-                            throw error;
-                        }
-                        console.warn(`Free Dictionary 获取"${word}"失败:`, timedOut ? '请求超时' : error);
-                        return null;
-                    } finally {
-                        clearTimeout(timeoutId);
-                    }
-                }
-
-                // 备用源：Wiktionary。返回 解析对象 / null（可重试）/ false（明确未收录）
-                async _fetchWiktionary(word) {
-                    if (!(typeof window !== 'undefined' && window.wiktionaryAPI)) return null;
-                    try {
-                        const wik = await window.wiktionaryAPI.query(word, {
-                            signal: this.abortController ? this.abortController.signal : undefined
+                        const data = await shared.fetchWordData(word, {
+                            signal: externalSignal,
+                            persist: false,
+                            memory: false
                         });
-                        if (!wik) return wik === false ? false : null;
-                        return {
-                            meaning: wik.meaning,
-                            phonetic: wik.phonetic || `/${this.generatePhoneticFallback(word)}/`,
-                            examples: wik.example ? [wik.example] : [],
-                            audioUrl: wik.audioUrl || '',
-                            allMeanings: wik.allMeanings,
-                            rawApiData: null
+                        const examples = Array.isArray(data.allMeanings)
+                            ? data.allMeanings.map(item => item.example).filter(Boolean)
+                            : [];
+                        const result = {
+                            meaning: data.meaning,
+                            phonetic: data.phonetic,
+                            examples: examples.length > 0
+                                ? examples
+                                : (data.example ? [data.example] : [`This is an example sentence for ${word}.`]),
+                            audioUrl: data.audioUrl || '',
+                            allMeanings: data.allMeanings || [],
+                            rawApiData: data.rawData || null
                         };
+                        // 网络失败时不要缓存兜底结果，方便用户稍后重试
+                        if (!(data.source === 'fallback' && !data.notFound)) {
+                            this.dictionaryCache.set(word, result);
+                        }
+                        return result;
                     } catch (error) {
-                        if (error.name === 'AbortError') throw error;
-                        console.warn(`Wiktionary 获取"${word}"失败:`, error);
-                        return null;
+                        if (error && error.name === 'AbortError') throw error;
+                        console.warn(`获取"${word}"词典数据失败:`, error);
+                        return this.getFallbackData(word);
                     }
-                }
-
-                parseDictionaryResponse(apiData, originalWord) {
-                    if (!apiData || !Array.isArray(apiData) || apiData.length === 0) {
-                        return this.getFallbackData(originalWord);
-                    }
-                    const entry = apiData[0];
-                    let phonetic = '';
-                    if (entry.phonetic) {
-                        phonetic = entry.phonetic;
-                    } else if (entry.phonetics && entry.phonetics.length > 0) {
-                        const firstPhonetic = entry.phonetics.find(p => p.text);
-                        if (firstPhonetic) {
-                            phonetic = firstPhonetic.text;
-                        }
-                    }
-                    let meaning = '';
-                    let example = '';
-                    let allMeanings = [];
-                    if (entry.meanings && entry.meanings.length > 0) {
-                        const firstMeaning = entry.meanings[0];
-                        const partOfSpeech = firstMeaning.partOfSpeech || '';
-                        if (firstMeaning.definitions && firstMeaning.definitions.length > 0) {
-                            const firstDefinition = firstMeaning.definitions[0];
-                            meaning = `${partOfSpeech ? partOfSpeech + '. ' : ''}${firstDefinition.definition || '暂无释义'}`;
-                            example = firstDefinition.example || '';
-                        }
-                        entry.meanings.forEach(meaningObj => {
-                            if (meaningObj.definitions) {
-                                meaningObj.definitions.forEach(def => {
-                                    allMeanings.push({
-                                        partOfSpeech: meaningObj.partOfSpeech,
-                                        definition: def.definition,
-                                        example: def.example
-                                    });
-                                });
-                            }
-                        });
-                    }
-                    let audioUrl = '';
-                    if (entry.phonetics && entry.phonetics.length > 0) {
-                        const audioPhonetic = entry.phonetics.find(p => p.audio && p.audio.length > 0);
-                        if (audioPhonetic) {
-                            audioUrl = audioPhonetic.audio;
-                        }
-                    }
-                    return {
-                        meaning: meaning || `${originalWord} 的释义`,
-                        phonetic: phonetic || `/${this.generatePhoneticFallback(originalWord)}/`,
-                        examples: allMeanings.length > 0 
-                            ? allMeanings.map(m => m.example).filter(e => e) 
-                            : [`This is an example sentence for ${originalWord}.`],
-                        audioUrl,
-                        allMeanings,
-                        rawApiData: entry
-                    };
                 }
 
                 generatePhoneticFallback(word) {
@@ -492,11 +397,13 @@
                     const results = [];
                     const queue = [...words];
                     let processed = 0;
+                    const controller = new AbortController();
+                    this.abortController = controller;
                     const workers = Array(concurrency).fill().map(async () => {
                         while (queue.length > 0) {
                             const word = queue.shift();
                             try {
-                                const data = await this.getDictionaryData(word);
+                                const data = await this.getDictionaryData(word, controller.signal);
                                 const difficulty = this.assignDifficulty(word);
                                 const frequency = this.wordFrequency.get(word) || 0;
                                 results.push({
@@ -533,6 +440,7 @@
                         }
                     });
                     await Promise.all(workers);
+                    if (this.abortController === controller) this.abortController = null;
                     return results;
                 }
 

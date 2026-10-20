@@ -6,14 +6,14 @@
 
 - **间隔重复** — FSRS-6 算法，认词/拼写两种模式，熟悉度追踪，按遗忘曲线自动安排复习
 - **单词分级** — 1~5 级难度，支持筛选复习
-- **词典** — Free Dictionary API（默认） + Merriam-Webster API（可选，免费申请） + Wiktionary 兜底 + 可选导入 ECDICT 离线全量词典
+- **词典** — 在线多源英英释义：FreeDictionaryAPI.com（主）+ Free Dictionary API（700ms 延迟备用）+ Wiktionary + Datamuse 兜底，结果本地缓存；Merriam-Webster API（可选，免费申请）；可选导入 ECDICT 离线全量词典
 - **AI 分析** — 可选接入智谱 GLM / DeepSeek / 小米 MiMo / 通义千问 / 自定义 OpenAI 兼容接口；支持批量导入 AI 释义缓存
 - **单词库** — 多词库管理，库内单词唯一，库间可重复；支持导入 TXT/MD/HTML
 - **阅读模块** — 上传英文文章，全文 TTS 朗读（播放/暂停/停止，`onboundary` 词级高亮），点击任意单词查词，阅读位置自动记忆，工具栏可折叠
 - **听力模块** — 上传文章生成分段听力音频（MiMo 云 TTS），支持断点续传，播放位置自动记忆
 - **生词本** — 独立收集困难单词
 - **学习计划** — 每日学习目标设置
-- **数据导出/导入** — JSON 备份（含阅读文章、韦氏/AI 释义缓存；不含 ECDICT 外部词典）
+- **数据导出/导入** — JSON 备份（含阅读文章、韦氏/AI/在线释义缓存；不含 ECDICT 外部词典）
 - **PWA** — 离线可用，可安装到桌面
 - **主题** — 浅色/深色/跟随系统
 - **快捷键**（学习页面）— `1`/`←` 不认识，`2`/`→` 认识，`Space` 发音，`d` 详情
@@ -21,6 +21,18 @@
 ## 快速开始
 
 直接打开 [https://unplage.github.io/kmword/](https://unplage.github.io/kmword/) 即可使用。支持从 `专四/专八/托福/雅思` 内置词库导入，也可上传自定义单词表。
+
+## 在线词典
+
+查词按以下顺序自动容错，无需配置 API Key：
+
+1. [FreeDictionaryAPI.com](https://freedictionaryapi.com/)（Wiktionary 数据，1000 次/小时/IP）
+2. [Free Dictionary API](https://dictionaryapi.dev/)（主源启动 700ms 后并行请求，先成功者胜出）
+3. [Wiktionary REST](https://en.wiktionary.org/api/rest_v1/page/definition)（官方兜底）
+4. [Datamuse](https://www.datamuse.com/api/)（轻量释义兜底）
+5. 本地 ECDICT 英文/中文释义（如已导入）
+
+成功结果写入 `word_cache.en`，重复查询和离线时可立即显示。释义底部会标注来源；使用这些数据时请遵守对应许可（Wiktionary/FreeDictionaryAPI 为 CC BY-SA 4.0）。
 
 ## 导入词库
 

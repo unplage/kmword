@@ -77,8 +77,9 @@
                         }
                     };
 
-					// ===== 1. 修改 Free Dictionary API 解析 =====
-					this.dictionaryAPI = {
+					// 多源在线词典（freedictionaryapi.com / dictionaryapi.dev / Wiktionary / Datamuse）
+					// 共享模块见 js/dictionary-api.js；下面的对象仅作为模块加载失败时的兜底。
+					this.dictionaryAPI = window.dictionaryAPI || {
 						baseUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en',
 						cache: new Map(),
 					async fetchWordData(word) {
@@ -664,14 +665,10 @@
                     }
                     try {
                         console.log('正在测试网络连接...');
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 5000);
-                        const response = await fetch(
-                            'https://api.dictionaryapi.dev/api/v2/entries/en/test',
-                            { method: 'HEAD', signal: controller.signal }
-                        );
-                        clearTimeout(timeoutId);
-                        this.networkAvailable = response.ok;
+                        const online = window.dictionaryAPI && typeof window.dictionaryAPI.probe === 'function'
+                            ? await window.dictionaryAPI.probe({ timeout: 4000 })
+                            : navigator.onLine;
+                        this.networkAvailable = !!online;
                         console.log(`网络连接测试: ${this.networkAvailable ? '成功' : '失败'}`);
                     } catch (error) {
                         console.warn('网络连接测试失败，将使用本地数据');
@@ -1336,7 +1333,7 @@
                     this.showLoader('加载单词数据中...');
                     try {
                         let freshData;
-                        if (this.networkAvailable) {
+                        if (this.networkAvailable || navigator.onLine) {
                             freshData = await this.dictionaryAPI.fetchWordData(wordData.word);
                         } else {
                             freshData = {
@@ -1551,6 +1548,19 @@
 							</div>`;
 						}
 						html += '</div>';
+						const sourceMeta = {
+							'freedictionaryapi.com': { label: 'FreeDictionaryAPI.com', url: 'https://freedictionaryapi.com' },
+							'dictionaryapi.dev': { label: 'Free Dictionary API', url: 'https://dictionaryapi.dev' },
+							'wiktionary': { label: 'Wiktionary', url: 'https://en.wiktionary.org' },
+							'datamuse': { label: 'Datamuse', url: 'https://www.datamuse.com/api/' },
+							'ecdict': { label: 'ECDICT', url: 'https://github.com/skywind3000/ECDICT' }
+						};
+						const sourceInfo = sourceMeta[wordData.source];
+						if (sourceInfo) {
+							const href = wordData.sourceUrl || sourceInfo.url;
+							const safeHref = esc(href).replace(/"/g, '&quot;');
+							html += `<div class="dict-source" style="margin-top:10px;font-size:0.8rem;color:var(--gray-color);">来源：<a href="${safeHref}" target="_blank" rel="noopener">${esc(sourceInfo.label)}</a>${wordData.cached ? ' · 本地缓存' : ''}</div>`;
+						}
 						containerEl.innerHTML = html;
 						const expandBtn = containerEl.querySelector('.expand-meanings-btn');
 						if (expandBtn) {
@@ -1771,7 +1781,7 @@
                 async speakCurrentWord() {
                     const word = document.getElementById('currentWord')?.textContent;
                     if (!word || word === 'Loading...') return;
-                    if (this.currentAudioUrl && this.networkAvailable) {
+                    if (this.currentAudioUrl && (this.networkAvailable || navigator.onLine)) {
                         try {
                             const audio = new Audio(this.currentAudioUrl);
                             audio.playbackRate = 0.9;
@@ -2066,7 +2076,7 @@
                         console.log('创建单词库成功，ID:', listId);
                         this.showLoader('正在处理词典数据...');
                         let processedWords;
-                        if (downloadData && this.networkAvailable) {
+                        if (downloadData && (this.networkAvailable || navigator.onLine)) {
                             processedWords = await this.novelProcessor.batchProcessWords(
                                 this.currentNovelWords,
                                 (current, total, word) => {

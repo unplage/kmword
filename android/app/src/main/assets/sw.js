@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v44';  // 每次更新时递增
+const CACHE_VERSION = 'v45';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
@@ -16,6 +16,7 @@ const STATIC_ASSETS = [
     `${CURRENT_PATH}/js/word-freq.js`,
     `${CURRENT_PATH}/js/wiktionary.js`,
     `${CURRENT_PATH}/js/ecdict.js`,
+    `${CURRENT_PATH}/js/dictionary-api.js`,
     `${CURRENT_PATH}/js/ecdict-worker.js`,
     `${CURRENT_PATH}/js/db.js`,
     `${CURRENT_PATH}/js/novel-processor.js`,
@@ -91,7 +92,7 @@ self.addEventListener('fetch', (event) => {
     const url = new URL(request.url);
 
     // API 请求使用网络优先策略（在 scope filter 之前，因为 API 是跨域）
-    const apiHosts = ['api.dictionaryapi.dev', 'www.dictionaryapi.com', 'en.wiktionary.org'];
+    const apiHosts = ['freedictionaryapi.com', 'api.dictionaryapi.dev', 'api.datamuse.com', 'www.dictionaryapi.com', 'en.wiktionary.org'];
     if (apiHosts.includes(url.hostname)) {
         event.respondWith(
             fetch(request)

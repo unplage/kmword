@@ -1298,7 +1298,7 @@
                             for (const rec of batch) {
                                 if (!rec || typeof rec !== 'object') { result.invalid++; continue; }
                                 const key = String(rec.word || '').trim().toLowerCase();
-                                if (!key || (!rec.ai && !rec.mw)) { result.invalid++; continue; }
+                                if (!key || (!rec.ai && !rec.mw && !rec.en)) { result.invalid++; continue; }
                                 store.put({ ...rec, word: key });
                                 count++;
                             }
