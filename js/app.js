@@ -574,6 +574,7 @@
                         this.setupNetworkListeners();
                         await this.db.ready();
                         console.log('数据库初始化完成');
+                        await this.db.loadSrsConfig();
                         this.initSpeech();
                         await this.loadInitialData();
                         await this.updateTodayProgress();
@@ -642,6 +643,7 @@
                 }
 
                 cleanup() {
+                    this.clearPendingTimer();
                     if (this._ecdictWorker) {
                         try { this._ecdictWorker.terminate(); } catch (e) {}
                         this._ecdictWorker = null;
@@ -716,8 +718,10 @@
                     document.getElementById('quickReview').addEventListener('click', () => this.switchPage('review'));
                     document.getElementById('addWords').addEventListener('click', () => this.switchPage('novel'));
 
-                    document.getElementById('knowBtn').addEventListener('click', () => this.handleAnswer(true));
-                    document.getElementById('notKnowBtn').addEventListener('click', () => this.handleAnswer(false));
+                    document.getElementById('knowBtn').addEventListener('click', () => this.handleAnswer('good'));
+                    document.getElementById('notKnowBtn').addEventListener('click', () => this.handleAnswer('again'));
+                    document.getElementById('hardBtn')?.addEventListener('click', () => this.handleAnswer('hard'));
+                    document.getElementById('easyBtn')?.addEventListener('click', () => this.handleAnswer('easy'));
                     document.getElementById('speakBtn').addEventListener('click', () => this.speakCurrentWord());
                     document.getElementById('addToNewWords').addEventListener('click', () => this.toggleNewWord());
                     document.getElementById('showDetails').addEventListener('click', () => this.toggleDetails());
@@ -958,10 +962,16 @@
                     if (this.currentPage === 'learn' && this.learningWords.length > 0) {
                         if (e.key === '1' || e.key === 'ArrowLeft') {
                             e.preventDefault();
-                            this.handleAnswer(false);
+                            this.handleAnswer('again');
                         } else if (e.key === '2' || e.key === 'ArrowRight') {
                             e.preventDefault();
-                            this.handleAnswer(true);
+                            this.handleAnswer('good');
+                        } else if (e.key === '3') {
+                            e.preventDefault();
+                            this.handleAnswer('hard');
+                        } else if (e.key === '4') {
+                            e.preventDefault();
+                            this.handleAnswer('easy');
                         } else if (e.key === ' ') {
                             e.preventDefault();
                             this.speakCurrentWord();
@@ -1286,6 +1296,9 @@
                 async startLearningSession() {
                     try {
                         this.showLoader('正在准备学习内容...');
+                        this._pendingLearning = [];
+                        this.clearPendingTimer();
+                        this.renderPendingLearning();
                         if (this.isStudyingPreparedSession) {
                             console.log('继续已准备的学习会话，跳过默认加载');
                             this.isStudyingPreparedSession = false;
@@ -1494,6 +1507,7 @@
                                 <span title="下次复习">⏰ ${nextReviewText}</span>
                                 <span title="错误次数">❌ ${word.errorCount || 0}次</span>
                                 <span title="总复习次数">📖 ${progress.totalReviews || 0}次</span>
+                                ${progress.isLeech ? '<span class="leech-badge" title="遗忘次数过多，已自动加入生词本">⚠️ 易忘词</span>' : ''}
                             </div>
                         `;
                         el.style.display = 'block';
@@ -1585,21 +1599,29 @@
 				}
 
 
-                async handleAnswer(correct) {
+                // 评分：'again' | 'hard' | 'good' | 'easy'（也兼容旧的 boolean）
+                async handleAnswer(grade) {
                     if (this.isProcessing) return;
                     const wordData = this.learningWords[this.currentWordIndex];
                     if (!wordData) return;
                     this.isProcessing = true;
-                    console.log(`处理答案: ${wordData.word} - ${correct ? '认识' : '不认识'}`);
+                    const rating = this.normalizeGrade(grade);
+                    const isSuccess = rating !== 'again';
+                    const gradeLabel = { again: '不认识', hard: '困难', good: '认识', easy: '简单' }[rating];
+                    console.log(`处理答案: ${wordData.word} - ${gradeLabel}`);
                     try {
-                        const progressData = await this.db.updateProgress(wordData.id, correct);
-                        await this.db.addLearningHistory(wordData.id, correct);
-                        if (correct) {
+                        const progressData = await this.db.updateProgress(wordData.id, rating);
+                        await this.db.addLearningHistory(wordData.id, isSuccess);
+                        if (isSuccess) {
                             await this.db.updateStreak();
                         }
-                        this.maybeRequeueLearningCard(wordData, progressData);
-                        this.playAnswerSound(correct);
-                        if (correct) {
+                        this.scheduleLearningCard(wordData, progressData);
+                        this.playAnswerSound(isSuccess);
+                        if (rating === 'easy') {
+                            this.showNotification('⚡ 太简单了，延长了复习间隔', 'success');
+                        } else if (rating === 'hard') {
+                            this.showNotification('◔ 已记录：记得但不熟，间隔会短一些', 'info');
+                        } else if (isSuccess) {
                             this.showNotification('✓ 很好！继续加油', 'success');
                         } else {
                             this.showNotification('✗ 别灰心，已加入生词本', 'warning');
@@ -1611,18 +1633,26 @@
                                 await this.db.updateWord(wordData.id, { errorCount: errCount });
                             }
                         }
+                        if (progressData && progressData.justBecameLeech) {
+                            this.showNotification('⚠️ 该词已成为「易忘词」，已加入生词本', 'warning');
+                        }
                         const autoNext = await this.db.getSetting('autoNextWord');
                         const delay = autoNext ? 800 : 0;
                         setTimeout(async () => {
-                            this.currentWordIndex++;
-                            if (this.currentWordIndex < this.learningWords.length) {
-                                await this.displayCurrentWord();
-                            } else {
-                                await this.completeLearningSession();
+                            try {
+                                this.currentWordIndex++;
+                                if (this.currentWordIndex < this.learningWords.length) {
+                                    await this.displayCurrentWord();
+                                } else {
+                                    await this.completeLearningSession();
+                                }
+                                await this.updateTodayProgress();
+                                await this.loadRecentActivity();
+                            } catch (error) {
+                                console.error('切换到下一个单词失败:', error);
+                            } finally {
+                                this.isProcessing = false;
                             }
-                            await this.updateTodayProgress();
-                            await this.loadRecentActivity();
-                            this.isProcessing = false;
                         }, delay);
                     } catch (error) {
                         console.error('处理答案失败:', error);
@@ -1631,17 +1661,105 @@
                     }
                 }
 
-                // FSRS 学习/重学阶段的卡片在本次会话末尾重现（同 Anki 的 learning steps），每词最多补排 2 次
-                maybeRequeueLearningCard(wordData, progressData) {
+                normalizeGrade(grade) {
+                    if (grade === true) return 'good';
+                    if (grade === false) return 'again';
+                    if (typeof grade === 'number') {
+                        if (grade <= 1) return 'again';
+                        if (grade === 2) return 'hard';
+                        if (grade === 3) return 'good';
+                        if (grade >= 4) return 'easy';
+                    }
+                    if (typeof grade === 'string') {
+                        const name = grade.trim().toLowerCase();
+                        if (name === 'again' || name === 'forget' || name === '不认识') return 'again';
+                        if (name === 'hard' || name === '困难') return 'hard';
+                        if (name === 'easy' || name === '简单') return 'easy';
+                        if (name === 'good' || name === '认识' || name === 'normal') return 'good';
+                    }
+                    return 'good';
+                }
+
+                // FSRS 学习/重学阶段的卡片按其到期时间回到队列：到期前不提前复习（尊重 learning steps）
+                scheduleLearningCard(wordData, progressData) {
                     if (!progressData || !window.FSRS || !wordData) return;
                     const state = progressData.state;
                     if (state !== window.FSRS.State.Learning && state !== window.FSRS.State.Relearning) return;
                     const requeues = wordData._sessionRequeues || 0;
                     if (requeues >= 2) return;
+                    const dueMs = progressData.nextReview ? new Date(progressData.nextReview).getTime() : 0;
+                    if (!dueMs || !Number.isFinite(dueMs)) return;
                     wordData._sessionRequeues = requeues + 1;
-                    this.learningWords.push(wordData);
+                    const delay = dueMs - Date.now();
+                    if (delay <= 0) {
+                        this.learningWords.push(wordData);
+                        this.updateSessionCounters();
+                        return;
+                    }
+                    this._pendingLearning = this._pendingLearning || [];
+                    this._pendingLearning.push({ wordData, due: dueMs });
+                    this._pendingLearning.sort((a, b) => a.due - b.due);
+                    this.renderPendingLearning();
+                    this.ensurePendingTimer();
+                }
+
+                updateSessionCounters() {
                     const totalToLearn = document.getElementById('totalToLearn');
                     if (totalToLearn) totalToLearn.textContent = this.learningWords.length;
+                    const learnedCount = document.getElementById('learnedCount');
+                    if (learnedCount) learnedCount.textContent = this.currentWordIndex + 1;
+                }
+
+                ensurePendingTimer() {
+                    if (this._pendingTimer) return;
+                    this._pendingTimer = setInterval(() => this.tickPendingLearning(), 1000);
+                }
+
+                clearPendingTimer() {
+                    if (this._pendingTimer) {
+                        clearInterval(this._pendingTimer);
+                        this._pendingTimer = null;
+                    }
+                }
+
+                tickPendingLearning() {
+                    if (!this._pendingLearning || this._pendingLearning.length === 0) {
+                        this.clearPendingTimer();
+                        this.renderPendingLearning();
+                        return;
+                    }
+                    const now = Date.now();
+                    const ready = this._pendingLearning.filter(item => item.due <= now);
+                    if (ready.length > 0) {
+                        this._pendingLearning = this._pendingLearning.filter(item => item.due > now);
+                        const sessionActive = this.currentPage === 'learn' && this.currentWordIndex < this.learningWords.length;
+                        if (sessionActive) {
+                            for (const item of ready) {
+                                this.learningWords.push(item.wordData);
+                            }
+                            this.updateSessionCounters();
+                        }
+                    }
+                    this.renderPendingLearning();
+                    if (this._pendingLearning.length === 0) this.clearPendingTimer();
+                }
+
+                renderPendingLearning() {
+                    const el = document.getElementById('pendingLearning');
+                    if (!el) return;
+                    const pending = this._pendingLearning || [];
+                    if (pending.length === 0) {
+                        el.style.display = 'none';
+                        el.innerHTML = '';
+                        return;
+                    }
+                    const first = pending[0];
+                    const remain = Math.max(0, Math.ceil((first.due - Date.now()) / 1000));
+                    const minutes = Math.floor(remain / 60);
+                    const seconds = remain % 60;
+                    const timeText = minutes > 0 ? `${minutes} 分 ${String(seconds).padStart(2, '0')} 秒` : `${seconds} 秒`;
+                    el.style.display = 'block';
+                    el.innerHTML = `<i class="fas fa-clock"></i> 还有 <strong>${pending.length}</strong> 个词待复习，最近一个 <strong>${timeText}</strong>后到期`;
                 }
 
                 async completeLearningSession() {
@@ -1649,11 +1767,16 @@
                     const correct = stats.correct;
                     const total = stats.total;
                     const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+                    const pendingCount = (this._pendingLearning || []).length;
                     let message = '恭喜完成今日学习！';
                     if (accuracy >= 80) message += ' 表现很棒！🎉';
-                    else if (accuracy >= 60) message += ' 继续加油！💪';
-                    else message += ' 复习一下生词本吧！📚';
+                    else if (accuracy >= 60) message += ' 继续保持！💪';
+                    else message += ' 记得复习错词哦 📚';
+                    if (pendingCount > 0) {
+                        message += `（还有 ${pendingCount} 个词将在学习步长到期后复习）`;
+                    }
                     this.showNotification(message, 'success');
+                    this.clearPendingTimer();
                     setTimeout(() => {
                         this.switchPage('home');
                     }, 2000);
@@ -2826,6 +2949,41 @@
                                 </div>
                             </div>
                             <div class="settings-section">
+                                <h3>记忆算法（FSRS-6）</h3>
+                                <div class="setting-item">
+                                    <label for="fsrsRetention">目标记忆保持率</label>
+                                    <div class="setting-control">
+                                        <select id="fsrsRetention">
+                                            <option value="0.85">85%（长期记忆，间隔更长）</option>
+                                            <option value="0.9">90%（默认）</option>
+                                            <option value="0.95">95%（考前冲刺，复习更频繁）</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:6px;">
+                                    <label for="fsrsParams">自定义 FSRS 参数 w（数字用逗号或空格分隔，留空使用官方默认）</label>
+                                    <textarea id="fsrsParams" rows="3" placeholder="例如：0.212, 1.2931, 2.3065, 8.2956, ..."></textarea>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                                        <button class="action-btn small primary" id="applyFsrsParams">应用参数</button>
+                                        <button class="action-btn small" id="resetFsrsParams">恢复默认</button>
+                                        <span id="fsrsParamsStatus" class="import-status"></span>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>复习日志（可用于离线优化参数）</label>
+                                    <div class="setting-control">
+                                        <span id="reviewLogCount" class="import-status">0 条</span>
+                                        <button class="action-btn small" id="exportReviewLog">
+                                            <i class="fas fa-download"></i> 导出 CSV
+                                        </button>
+                                        <button class="action-btn small danger" id="clearReviewLog">
+                                            <i class="fas fa-trash-alt"></i> 清空
+                                        </button>
+                                    </div>
+                                </div>
+                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">导出的 CSV 符合官方 FSRS review log 格式，可在 fsrs-analyzer 中优化参数后，把新的 w 粘贴回「自定义参数」应用。</p>
+                            </div>
+                            <div class="settings-section">
                                 <h3>词典 API 设置</h3>
                                 <div class="setting-item">
                                     <label for="mwDictKey">Merriam-Webster 词典 API Key</label>
@@ -3125,6 +3283,10 @@
                     document.getElementById('clearAllData')?.addEventListener('click', () => this.clearAllData());
                     document.getElementById('showDebugInfo')?.addEventListener('click', () => this.showDebugInfo());
                     document.getElementById('saveSettings')?.addEventListener('click', () => this.saveSettings());
+                    document.getElementById('applyFsrsParams')?.addEventListener('click', () => this.applyFsrsParams());
+                    document.getElementById('resetFsrsParams')?.addEventListener('click', () => this.resetFsrsParams());
+                    document.getElementById('exportReviewLog')?.addEventListener('click', () => this.exportReviewLog());
+                    document.getElementById('clearReviewLog')?.addEventListener('click', () => this.clearReviewLog());
 
                     // Populate speaker list from browser voices filtered by language
                     const populateSpeakers = () => {
@@ -3299,6 +3461,17 @@
                             const el = document.getElementById('llmTopP');
                             if (el) el.value = settings.llmTopP;
                         }
+                        // FSRS-6 参数
+                        const retention = parseFloat(settings.fsrsRequestRetention);
+                        setSelect('fsrsRetention', Number.isFinite(retention) ? String(retention) : '0.9');
+                        const paramsEl = document.getElementById('fsrsParams');
+                        if (paramsEl) {
+                            const current = this.db.getSrsParams();
+                            const custom = this.db.parseSrsParams(settings.fsrsParams);
+                            const shown = custom || current.w || [];
+                            paramsEl.value = shown.join(', ');
+                        }
+                        await this.updateReviewLogCount();
                         this.applyTheme(settings.theme || 'light');
                         this.applyFontSize(settings.fontSize || 'medium');
                     } catch (error) {
@@ -3334,11 +3507,27 @@
                             llmModel: (getInputValue('llmModel') || '').trim(),
                             llmWebSearch: document.getElementById('llmWebSearch')?.checked ?? true,
                             llmTemperature: parseFloat(getInputValue('llmTemperature')) || 0.7,
-                            llmTopP: parseFloat(getInputValue('llmTopP')) || 0.9
+                            llmTopP: parseFloat(getInputValue('llmTopP')) || 0.9,
+                            fsrsRequestRetention: parseFloat(getSelect('fsrsRetention')) || 0.9
                         };
+                        const paramsText = (getInputValue('fsrsParams') || '').trim();
+                        let paramsValid = true;
+                        if (paramsText) {
+                            const parsed = this.db.parseSrsParams(paramsText);
+                            if (!parsed) {
+                                paramsValid = false;
+                                this.showNotification('FSRS 参数无效（需至少 19 个数字），已保留原参数', 'error');
+                            } else {
+                                settings.fsrsParams = JSON.stringify(parsed);
+                            }
+                        } else {
+                            settings.fsrsParams = '';
+                        }
                         for (const [key, value] of Object.entries(settings)) {
+                            if (key === 'fsrsParams' && !paramsValid) continue;
                             await this.db.saveSetting(key, value);
                         }
+                        await this.db.loadSrsConfig();
                         this.mimoConfig = {
                             engine: settings.ttsEngine || 'system',
                             apiKey: settings.mimoApiKey || '',
@@ -3352,6 +3541,110 @@
                     } catch (error) {
                         console.error('保存设置失败:', error);
                         this.showNotification('保存设置失败', 'error');
+                    }
+                }
+
+                // ===== FSRS-6 参数与复习日志 =====
+                async applyFsrsParams() {
+                    const el = document.getElementById('fsrsParams');
+                    const statusEl = document.getElementById('fsrsParamsStatus');
+                    const raw = (el?.value || '').trim();
+                    try {
+                        if (!raw) {
+                            await this.db.saveSetting('fsrsParams', '');
+                            await this.db.loadSrsConfig();
+                            if (statusEl) statusEl.textContent = '已恢复官方默认参数';
+                            this.showNotification('已恢复官方默认参数', 'success');
+                            this.refreshFsrsParamsField();
+                            return;
+                        }
+                        const parsed = this.db.parseSrsParams(raw);
+                        if (!parsed) {
+                            if (statusEl) statusEl.textContent = '参数无效：需要至少 19 个数字';
+                            this.showNotification('FSRS 参数无效，请输入至少 19 个数字', 'error');
+                            return;
+                        }
+                        await this.db.saveSetting('fsrsParams', JSON.stringify(parsed));
+                        await this.db.loadSrsConfig();
+                        if (statusEl) statusEl.textContent = `已应用 ${parsed.length} 个参数`;
+                        this.showNotification('FSRS 参数已应用', 'success');
+                        this.refreshFsrsParamsField();
+                    } catch (error) {
+                        console.error('应用 FSRS 参数失败:', error);
+                        this.showNotification('应用 FSRS 参数失败', 'error');
+                    }
+                }
+
+                async resetFsrsParams() {
+                    try {
+                        await this.db.saveSetting('fsrsParams', '');
+                        await this.db.loadSrsConfig();
+                        this.refreshFsrsParamsField();
+                        const statusEl = document.getElementById('fsrsParamsStatus');
+                        if (statusEl) statusEl.textContent = '已恢复官方默认参数';
+                        this.showNotification('已恢复官方默认参数', 'success');
+                    } catch (error) {
+                        console.error('恢复默认参数失败:', error);
+                        this.showNotification('恢复默认参数失败', 'error');
+                    }
+                }
+
+                refreshFsrsParamsField() {
+                    const el = document.getElementById('fsrsParams');
+                    if (!el) return;
+                    const current = this.db.getSrsParams();
+                    el.value = (current.w || []).join(', ');
+                }
+
+                async updateReviewLogCount() {
+                    const el = document.getElementById('reviewLogCount');
+                    if (!el) return;
+                    try {
+                        const count = await this.db.getReviewLogCount();
+                        el.textContent = `${count} 条`;
+                    } catch (error) {
+                        el.textContent = '读取失败';
+                    }
+                }
+
+                async exportReviewLog() {
+                    try {
+                        const logs = await this.db.getReviewLogs();
+                        if (!logs.length) {
+                            this.showNotification('暂无复习日志', 'warning');
+                            return;
+                        }
+                        const csv = this.db.exportReviewLogCsv(logs);
+                        const filename = `fsrs-review-log-${new Date().toISOString().split('T')[0]}.csv`;
+                        if (typeof Android !== 'undefined' && Android.saveFile) {
+                            Android.saveFile(filename, csv);
+                        } else {
+                            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }
+                        this.showNotification(`已导出 ${logs.length} 条复习日志`, 'success');
+                    } catch (error) {
+                        console.error('导出复习日志失败:', error);
+                        this.showNotification('导出复习日志失败', 'error');
+                    }
+                }
+
+                async clearReviewLog() {
+                    if (!confirm('确定清空复习日志吗？清空后将无法再用于参数优化。')) return;
+                    try {
+                        await this.db.clearReviewLogs();
+                        await this.updateReviewLogCount();
+                        this.showNotification('复习日志已清空', 'success');
+                    } catch (error) {
+                        console.error('清空复习日志失败:', error);
+                        this.showNotification('清空复习日志失败', 'error');
                     }
                 }
 
@@ -3407,8 +3700,9 @@
                             req.onsuccess = () => resolve(req.result || []);
                         });
                         const allWordCache = await this.db.getAllWordCache();
+                        const allReviewLogs = await this.db.getReviewLogs();
                         const exportData = {
-                            version: '3.2',
+                            version: '3.3',
                             exportDate: new Date().toISOString(),
                             words: allWords,
                             newWords: newWords.map(w => ({ wordId: w.id, addedAt: w.addedAt })),
@@ -3417,6 +3711,7 @@
                             learningHistory: allHistory,
                             novels: allArticles,
                             wordCache: allWordCache,
+                            reviewLog: allReviewLogs,
                             plan: plan,
                             settings: settings,
                             stats: stats
@@ -4066,11 +4361,17 @@
                         }
 
                         if (importData.wordCache && importData.wordCache.length > 0) {
-                            this.showLoader(`正在导入 AI/词典缓存...`);
+                            this.showLoader('正在导入 AI/词典缓存...');
                             await this.db.importWordCacheRecords(importData.wordCache, {
                                 batchSize: 500,
                                 onProgress: (p) => this.showLoader(`正在导入 AI/词典缓存 ${p.processed}/${p.total} ...`)
                             });
+                        }
+
+                        if (importData.reviewLog && importData.reviewLog.length > 0) {
+                            this.showLoader('正在导入复习日志...');
+                            const logResult = await this.db.importReviewLogs(importData.reviewLog);
+                            console.log('复习日志导入完成:', logResult);
                         }
 
                         this.hideLoader();
@@ -4331,21 +4632,53 @@
                     });
                 }
 
+                // 生成短促提示音（WAV data URI），避免 AudioContext 在无音频设备的环境阻塞主线程
+                buildBeepDataUrl(frequency, duration = 0.14, sampleRate = 8000) {
+                    const samples = Math.floor(sampleRate * duration);
+                    const buffer = new ArrayBuffer(44 + samples * 2);
+                    const view = new DataView(buffer);
+                    const writeStr = (offset, str) => {
+                        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+                    };
+                    writeStr(0, 'RIFF');
+                    view.setUint32(4, 36 + samples * 2, true);
+                    writeStr(8, 'WAVE');
+                    writeStr(12, 'fmt ');
+                    view.setUint32(16, 16, true);
+                    view.setUint16(20, 1, true);
+                    view.setUint16(22, 1, true);
+                    view.setUint32(24, sampleRate, true);
+                    view.setUint32(28, sampleRate * 2, true);
+                    view.setUint16(32, 2, true);
+                    view.setUint16(34, 16, true);
+                    writeStr(36, 'data');
+                    view.setUint32(40, samples * 2, true);
+                    for (let i = 0; i < samples; i++) {
+                        const t = i / sampleRate;
+                        const fade = Math.min(1, t / 0.01) * Math.min(1, (duration - t) / 0.03);
+                        const value = Math.sin(2 * Math.PI * frequency * t) * 0.5 * fade;
+                        view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, value)) * 32767, true);
+                    }
+                    const bytes = new Uint8Array(buffer);
+                    let binary = '';
+                    const step = 8192;
+                    for (let i = 0; i < bytes.length; i += step) {
+                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+                    }
+                    return 'data:audio/wav;base64,' + btoa(binary);
+                }
+
                 playAnswerSound(correct) {
                     try {
-                        const AudioContext = window.AudioContext || window.webkitAudioContext;
-                        if (!AudioContext) return;
-                        const audioContext = new AudioContext();
-                        const oscillator = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        oscillator.frequency.value = correct ? 800 : 400;
-                        oscillator.type = 'sine';
-                        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-                        oscillator.start(audioContext.currentTime);
-                        oscillator.stop(audioContext.currentTime + 0.3);
+                        if (!this._beepUrls) this._beepUrls = {};
+                        const key = correct ? 'ok' : 'bad';
+                        if (!this._beepUrls[key]) {
+                            this._beepUrls[key] = this.buildBeepDataUrl(correct ? 880 : 392);
+                        }
+                        const audio = new Audio(this._beepUrls[key]);
+                        audio.volume = 0.3;
+                        const playing = audio.play();
+                        if (playing && typeof playing.catch === 'function') playing.catch(() => {});
                     } catch (error) {
                         console.warn('播放音效失败:', error);
                     }

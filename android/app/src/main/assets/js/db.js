@@ -1,6 +1,6 @@
         (function() {
             const DB_NAME = 'WordLearnerDB';
-            const DB_VERSION = 10;
+            const DB_VERSION = 11;
 
             const STORES = {
                 WORDS: 'words',
@@ -15,8 +15,13 @@
                 AUDIO_SEGMENTS: 'audio_segments',
                 WORD_CACHE: 'word_cache',
                 ECDICT: 'ecdict',
-                ECDICT_META: 'ecdict_meta'
+                ECDICT_META: 'ecdict_meta',
+                REVIEW_LOG: 'review_log'
             };
+
+            const LEECH_THRESHOLD = 8;
+            const DEFAULT_RETENTION = 0.9;
+            const DEFAULT_MAX_INTERVAL = 3650;
 
             class WordDatabase {
                 constructor() {
@@ -24,19 +29,86 @@
                     this.initPromise = null;
                     this.isInitializing = false;
                     this._srs = null;
+                    this._srsConfig = {
+                        request_retention: DEFAULT_RETENTION,
+                        maximum_interval: DEFAULT_MAX_INTERVAL,
+                        w: null
+                    };
                 }
 
-                // FSRS-6 调度器（ts-fsrs UMD），延迟初始化
+                // FSRS-6 调度器（ts-fsrs UMD），延迟初始化；参数可由设置覆盖
                 srs() {
                     if (!this._srs) {
                         if (!window.FSRS) throw new Error('FSRS 库未加载');
-                        this._srs = window.FSRS.fsrs(window.FSRS.generatorParameters({
+                        const config = this._srsConfig || {};
+                        const params = {
                             enable_fuzz: true,
                             learning_steps: ['1m', '10m'],
-                            relearning_steps: ['10m']
-                        }));
+                            relearning_steps: ['10m'],
+                            request_retention: config.request_retention || DEFAULT_RETENTION,
+                            maximum_interval: config.maximum_interval || DEFAULT_MAX_INTERVAL
+                        };
+                        if (Array.isArray(config.w) && config.w.length >= 19) {
+                            params.w = config.w;
+                        }
+                        this._srs = window.FSRS.fsrs(window.FSRS.generatorParameters(params));
                     }
                     return this._srs;
+                }
+
+                // 从设置读取 FSRS 参数（保持率 / 自定义 w），并重建调度器
+                async loadSrsConfig() {
+                    await this.ready();
+                    try {
+                        const settings = await this.getAllSettings();
+                        const retention = parseFloat(settings.fsrsRequestRetention);
+                        const w = this.parseSrsParams(settings.fsrsParams);
+                        this._srsConfig = {
+                            request_retention: Number.isFinite(retention) && retention > 0 && retention <= 1
+                                ? retention
+                                : DEFAULT_RETENTION,
+                            maximum_interval: DEFAULT_MAX_INTERVAL,
+                            w: w
+                        };
+                        this._srs = null;
+                        return this._srsConfig;
+                    } catch (error) {
+                        console.warn('加载 FSRS 配置失败，使用默认参数:', error);
+                        return this._srsConfig;
+                    }
+                }
+
+                // 解析自定义参数：支持 JSON 数组或逗号/空格分隔的数字
+                parseSrsParams(raw) {
+                    if (!raw) return null;
+                    let list = raw;
+                    if (typeof raw === 'string') {
+                        const text = raw.trim();
+                        if (!text) return null;
+                        try {
+                            list = JSON.parse(text);
+                        } catch (e) {
+                            list = text.split(/[\s,]+/).filter(Boolean);
+                        }
+                    }
+                    if (!Array.isArray(list)) return null;
+                    const nums = list.map(v => parseFloat(v));
+                    if (nums.length < 19 || nums.some(v => !Number.isFinite(v))) return null;
+                    return nums;
+                }
+
+                // 当前生效的 FSRS 参数快照（用于设置页展示）
+                getSrsParams() {
+                    try {
+                        const params = this.srs().parameters;
+                        return {
+                            request_retention: params.request_retention,
+                            maximum_interval: params.maximum_interval,
+                            w: Array.isArray(params.w) ? params.w.slice() : []
+                        };
+                    } catch (error) {
+                        return { request_retention: DEFAULT_RETENTION, maximum_interval: DEFAULT_MAX_INTERVAL, w: [] };
+                    }
                 }
 
                 // 将 user_progress 记录还原为 FSRS 卡片；旧 SM-2/familiarity 记录按 fsrs-rs 官方公式迁移
@@ -304,6 +376,14 @@
 									db.createObjectStore(STORES.ECDICT_META, { keyPath: 'key' });
 								}
 							}
+							if (oldVersion < 11) {
+								console.log('迁移到版本 11：添加 FSRS 复习日志 store');
+								if (!db.objectStoreNames.contains(STORES.REVIEW_LOG)) {
+									const logStore = db.createObjectStore(STORES.REVIEW_LOG, { keyPath: 'id', autoIncrement: true });
+									logStore.createIndex('review', 'review', { unique: false });
+									logStore.createIndex('wordId', 'wordId', { unique: false });
+								}
+							}
                         };
                         
                         request.onblocked = () => {
@@ -364,6 +444,12 @@
 
                     if (!db.objectStoreNames.contains(STORES.ECDICT_META)) {
                         db.createObjectStore(STORES.ECDICT_META, { keyPath: 'key' });
+                    }
+
+                    if (!db.objectStoreNames.contains(STORES.REVIEW_LOG)) {
+                        const logStore = db.createObjectStore(STORES.REVIEW_LOG, { keyPath: 'id', autoIncrement: true });
+                        logStore.createIndex('review', 'review', { unique: false });
+                        logStore.createIndex('wordId', 'wordId', { unique: false });
                     }
                 }
 
@@ -734,7 +820,30 @@
                     });
                 }
 
-                async updateProgress(wordId, correct) {
+                // 将外部传入的评分统一成 FSRS Rating（支持 boolean / 1-4 / 名称）
+                normalizeGrade(grade) {
+                    const F = window.FSRS;
+                    if (!F) throw new Error('FSRS 库未加载');
+                    if (typeof grade === 'boolean') {
+                        return grade ? F.Rating.Good : F.Rating.Again;
+                    }
+                    if (typeof grade === 'number' && Number.isFinite(grade)) {
+                        const value = Math.round(grade);
+                        if (value >= F.Rating.Again && value <= F.Rating.Easy) return value;
+                        return F.Rating.Good;
+                    }
+                    if (typeof grade === 'string') {
+                        const name = grade.trim().toLowerCase();
+                        if (name === 'again' || name === 'forget' || name === '不认识') return F.Rating.Again;
+                        if (name === 'hard' || name === '困难') return F.Rating.Hard;
+                        if (name === 'good' || name === '认识' || name === 'normal') return F.Rating.Good;
+                        if (name === 'easy' || name === '简单') return F.Rating.Easy;
+                    }
+                    return F.Rating.Good;
+                }
+
+                // FSRS-6 评分：1=Again 2=Hard 3=Good 4=Easy
+                async updateProgress(wordId, grade) {
                     await this.ready();
                     const progress = await this.getProgress(wordId);
                     const word = await this.getWordById(wordId);
@@ -746,16 +855,19 @@
                     const F = window.FSRS;
                     if (!F) throw new Error('FSRS 库未加载');
 
-                    // ---- FSRS-6：认识=Good，不认识=Again ----
+                    const rating = this.normalizeGrade(grade);
                     const card = this.cardFromProgress(progress, now);
-                    const grade = correct ? F.Rating.Good : F.Rating.Again;
-                    const { card: nextCard } = this.srs().next(card, now, grade);
+                    const { card: nextCard, log } = this.srs().next(card, now, rating);
+                    const isSuccess = rating >= F.Rating.Good;
 
                     // familiarity 仅用于展示（星级/统计），不再参与调度
                     const prevFamiliarity = progress && progress.familiarity ? progress.familiarity : 0;
-                    const familiarity = correct
+                    const familiarity = isSuccess
                         ? Math.min(prevFamiliarity + 1, 5)
                         : Math.max(prevFamiliarity - 1, 0);
+
+                    const wasLeech = !!(progress && progress.isLeech);
+                    const isLeech = (nextCard.lapses || 0) >= LEECH_THRESHOLD;
 
                     const progressData = {
                         wordId: parseInt(wordId),
@@ -768,6 +880,7 @@
                         learning_steps: nextCard.learning_steps,
                         reps: nextCard.reps,
                         lapses: nextCard.lapses,
+                        isLeech: isLeech,
                         // interval/repetition 为旧字段，保留供旧版备份/展示兼容
                         interval: Math.round(nextCard.scheduled_days),
                         repetition: nextCard.reps,
@@ -775,7 +888,7 @@
                         lastReview: (nextCard.last_review || now).toISOString(),
                         totalReviews: (progress && progress.totalReviews ? progress.totalReviews : 0) + 1
                     };
-                    return new Promise((resolve, reject) => {
+                    await new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.USER_PROGRESS], 'readwrite');
                         transaction.onerror = (e) => reject(e.target.error);
                         const store = transaction.objectStore(STORES.USER_PROGRESS);
@@ -783,6 +896,143 @@
                         request.onsuccess = () => resolve(progressData);
                         request.onerror = () => reject(request.error);
                     });
+
+                    // 写入复习日志（用于导出 FSRS review log / 离线参数优化）
+                    try {
+                        await this.addReviewLog({
+                            wordId: parseInt(wordId),
+                            word: word.word || '',
+                            rating: rating,
+                            state: log.state,
+                            due: log.due ? new Date(log.due).toISOString() : null,
+                            review: log.review ? new Date(log.review).toISOString() : now.toISOString(),
+                            elapsed_days: log.elapsed_days,
+                            last_elapsed_days: log.last_elapsed_days,
+                            scheduled_days: log.scheduled_days,
+                            stability: log.stability,
+                            difficulty: log.difficulty,
+                            learning_steps: log.learning_steps,
+                            next_state: nextCard.state,
+                            next_due: nextCard.due.toISOString(),
+                            next_stability: nextCard.stability,
+                            next_difficulty: nextCard.difficulty
+                        });
+                    } catch (error) {
+                        console.warn('写入复习日志失败:', error);
+                    }
+
+                    // 易忘词（lapses 达到阈值）自动进入生词本
+                    if (isLeech && !wasLeech) {
+                        try {
+                            await this.addToNewWords(parseInt(wordId));
+                        } catch (error) {
+                            console.warn('易忘词加入生词本失败:', error);
+                        }
+                        progressData.justBecameLeech = true;
+                    }
+                    return progressData;
+                }
+
+                // ===== FSRS 复习日志 =====
+                async addReviewLog(record) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.REVIEW_LOG], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.REVIEW_LOG);
+                        const request = store.add(record);
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getReviewLogs(limit = 0) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.REVIEW_LOG], 'readonly');
+                        const store = transaction.objectStore(STORES.REVIEW_LOG);
+                        const request = limit > 0 ? store.getAll(null, limit) : store.getAll();
+                        request.onsuccess = () => resolve(request.result || []);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getReviewLogCount() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.REVIEW_LOG], 'readonly');
+                        const store = transaction.objectStore(STORES.REVIEW_LOG);
+                        const request = store.count();
+                        request.onsuccess = () => resolve(request.result || 0);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async clearReviewLogs() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.REVIEW_LOG], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.REVIEW_LOG);
+                        const request = store.clear();
+                        request.onsuccess = () => resolve();
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async importReviewLogs(records) {
+                    await this.ready();
+                    const list = Array.isArray(records) ? records : [];
+                    if (!list.length) return { imported: 0, invalid: 0 };
+                    let imported = 0;
+                    let invalid = 0;
+                    const batchSize = 500;
+                    for (let i = 0; i < list.length; i += batchSize) {
+                        const batch = list.slice(i, i + batchSize);
+                        await new Promise((resolve, reject) => {
+                            const transaction = this.db.transaction([STORES.REVIEW_LOG], 'readwrite');
+                            transaction.onerror = (e) => reject(e.target.error);
+                            const store = transaction.objectStore(STORES.REVIEW_LOG);
+                            for (const rec of batch) {
+                                if (!rec || typeof rec !== 'object' || !rec.review) { invalid++; continue; }
+                                store.add(rec);
+                                imported++;
+                            }
+                            transaction.oncomplete = () => resolve();
+                            transaction.onabort = () => reject(new Error('复习日志导入事务中断'));
+                        });
+                    }
+                    return { imported, invalid };
+                }
+
+                // 导出标准 FSRS review log CSV（可用官方 fsrs-analyzer 优化参数）
+                exportReviewLogCsv(logs) {
+                    const rows = Array.isArray(logs) ? logs : [];
+                    const header = [
+                        'card_id', 'state', 'due', 'review', 'rating',
+                        'elapsed_days', 'scheduled_days', 'stability', 'difficulty', 'last_elapsed_days'
+                    ];
+                    const escape = (value) => {
+                        const text = value == null ? '' : String(value);
+                        if (/[",\n]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
+                        return text;
+                    };
+                    const lines = [header.join(',')];
+                    for (const log of rows) {
+                        lines.push([
+                            escape(log.wordId != null ? log.wordId : ''),
+                            escape(log.state != null ? log.state : ''),
+                            escape(log.due || ''),
+                            escape(log.review || ''),
+                            escape(log.rating != null ? log.rating : ''),
+                            escape(log.elapsed_days != null ? log.elapsed_days : 0),
+                            escape(log.scheduled_days != null ? log.scheduled_days : 0),
+                            escape(log.stability != null ? log.stability : 0),
+                            escape(log.difficulty != null ? log.difficulty : 0),
+                            escape(log.last_elapsed_days != null ? log.last_elapsed_days : 0)
+                        ].join(','));
+                    }
+                    return lines.join('\n');
                 }
 
                 async getProgress(wordId) {
@@ -1491,7 +1741,7 @@
                     const names = [
                         STORES.WORDS, STORES.WORD_LISTS, STORES.USER_PROGRESS, STORES.NEW_WORDS,
                         STORES.DAILY_PLAN, STORES.LEARNING_HISTORY, STORES.NOVELS, STORES.SETTINGS,
-                        STORES.LISTENING_FILES, STORES.AUDIO_SEGMENTS, STORES.WORD_CACHE
+                        STORES.LISTENING_FILES, STORES.AUDIO_SEGMENTS, STORES.WORD_CACHE, STORES.REVIEW_LOG
                     ].filter(name => this.db.objectStoreNames.contains(name));
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction(names, 'readwrite');

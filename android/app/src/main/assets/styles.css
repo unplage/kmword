@@ -364,6 +364,37 @@
             color: white;
         }
 
+        .action-btn.warning {
+            background: var(--warning-color);
+            color: white;
+        }
+
+        .pending-learning {
+            margin-top: 12px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: var(--secondary-bg, #f0f4ff);
+            border: 1px dashed var(--border-color);
+            color: var(--gray-color);
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .pending-learning strong {
+            color: var(--dark-color);
+        }
+
+        .leech-badge {
+            display: inline-block;
+            margin-bottom: 8px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: rgba(255, 152, 0, 0.15);
+            color: var(--warning-color);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
         .action-btn.small {
             padding: 8px 16px;
             font-size: 0.9rem;
@@ -503,9 +534,14 @@
 
         .learning-actions {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
             margin: 30px 0 20px;
+        }
+
+        .learning-actions .action-btn {
+            padding: 14px 8px;
+            font-size: 0.95rem;
         }
 
         .extra-actions {
@@ -1612,7 +1648,7 @@
             }
             
             .learning-actions {
-                grid-template-columns: 1fr;
+                grid-template-columns: repeat(2, 1fr);
             }
             
             .plan-stats {

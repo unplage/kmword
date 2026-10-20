@@ -250,18 +250,20 @@
     return Math.round(num * factor) / factor;
   }
   function dateDiffInDays(last, cur) {
-    const utc1 = Date.UTC(
-      last.getUTCFullYear(),
-      last.getUTCMonth(),
-      last.getUTCDate()
+    // 本地补丁：使用本地日历日计算间隔（与 Anki 的“日界”一致），
+    // 上游 ts-fsrs 使用 UTC 日期，UTC+8 用户在 08:00 前后复习会多算/少算 1 天。
+    const local1 = Date.UTC(
+      last.getFullYear(),
+      last.getMonth(),
+      last.getDate()
     );
-    const utc2 = Date.UTC(
-      cur.getUTCFullYear(),
-      cur.getUTCMonth(),
-      cur.getUTCDate()
+    const local2 = Date.UTC(
+      cur.getFullYear(),
+      cur.getMonth(),
+      cur.getDate()
     );
     return Math.floor(
-      (utc2 - utc1) / 864e5
+      (local2 - local1) / 864e5
       /** 1000 * 60 * 60 * 24*/
     );
   }
