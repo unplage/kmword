@@ -34,6 +34,8 @@
 
 成功结果写入 `word_cache.en`，重复查询和离线时可立即显示。释义底部会标注来源；使用这些数据时请遵守对应许可（Wiktionary/FreeDictionaryAPI 为 CC BY-SA 4.0）。
 
+FreeDictionaryAPI.com 只提供音标、不提供音频，因此单词发音使用有道词典音频兜底；音频加载失败时自动切换浏览器/Android 系统 TTS。
+
 ## 导入词库
 
 - 从 [kajweb/dict](https://github.com/kajweb/dict) 下载单词库，用 `extract_txt.py` 转换为编号 TXT 格式后导入

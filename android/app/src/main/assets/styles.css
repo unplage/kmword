@@ -1520,9 +1520,23 @@
 
         .dictionary-details {
             margin-top: 15px;
+            max-width: 100%;
+            min-width: 0;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .dictionary-details .clickable-word,
+        .dictionary-details .definition,
+        .dictionary-details .example,
+        .dictionary-details .part-of-speech,
+        .dictionary-details .dict-source {
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .meaning-item {
+            min-width: 0;
             margin-bottom: 20px;
             padding-bottom: 15px;
             border-bottom: 1px solid var(--border-color);

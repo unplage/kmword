@@ -95,6 +95,13 @@
         });
     }
 
+    function fallbackAudioUrl(word) {
+        const key = normalizeWord(word);
+        if (!/^[a-z][a-z' -]*$/.test(key)) return '';
+        const encoded = encodeURIComponent(key).replace(/'/g, '%27');
+        return `https://dict.youdao.com/dictvoice?audio=${encoded}&type=2`;
+    }
+
     function buildResult(word, payload) {
         const allMeanings = (payload.allMeanings || [])
             .filter(item => item && item.definition)
@@ -107,7 +114,7 @@
             meaning: `${first.partOfSpeech ? first.partOfSpeech + '. ' : ''}${first.definition}`,
             example: first.example || '',
             allMeanings: allMeanings,
-            audioUrl: payload.audioUrl || '',
+            audioUrl: payload.audioUrl || fallbackAudioUrl(word),
             source: payload.source || '',
             sourceUrl: payload.sourceUrl || '',
             rawData: payload.rawData || { source: payload.source || '' }
@@ -121,7 +128,7 @@
             meaning: `${word} 的释义（网络查询失败）`,
             example: `This is an example for ${word}.`,
             allMeanings: [],
-            audioUrl: '',
+            audioUrl: fallbackAudioUrl(word),
             source: 'fallback',
             sourceUrl: '',
             rawData: null
@@ -681,6 +688,7 @@
     window.dictionaryAPI = {
         fetchWordData,
         probe,
+        getAudioUrl: fallbackAudioUrl,
         getFallbackData: fallbackData,
         sources: { ...SOURCES }
     };

@@ -10,6 +10,7 @@
                     this.showingDetails = false;
                     this.networkAvailable = true;
                     this.currentAudioUrl = null;
+                    this.lookupModalAudioUrl = '';
                     this.speechSynthesis = null;
                     this.voices = [];
                     this.searchDebounceTimer = null;
@@ -778,7 +779,7 @@
                     });
                     document.getElementById('lookupModalAddBtn')?.addEventListener('click', () => this.addLookupWordToDB());
                     document.getElementById('lookupModalSpeakBtn')?.addEventListener('click', () => {
-                        if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
+                        if (this.lookupModalWord) this.speakWord(this.lookupModalWord, this.lookupModalAudioUrl);
                     });
                     document.getElementById('lookupModalEcdictBtn')?.addEventListener('click', () => this.lookupModalEcdict());
                     document.getElementById('lookupModalMwBtn')?.addEventListener('click', () => this.lookupModalMw());
@@ -787,7 +788,7 @@
                     document.getElementById('lookupModalAiCacheBtn')?.addEventListener('click', () => this.lookupModalAiCache());
                     // 弹窗内单词标题也可点击发音
                     document.getElementById('lookupModalWord')?.addEventListener('click', () => {
-                        if (this.lookupModalWord) this.speakWord(this.lookupModalWord);
+                        if (this.lookupModalWord) this.speakWord(this.lookupModalWord, this.lookupModalAudioUrl);
                     });
 
                     // 学习模式切换 + 拼写提交
@@ -1781,9 +1782,10 @@
                 async speakCurrentWord() {
                     const word = document.getElementById('currentWord')?.textContent;
                     if (!word || word === 'Loading...') return;
-                    if (this.currentAudioUrl && (this.networkAvailable || navigator.onLine)) {
+                    const audioUrl = this.currentAudioUrl || this.getWordAudioUrl(word);
+                    if (audioUrl && (this.networkAvailable || navigator.onLine)) {
                         try {
-                            const audio = new Audio(this.currentAudioUrl);
+                            const audio = new Audio(audioUrl);
                             audio.playbackRate = 0.9;
                             await new Promise((resolve, reject) => {
                                 audio.onended = resolve;
@@ -1796,6 +1798,13 @@
                         }
                     }
                     this.speakWithSynthesis(word);
+                }
+
+                getWordAudioUrl(word) {
+                    const api = this.dictionaryAPI;
+                    return api && typeof api.getAudioUrl === 'function'
+                        ? api.getAudioUrl(word)
+                        : '';
                 }
 
                 speakWithSynthesis(word) {
@@ -4342,15 +4351,20 @@
                     }
                 }
 
-                speakWord(word) {
+                async speakWord(word, audioUrl) {
                     if (!word) return;
-                    if (this.speechSynthesis) {
-                        if (this.readerTTS) this.stopReaderTTS();
-                        this.speechSynthesis.cancel();
-                        const utterance = new SpeechSynthesisUtterance(word);
-                        utterance.rate = 0.8;
-                        this.speechSynthesis.speak(utterance);
+                    const url = audioUrl || this.getWordAudioUrl(word);
+                    if (url && (this.networkAvailable || navigator.onLine)) {
+                        try {
+                            const audio = new Audio(url);
+                            audio.playbackRate = 0.9;
+                            await audio.play();
+                            return;
+                        } catch (error) {
+                            console.warn('网络音频播放失败，使用 TTS:', error);
+                        }
                     }
+                    this.speakWithSynthesis(word);
                 }
 
                 async addWordToStudy(wordId) {
@@ -4697,7 +4711,7 @@
                         }
                         // 让弹窗内 free dict 释义/音标/摘要中的英文单词可点击查词
                         this.makeClickable(freeDictEl);
-                        this.currentAudioUrl = data.audioUrl;
+                        this.lookupModalAudioUrl = data.audioUrl || '';
                         if (!data.audioUrl && data.meaning && !data.meaning.includes('网络查询失败')) {
                             setTimeout(() => this.speakWord(word), 300);
                         }
@@ -4711,6 +4725,7 @@
                     const modal = document.getElementById('wordLookupModal');
                     if (modal) modal.style.display = 'none';
                     this.lookupModalWord = null;
+                    this.lookupModalAudioUrl = '';
                     const aiResultEl = document.getElementById('lookupModalAiResult');
                     if (aiResultEl) {
                         aiResultEl.style.display = 'none';

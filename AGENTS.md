@@ -29,6 +29,7 @@
 - **Free Dictionary API** (`api.dictionaryapi.dev`) — secondary source, starts after a 700ms hedge, no key. The upstream origin is intermittently unavailable (HTTP 522/530); network/5xx failures are not cached.
 - **Wiktionary REST API** (`en.wiktionary.org/api/rest_v1/page/definition`) — automatic fallback, no key, CORS `*`. `js/wiktionary.js#query` returns parsed data / `null` (transient) / `false` (definitive 404). It can be unreachable from mainland China.
 - **Datamuse** (`api.datamuse.com`) — lightweight emergency fallback (`/words?sp=…&md=dpfr&ipa=1`), no key until 2027-02-01, short definitions only. Free tier is 100,000 requests/day.
+- **Pronunciation audio** — FreeDictionaryAPI.com returns IPA but no audio files. `js/dictionary-api.js#getAudioUrl` generates a Youdao `dict.youdao.com/dictvoice?audio=…&type=2` fallback (US pronunciation); `speakWord`/`speakCurrentWord` try that audio first, then fall back to browser/Android TTS if playback fails.
 - **Online lookup chain** (`js/dictionary-api.js#fetchWordData`): FreeDictionaryAPI.com immediately + Free Dictionary API after a 700ms hedge (3.5s timeout each) → Wiktionary immediately + Datamuse after a 350ms hedge → local ECDICT → fallback. Losing provider requests are aborted once a source wins, including delayed requests that have not started. Successful results are cached in `word_cache.en`; network/5xx failures are not cached. `probe()` checks FreeDictionaryAPI.com and Datamuse for general connectivity instead of relying on `api.dictionaryapi.dev`.
 - **Novel extraction** uses the same shared chain via `window.dictionaryAPI.fetchWordData(word, { persist: false, memory: false, signal })` and keeps its own in-memory `dictionaryCache`.
 - **Merriam-Webster API** (`dictionaryapi.com`) — optional, configure `mwDictKey` + `mwThesKey` in Settings. Free registration at https://dictionaryapi.com/register/index.htm.
@@ -160,7 +161,7 @@ In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 
 
 ## Cache versioning
 
-`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `js/dictionary-api.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v45.
+`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `js/dictionary-api.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v47.
 
 ## Quirks
 
