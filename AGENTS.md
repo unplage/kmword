@@ -195,9 +195,11 @@ In-repo TXT files used as import sources: 专四 (4025), 专八 (12197), 托福 
 
 ## Cache versioning
 
-`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `js/dictionary-api.js`, `js/fsrs.js`, `js/stats.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v50.
+`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `js/dictionary-api.js`, `js/fsrs.js`, `js/stats.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v51.
 
 ## Quirks
+
+- **展开全部释义的数据不放进 HTML 属性**：`renderDictDetails` 把待展开的释义存进 `app._expandMeanings`（WeakMap，键为按钮元素）。早期实现用 `data-meanings='${encodeURIComponent(JSON.stringify(...))}'`，而 `encodeURIComponent` 不转义撇号，例句/释义里出现 `don't` 就会提前截断属性，点击时 `JSON.parse` 抛错、按钮毫无反应。同理，动态内容进属性统一用 `app.escapeAttr()`（`escapeHtml` 不转义引号）。
 
 - **Timezone:** Learning streaks use `Asia/Shanghai` (Beijing time), not device local time (`js/db.js:960`).
 - **Word normalization:** All words lowercased + `.trim()`-ed before storage or lookup.

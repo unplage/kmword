@@ -1022,6 +1022,17 @@
                 }
 
                 // ===== 例句音频缓存（MiMo 生成后缓存，系统 TTS 不缓存）=====
+                async getSentenceAudioCount() {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readonly');
+                        const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                        const request = store.count();
+                        request.onsuccess = () => resolve(request.result || 0);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
                 async getSentenceAudio(key) {
                     await this.ready();
                     if (!key) return null;
@@ -1055,7 +1066,13 @@
                         request.onsuccess = () => resolve(data);
                         request.onerror = () => reject(request.error);
                     });
-                    this.trimSentenceAudio().catch(() => {});
+                    // 仅在超过上限时才做清理，避免每次写入都多开一轮事务
+                    try {
+                        const count = await this.getSentenceAudioCount();
+                        if (count > SENTENCE_AUDIO_MAX) {
+                            this.trimSentenceAudio().catch(() => {});
+                        }
+                    } catch (e) {}
                     return data;
                 }
 

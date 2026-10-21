@@ -569,6 +569,8 @@
 
                 async init() {
                     console.log('应用初始化开始');
+                    this._initCount = (this._initCount || 0) + 1;
+                    try { sessionStorage.setItem('kw_app_loads', String(Number(sessionStorage.getItem('kw_app_loads') || 0) + 1)); } catch (e) {}
                     try {
                         // 先绑定事件，保证网络探测期间界面依然可交互
                         this.bindEvents();
@@ -1593,7 +1595,7 @@
 								html += `<div style="margin-top: 6px; font-size: 0.9rem;">`;
 								html += `<span style="color: var(--gray-color); font-weight: 500;">同义词：</span>`;
 								meaning.synonyms.forEach(syn => {
-									html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${esc(syn)}">${esc(syn)}</span>`;
+									html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${this.escapeAttr(syn)}">${esc(syn)}</span>`;
 								});
 								html += `</div>`;
 							}
@@ -1601,7 +1603,7 @@
 								html += `<div style="margin-top: 4px; font-size: 0.9rem;">`;
 								html += `<span style="color: var(--gray-color); font-weight: 500;">反义词：</span>`;
 								meaning.antonyms.forEach(ant => {
-									html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${esc(ant)}">${esc(ant)}</span>`;
+									html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${this.escapeAttr(ant)}">${esc(ant)}</span>`;
 								});
 								html += `</div>`;
 							}
@@ -1610,7 +1612,7 @@
 						if (!showAll) {
 							const remaining = total - 3;
 							html += `<div style="text-align:center;margin-top:8px;">
-								<button class="action-btn small expand-meanings-btn" data-meanings='${encodeURIComponent(JSON.stringify(wordData.allMeanings.slice(3)))}'>
+								<button class="action-btn small expand-meanings-btn" data-meaning-count="${remaining}">
 									展开全部${remaining}个释义 ↓
 								</button>
 							</div>`;
@@ -1632,19 +1634,31 @@
 						containerEl.innerHTML = html;
 						const expandBtn = containerEl.querySelector('.expand-meanings-btn');
 						if (expandBtn) {
-							const self = this;
-							expandBtn.addEventListener('click', function() {
-								const meanings = JSON.parse(decodeURIComponent(this.dataset.meanings));
-								let allHtml = '';
-								meanings.forEach(m => {
-									allHtml += '<div class="meaning-item" style="margin-bottom: 15px;">';
-									if (m.partOfSpeech) allHtml += '<div class="part-of-speech">' + self.escapeHtml(m.partOfSpeech) + '</div>';
-									if (m.definition) allHtml += '<div class="definition">' + self.escapeHtml(m.definition) + '</div>';
-									if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + self.escapeHtml(m.example) + self.examplePlayButton(m.example) + '</div>';
-									allHtml += '</div>';
-								});
-								this.closest('.dictionary-details').insertAdjacentHTML('beforeend', allHtml);
-								this.remove();
+							// 释义数据放在 WeakMap 里，不塞进 HTML 属性：
+							// 例句里的撇号（don't）等字符会截断单引号包裹的属性，导致点击时 JSON 解析失败、按钮毫无反应。
+							this._expandMeanings = this._expandMeanings || new WeakMap();
+							this._expandMeanings.set(expandBtn, (wordData.allMeanings || []).slice(3));
+							expandBtn.addEventListener('click', () => {
+								try {
+									const meanings = this._expandMeanings.get(expandBtn);
+									if (!Array.isArray(meanings) || meanings.length === 0) return;
+									let allHtml = '';
+									meanings.forEach(m => {
+										allHtml += '<div class="meaning-item" style="margin-bottom: 15px;">';
+										if (m.partOfSpeech) allHtml += '<div class="part-of-speech">' + this.escapeHtml(m.partOfSpeech) + '</div>';
+										if (m.definition) allHtml += '<div class="definition">' + this.escapeHtml(m.definition) + '</div>';
+										if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + this.escapeHtml(m.example) + this.examplePlayButton(m.example) + '</div>';
+										allHtml += '</div>';
+									});
+									const details = expandBtn.closest('.dictionary-details');
+									if (details) details.insertAdjacentHTML('beforeend', allHtml);
+									expandBtn.remove();
+									// 新增释义里的单词同样可点击查词
+									this.makeClickable(containerEl);
+								} catch (error) {
+									console.error('展开全部释义失败:', error);
+									this.showNotification('展开释义失败，请重试', 'error');
+								}
 							});
 						}
 					} else { containerEl.innerHTML = '<p class="empty-state">暂无详细词典数据</p>'; }
@@ -5279,7 +5293,7 @@
                     };
                     const engine = await this.resolveSentenceEngine();
                     if (engine === 'mimo') {
-                        this.speakSentenceMimo(content, {
+                        await this.speakSentenceMimo(content, {
                             onStart: handlers.onStart,
                             onEnd: handlers.onEnd,
                             onError: () => {
@@ -6752,6 +6766,11 @@
                     const div = document.createElement('div');
                     div.textContent = str;
                     return div.innerHTML;
+                }
+
+                // HTML 属性转义：escapeHtml 不转义引号，属性里必须再补一次
+                escapeAttr(str) {
+                    return this.escapeHtml(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 }
 
                 // 通用：把容器内所有文本节点的英文单词包成可点击 span（保留中文/标点/HTML 结构）
