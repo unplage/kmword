@@ -5170,8 +5170,21 @@
                     return `<button type="button" class="example-play${cls}" data-sentence="${attr}" title="朗读例句" aria-label="朗读例句"><i class="fas fa-volume-up"></i></button>`;
                 }
 
+                // 去掉 HTML 标签与常见实体（韦氏释义/引文里含 <i>、<span> 等标记）
+                stripHtmlTags(text) {
+                    return String(text == null ? '' : text)
+                        .replace(/<br\s*\/?>/gi, ' ')
+                        .replace(/<[^>]*>/g, '')
+                        .replace(/&nbsp;/gi, ' ')
+                        .replace(/&quot;/gi, '"')
+                        .replace(/&#39;/gi, "'")
+                        .replace(/&lt;/gi, '<')
+                        .replace(/&gt;/gi, '>')
+                        .replace(/&amp;/gi, '&');
+                }
+
                 sanitizeSentence(text) {
-                    const raw = String(text == null ? '' : text)
+                    const raw = this.stripHtmlTags(text)
                         .replace(/[\u0000-\u001f\u007f]/g, ' ')
                         .replace(/\s+/g, ' ')
                         .trim();
@@ -5503,7 +5516,7 @@
 									html += '<div style="font-weight:600; margin-bottom:6px;">📝 引文示例</div>';
 									entry.quotes.forEach(q => {
 										html += `<div style="margin-bottom:8px; padding-left:8px; border-left: 2px solid var(--secondary-color);">`;
-										html += `<div style="font-style:italic;">“${q.text}”</div>`;
+										html += `<div style="font-style:italic;">“${q.text}”${this.examplePlayButton(q.text)}</div>`;
 										if (q.source) {
 											html += `<div style="font-size:0.85rem; color:var(--gray-color);">— ${q.source}</div>`;
 										}

@@ -138,8 +138,8 @@ On learn page (not in input fields):
 
 ## 例句朗读（sentence audio）
 
-- 释义例句、卡片例句、MW 例句旁有 🔊 按钮（`app.js#examplePlayButton` 生成的 `.example-play`），点击即朗读；**ECDICT 释义不加按钮**。
-- 事件委托：`app.js#bindEvents` 在 `document` 上监听 `.example-play`（不用 inline onclick，避免例句里的引号破坏脚本）；`data-sentence` 存例句原文（HTML 转义），朗读前再做 300 字符截断与控制字符过滤（`app.js#sanitizeSentence`）。
+- 释义例句、卡片例句、MW 释义例句/同义词例句/**引文示例**旁都有 🔊 按钮（`app.js#examplePlayButton` 生成的 `.example-play`），点击即朗读；**ECDICT 释义不加按钮**。
+- 事件委托：`app.js#bindEvents` 在 `document` 上监听 `.example-play`（不用 inline onclick，避免例句里的引号破坏脚本）；`data-sentence` 存例句原文（HTML 转义），朗读前先剥离 HTML 标签与实体（韦氏释义/引文含 `<i>`、`<span>`）、再做 300 字符截断与控制字符过滤（`app.js#stripHtmlTags` / `sanitizeSentence`）。
 - 引擎选择 `app.js#resolveSentenceEngine`：`auto`/`system`/`mimo`/`follow`（见设置 `sentenceTtsEngine`）。MiMo 走 `mimoSpeak`（`collect` 回调收集 PCM 分片），失败自动降级到系统 TTS（`app.js#speakSentenceSystem`，浏览器 SpeechSynthesis / Android `AndroidTTS` 桥）。
 - MiMo 成功的例句音频写入 `sentence_audio` 缓存（`db.js#saveSentenceAudio`），下次同句直接 `mimoPlayPcm` 播放、不再请求云端；系统 TTS 不缓存。缓存上限 40 条 / 单条 ≤600KB。
 - 播放会**打断全文朗读**（先 `stopReaderTTS()`），与单词发音行为一致；播放中按钮加 `.playing` 状态，结束/失败后复位。
