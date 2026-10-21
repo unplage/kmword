@@ -1021,6 +1021,81 @@
                     return { imported, invalid };
                 }
 
+                // ===== 缓存统计与分类清除 =====
+                async getCacheCounts() {
+                    await this.ready();
+                    const counts = { en: 0, mw: 0, ai: 0, sentenceAudio: 0 };
+                    const records = await new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.WORD_CACHE], 'readonly');
+                        const store = transaction.objectStore(STORES.WORD_CACHE);
+                        const request = store.getAll();
+                        request.onsuccess = () => resolve(request.result || []);
+                        request.onerror = () => reject(request.error);
+                    });
+                    for (const record of records) {
+                        if (!record) continue;
+                        if (record.en) counts.en++;
+                        if (record.mw) counts.mw++;
+                        if (record.ai) counts.ai++;
+                    }
+                    if (this.db.objectStoreNames.contains(STORES.SENTENCE_AUDIO)) {
+                        counts.sentenceAudio = await new Promise((resolve, reject) => {
+                            const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readonly');
+                            const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
+                            const request = store.count();
+                            request.onsuccess = () => resolve(request.result || 0);
+                            request.onerror = () => reject(request.error);
+                        });
+                    }
+                    return counts;
+                }
+
+                // 按类型清除词条缓存：type = 'en' | 'mw' | 'ai'
+                async clearWordCacheByType(type) {
+                    await this.ready();
+                    if (!['en', 'mw', 'ai'].includes(type)) return { cleared: 0 };
+                    const records = await new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.WORD_CACHE], 'readonly');
+                        const store = transaction.objectStore(STORES.WORD_CACHE);
+                        const request = store.getAll();
+                        request.onsuccess = () => resolve(request.result || []);
+                        request.onerror = () => reject(request.error);
+                    });
+                    let cleared = 0;
+                    await new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.WORD_CACHE], 'readwrite');
+                        transaction.onerror = (e) => reject(e.target.error);
+                        const store = transaction.objectStore(STORES.WORD_CACHE);
+                        for (const record of records) {
+                            if (!record || !record[type]) continue;
+                            const next = { ...record };
+                            delete next[type];
+                            cleared++;
+                            const empty = !next.en && !next.mw && !next.ai;
+                            if (empty) store.delete(record.word);
+                            else store.put(next);
+                        }
+                        transaction.oncomplete = () => resolve();
+                    });
+                    return { cleared };
+                }
+
+                // 清除全部缓存（在线释义 / 韦氏 / AI / 句子音频）
+                async clearAllCaches() {
+                    const result = { en: 0, mw: 0, ai: 0, sentenceAudio: 0 };
+                    for (const type of ['en', 'mw', 'ai']) {
+                        try {
+                            const r = await this.clearWordCacheByType(type);
+                            result[type] = r.cleared;
+                        } catch (e) { /* 忽略单个类型失败 */ }
+                    }
+                    try {
+                        await this.clearSentenceAudio();
+                        result.sentenceAudio = 1;
+                    } catch (e) { /* 忽略 */ }
+                    return result;
+                }
+
                 // ===== 例句音频缓存（MiMo 生成后缓存，系统 TTS 不缓存）=====
                 async getSentenceAudioCount() {
                     await this.ready();

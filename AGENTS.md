@@ -32,6 +32,8 @@
 - **Wiktionary REST API** (`en.wiktionary.org/api/rest_v1/page/definition`) — automatic fallback, no key, CORS `*`. `js/wiktionary.js#query` returns parsed data / `null` (transient) / `false` (definitive 404). It can be unreachable from mainland China.
 - **Datamuse** (`api.datamuse.com`) — lightweight emergency fallback (`/words?sp=…&md=dpfr&ipa=1`), no key until 2027-02-01, short definitions only. Free tier is 100,000 requests/day.
 - **Pronunciation audio** — FreeDictionaryAPI.com returns IPA but no audio files. `js/dictionary-api.js#getAudioUrl` generates a Youdao `dict.youdao.com/dictvoice?audio=…&type=2` fallback (US pronunciation); `speakWord`/`speakCurrentWord` try that audio first, then fall back to browser/Android TTS if playback fails.
+- **在线源已解析字段**（`js/dictionary-api.js`）：FreeDictionaryAPI.com — `entries[].forms[]`(词形变化)、`sense.tags[]`(语域标签，低价值义项不再丢弃而是排后)、`quotes[].reference`(引文出处)、`pronunciations[].tags[]`(英音/美音)、`source.license`(许可署名)、全部 `examples`；Free Dictionary API — `license`、`phonetics[].sourceUrl/license`；Wiktionary（`js/wiktionary.js`）— `sounds[]`(发音音频)、`headwords[]`、`categories[]`、`related[]`、`derived[]`、`parsedExamples[].english`、全部例句；Datamuse — `words[]`(相关词)、`f:`(词频)、`numFound`/`score`。
+- **在线缓存版本**：`word_cache.en` 记录带 `schema`（当前 2），旧版本缓存视为未命中并自动重新拉取（`js/dictionary-api.js#readCache`）。
 - **Online lookup chain** (`js/dictionary-api.js#fetchWordData`): FreeDictionaryAPI.com immediately + Free Dictionary API after a 700ms hedge (3.5s timeout each) → Wiktionary immediately + Datamuse after a 350ms hedge → local ECDICT → fallback. Losing provider requests are aborted once a source wins, including delayed requests that have not started. Successful results are cached in `word_cache.en`; network/5xx failures are not cached. `probe()` checks FreeDictionaryAPI.com and Datamuse for general connectivity instead of relying on `api.dictionaryapi.dev`.
 - **Novel extraction** uses the same shared chain via `window.dictionaryAPI.fetchWordData(word, { persist: false, memory: false, signal })` and keeps its own in-memory `dictionaryCache`.
 - **Merriam-Webster API** (`dictionaryapi.com`) — optional, configure `mwDictKey` + `mwThesKey` in Settings. Free registration at https://dictionaryapi.com/register/index.htm.
@@ -71,6 +73,11 @@ Caveat: for exam-list TXT imports (专四/专八/托福/雅思) select 「不跳
 | `word_cache` | `word` (normalized lowercase) | `{ word, mw: {dict, thesaurus, cachedAt}, ai: {content, cachedAt}, en: {data, cachedAt, source} }` — MW stores raw API JSON (re-rendered on display); AI stores markdown content; `en` stores normalized online dictionary data. Permanent; `en` is read before any online request and written after successful lookups. |
 | `ecdict` | `w` (lowercase) | ECDICT entry: `{w, h, p, d, t, pos, g, c, o, b, f, e}` — `w` lowercase key, `h` display case, `p` phonetic, `d` English definition, `t` Chinese translation, `g` exam tags, `c` Collins stars, `o` Oxford 3000, `b` BNC rank, `f` COCA rank, `e` exchange/word forms; `d`/`t` keep literal `\n` for line splitting |
 | `ecdict_meta` | `key` (`'ecdict'`) | `{key, status: importing/incomplete/ready, count, importedAt, startedAt, source, schema}` |
+
+## 缓存管理（设置 → 缓存管理）
+
+- 设置页展示四类缓存条数并支持分类清除：在线释义缓存（`word_cache.en`）、韦氏词典释义缓存（`word_cache.mw`）、AI 释义缓存（`word_cache.ai`）、句子音频缓存（`sentence_audio` 表），另有「全部清除」。
+- 实现：`db.js#getCacheCounts` / `clearWordCacheByType(type)` / `clearAllCaches()`；`clearWordCacheByType` 只删除对应字段，同一条记录的其它类型保留，字段全部为空时才删除整条记录。清除不影响学习记录与统计数据。
 
 ## Word lookup cache buttons
 

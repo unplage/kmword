@@ -1649,6 +1649,25 @@
             margin-top: 4px;
         }
 
+        .meaning-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin: 4px 0 6px;
+        }
+        .meaning-tag {
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: var(--light-color);
+            color: var(--gray-color);
+            font-size: 0.75rem;
+        }
+        .example-source {
+            font-style: normal;
+            font-size: 0.8rem;
+            color: var(--gray-color);
+        }
+
         .recent-item {
             display: flex;
             justify-content: space-between;

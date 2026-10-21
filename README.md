@@ -17,6 +17,7 @@
 - **生词本** — 独立收集困难单词
 - **学习计划** — 每日学习目标设置
 - **数据导出/导入** — JSON 备份（含阅读文章、韦氏/AI/在线释义缓存；不含 ECDICT 外部词典）
+- **缓存管理** — 设置里可分别清除在线释义、韦氏词典、AI 释义、句子音频缓存，或一次清空（不影响学习记录）
 - **PWA** — 离线可用，可安装到桌面
 - **主题** — 浅色/深色/跟随系统
 - **快捷键**（学习页面）— `1`/`←` 不认识，`2`/`→` 认识，`Space` 发音，`d` 详情
@@ -29,7 +30,7 @@
 
 查词按以下顺序自动容错，无需配置 API Key：
 
-1. [FreeDictionaryAPI.com](https://freedictionaryapi.com/)（Wiktionary 数据，1000 次/小时/IP）
+1. [FreeDictionaryAPI.com](https://freedictionaryapi.com/)（Wiktionary 数据，1000 次/小时/IP；释义含词形变化、语域标签、引文出处、全部例句与多音标，底部标注数据许可）
 2. [Free Dictionary API](https://dictionaryapi.dev/)（主源启动 700ms 后并行请求，先成功者胜出）
 3. [Wiktionary REST](https://en.wiktionary.org/api/rest_v1/page/definition)（官方兜底）
 4. [Datamuse](https://www.datamuse.com/api/)（轻量释义兜底）

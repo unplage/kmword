@@ -19,6 +19,7 @@
     const DATAMUSE_DELAY = 350;
     const MAX_MEANINGS = 12;
     const MEMORY_LIMIT = 800;
+    const CACHE_SCHEMA = 2;
 
     const LOW_VALUE_TAGS = new Set(['obsolete', 'archaic', 'rare', 'nonstandard', 'dialectal']);
     const POS_LABELS = { n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb', u: '' };
@@ -79,17 +80,25 @@
         return out;
     }
 
-    function addMeaning(out, seen, partOfSpeech, definition, example, synonyms, antonyms) {
+    function addMeaning(out, seen, partOfSpeech, definition, example, synonyms, antonyms, tagList, exampleList) {
         const def = cleanText(definition);
         if (!def) return;
         const pos = cleanText(partOfSpeech);
         const key = `${pos}|${def}`.toLowerCase();
         if (seen.has(key)) return;
         seen.add(key);
+        const examples = (Array.isArray(exampleList) ? exampleList : [])
+            .map(item => ({
+                text: cleanText(item && item.text).slice(0, 400),
+                source: cleanText(item && item.source).slice(0, 200)
+            }))
+            .filter(item => item.text);
         out.push({
             partOfSpeech: pos,
             definition: def,
-            example: cleanText(example).slice(0, 400),
+            example: cleanText(example).slice(0, 400) || (examples.length ? examples[0].text : ''),
+            examples: examples,
+            tags: (Array.isArray(tagList) ? tagList : []).map(t => cleanText(t)).filter(Boolean),
             synonyms: uniqueWords(synonyms, 8),
             antonyms: uniqueWords(antonyms, 8)
         });
@@ -117,6 +126,19 @@
             audioUrl: payload.audioUrl || fallbackAudioUrl(word),
             source: payload.source || '',
             sourceUrl: payload.sourceUrl || '',
+            sourceName: payload.sourceName || '',
+            pronunciations: payload.pronunciations || [],
+            forms: payload.forms || [],
+            wordSynonyms: uniqueWords(payload.wordSynonyms, 24),
+            wordAntonyms: uniqueWords(payload.wordAntonyms, 24),
+            related: uniqueWords(payload.related, 24),
+            categories: payload.categories || [],
+            headwords: payload.headwords || [],
+            derived: payload.derived || [],
+            license: payload.license || null,
+            frequency: payload.frequency || 0,
+            numFound: payload.numFound || 0,
+            score: payload.score || 0,
             rawData: payload.rawData || { source: payload.source || '' }
         };
     }
@@ -220,43 +242,81 @@
         return out;
     }
 
-    function firstExample(sense) {
-        if (Array.isArray(sense.examples)) {
-            for (const example of sense.examples) {
-                const text = cleanText(typeof example === 'string' ? example : (example && example.text));
-                if (text) return text;
+    // 义项例句 + 引文（引文带出处），全部保留
+    function collectExamples(sense) {
+        const examples = [];
+        if (Array.isArray(sense && sense.examples)) {
+            for (const item of sense.examples) {
+                const text = cleanText(typeof item === 'string' ? item : (item && item.text));
+                if (text) examples.push({ text, source: '' });
             }
         }
-        if (Array.isArray(sense.quotes)) {
+        if (Array.isArray(sense && sense.quotes)) {
             for (const quote of sense.quotes) {
                 const text = cleanText(quote && quote.text);
-                if (text) return text;
+                if (text) examples.push({ text, source: cleanText((quote && quote.reference) || '') });
             }
         }
-        return '';
+        return examples;
+    }
+
+    // 全部读音（含英音/美音等标签）
+    function pickPronunciations(entry) {
+        const list = Array.isArray(entry && entry.pronunciations) ? entry.pronunciations : [];
+        const out = [];
+        for (const item of list) {
+            if (!item) continue;
+            const text = cleanText(item.text || '');
+            const audio = item.audio ? normalizeAudioUrl(item.audio) : '';
+            if (!text && !audio) continue;
+            out.push({
+                text: text ? (item.type === 'enpr' ? `/${text}/` : text) : '',
+                type: item.type || '',
+                tags: Array.isArray(item.tags) ? item.tags.map(cleanText).filter(Boolean) : [],
+                audio: audio,
+                source: cleanText((item.source && (item.source.url || item.source)) || '')
+            });
+        }
+        return out;
     }
 
     function pickPronunciation(entry) {
-        const list = Array.isArray(entry.pronunciations) ? entry.pronunciations : [];
-        const ipa = list.find(item => item && item.text && (!item.type || item.type === 'ipa'));
-        if (ipa) return cleanText(ipa.text);
-        const enpr = list.find(item => item && item.text && item.type === 'enpr');
-        return enpr ? `/${cleanText(enpr.text)}/` : '';
+        const list = pickPronunciations(entry);
+        const ipa = list.find(item => item.text && (item.type === 'ipa' || !item.type));
+        if (ipa) return ipa.text;
+        const enpr = list.find(item => item.text && item.type === 'enpr');
+        return enpr ? enpr.text : '';
     }
 
     function pickAudio(entry) {
-        const list = Array.isArray(entry.pronunciations) ? entry.pronunciations : [];
+        const list = Array.isArray(entry && entry.pronunciations) ? entry.pronunciations : [];
         const found = list.find(item => item && item.audio);
-        if (found) return normalizeAudioUrl(found.audio);
-        const sounds = Array.isArray(entry.sounds) ? entry.sounds : [];
-        const sound = sounds.find(item => item && item.audio);
-        return sound ? normalizeAudioUrl(sound.audio) : '';
+        return found ? normalizeAudioUrl(found.audio) : '';
     }
 
     function normalizeAudioUrl(url) {
         const text = String(url || '').trim();
         if (!text) return '';
         return text.startsWith('//') ? `https:${text}` : text;
+    }
+
+    function pickForms(entry) {
+        const list = Array.isArray(entry && entry.forms) ? entry.forms : [];
+        const out = [];
+        for (const form of list) {
+            if (!form) continue;
+            const word = cleanText(form.word || '');
+            if (!word) continue;
+            out.push({ word, tags: Array.isArray(form.tags) ? form.tags.map(cleanText).filter(Boolean) : [] });
+        }
+        return out;
+    }
+
+    function pickLicense(source) {
+        if (!source) return null;
+        const license = source.license || null;
+        if (!license) return null;
+        return { name: cleanText(license.name || ''), url: cleanText(license.url || '') };
     }
 
     async function fromFreeDictCom(word, options = {}) {
@@ -273,27 +333,48 @@
 
         const meanings = [];
         const seen = new Set();
+        const pronunciations = [];
+        const forms = [];
+        const wordSynonyms = [];
+        const wordAntonyms = [];
         let phonetic = '';
         let audioUrl = '';
+        let languageName = '';
 
         for (const entry of entries) {
             if (entry && entry.language && entry.language.code && entry.language.code !== 'en') continue;
+            if (!languageName && entry && entry.language) languageName = cleanText(entry.language.name || '');
             if (!phonetic) phonetic = pickPronunciation(entry);
             if (!audioUrl) audioUrl = pickAudio(entry);
+            for (const pr of pickPronunciations(entry)) {
+                if (!pronunciations.some(item => item.text === pr.text && item.type === pr.type)) pronunciations.push(pr);
+            }
+            for (const form of pickForms(entry)) {
+                if (!forms.some(item => item.word === form.word)) forms.push(form);
+            }
+            for (const syn of (Array.isArray(entry && entry.synonyms) ? entry.synonyms : [])) {
+                const text = cleanText(syn);
+                if (text && !wordSynonyms.includes(text)) wordSynonyms.push(text);
+            }
+            for (const ant of (Array.isArray(entry && entry.antonyms) ? entry.antonyms : [])) {
+                const text = cleanText(ant);
+                if (text && !wordAntonyms.includes(text)) wordAntonyms.push(text);
+            }
 
-            const senses = flattenSenses(entry.senses);
-            const preferred = senses.filter(sense => !hasLowValueTag(sense));
-            const list = preferred.length > 0 ? preferred : senses;
-
-            for (const sense of list) {
+            const senses = flattenSenses(entry && entry.senses);
+            // 常见义项优先，但低价值标签的义项不再丢弃（只是排后面并加标签）
+            const primary = senses.filter(sense => !hasLowValueTag(sense));
+            const secondary = senses.filter(sense => hasLowValueTag(sense));
+            const ordered = primary.concat(secondary);
+            for (const sense of ordered) {
+                const examples = collectExamples(sense);
                 addMeaning(
-                    meanings,
-                    seen,
-                    entry.partOfSpeech,
-                    sense.definition,
-                    firstExample(sense),
-                    (sense.synonyms && sense.synonyms.length) ? sense.synonyms : entry.synonyms,
-                    (sense.antonyms && sense.antonyms.length) ? sense.antonyms : entry.antonyms
+                    meanings, seen, entry && entry.partOfSpeech, sense && sense.definition,
+                    examples.length ? examples[0].text : '',
+                    (sense && sense.synonyms && sense.synonyms.length) ? sense.synonyms : [],
+                    (sense && sense.antonyms && sense.antonyms.length) ? sense.antonyms : [],
+                    Array.isArray(sense && sense.tags) ? sense.tags.map(cleanText).filter(Boolean) : [],
+                    examples
                 );
                 if (meanings.length >= MAX_MEANINGS) break;
             }
@@ -306,9 +387,14 @@
             phonetic,
             allMeanings: meanings,
             audioUrl,
+            pronunciations,
+            forms,
+            wordSynonyms,
+            wordAntonyms,
+            license: pickLicense(source),
             source: 'freedictionaryapi.com',
-            sourceUrl: source.url || '',
-            rawData: { source: 'freedictionaryapi.com', sourceUrl: source.url || '' }
+            sourceUrl: cleanText((source && source.url) || ''),
+            sourceName: languageName ? `FreeDictionaryAPI.com（${languageName}）` : 'FreeDictionaryAPI.com'
         });
         return result ? { status: 'ok', data: result } : { status: 'notFound' };
     }
@@ -326,23 +412,50 @@
         const entry = response.data[0];
         const meanings = [];
         const seen = new Set();
+        const pronunciations = [];
+        const wordSynonyms = [];
+        const wordAntonyms = [];
         let phonetic = '';
-        if (entry.phonetic) phonetic = cleanText(entry.phonetic);
-        if (!phonetic && Array.isArray(entry.phonetics)) {
-            const found = entry.phonetics.find(item => item && item.text);
-            if (found) phonetic = cleanText(found.text);
-        }
+        let audioUrl = '';
 
-        for (const meaning of Array.isArray(entry.meanings) ? entry.meanings : []) {
-            for (const definition of Array.isArray(meaning.definitions) ? meaning.definitions : []) {
+        for (const pr of (Array.isArray(entry.phonetics) ? entry.phonetics : [])) {
+            if (!pr) continue;
+            const text = cleanText(pr.text || '');
+            const audio = pr.audio ? normalizeAudioUrl(pr.audio) : '';
+            if (!text && !audio) continue;
+            pronunciations.push({
+                text,
+                type: '',
+                tags: [],
+                audio: audio,
+                source: cleanText(pr.sourceUrl || '')
+            });
+        }
+        phonetic = cleanText(entry.phonetic || '');
+        if (!phonetic) {
+            const withText = pronunciations.find(p => p.text);
+            if (withText) phonetic = withText.text;
+        }
+        const withAudio = pronunciations.find(p => p.audio);
+        if (withAudio) audioUrl = withAudio.audio;
+
+        for (const meaning of (Array.isArray(entry.meanings) ? entry.meanings : [])) {
+            for (const syn of (Array.isArray(meaning.synonyms) ? meaning.synonyms : [])) {
+                const text = cleanText(syn);
+                if (text && !wordSynonyms.includes(text)) wordSynonyms.push(text);
+            }
+            for (const ant of (Array.isArray(meaning.antonyms) ? meaning.antonyms : [])) {
+                const text = cleanText(ant);
+                if (text && !wordAntonyms.includes(text)) wordAntonyms.push(text);
+            }
+            for (const definition of (Array.isArray(meaning.definitions) ? meaning.definitions : [])) {
                 addMeaning(
-                    meanings,
-                    seen,
-                    meaning.partOfSpeech,
-                    definition.definition,
-                    definition.example,
-                    (definition.synonyms && definition.synonyms.length) ? definition.synonyms : meaning.synonyms,
-                    (definition.antonyms && definition.antonyms.length) ? definition.antonyms : meaning.antonyms
+                    meanings, seen, meaning.partOfSpeech, definition.definition,
+                    cleanText(definition.example || ''),
+                    (definition.synonyms && definition.synonyms.length) ? definition.synonyms : (meaning.synonyms || []),
+                    (definition.antonyms && definition.antonyms.length) ? definition.antonyms : (meaning.antonyms || []),
+                    [],
+                    definition.example ? [{ text: cleanText(definition.example), source: '' }] : []
                 );
                 if (meanings.length >= MAX_MEANINGS) break;
             }
@@ -350,19 +463,18 @@
         }
 
         if (meanings.length === 0) return { status: 'notFound' };
-        let audioUrl = '';
-        if (Array.isArray(entry.phonetics)) {
-            const found = entry.phonetics.find(item => item && item.audio);
-            if (found) audioUrl = normalizeAudioUrl(found.audio);
-        }
         const sourceUrl = (Array.isArray(entry.sourceUrls) && entry.sourceUrls[0]) || '';
         const result = buildResult(word, {
             phonetic,
             allMeanings: meanings,
             audioUrl,
+            pronunciations,
+            wordSynonyms,
+            wordAntonyms,
+            license: pickLicense(entry),
             source: 'dictionaryapi.dev',
-            sourceUrl,
-            rawData: { source: 'dictionaryapi.dev', sourceUrl }
+            sourceUrl: cleanText(sourceUrl),
+            sourceName: 'Free Dictionary API'
         });
         return result ? { status: 'ok', data: result } : { status: 'notFound' };
     }
@@ -381,15 +493,14 @@
 
             const meanings = [];
             const seen = new Set();
-            for (const meaning of Array.isArray(parsed.allMeanings) ? parsed.allMeanings : []) {
+            for (const meaning of (Array.isArray(parsed.allMeanings) ? parsed.allMeanings : [])) {
+                const examples = Array.isArray(meaning.examples) ? meaning.examples : [];
                 addMeaning(
-                    meanings,
-                    seen,
-                    meaning.partOfSpeech,
-                    meaning.definition,
-                    meaning.example,
-                    meaning.synonyms,
-                    meaning.antonyms
+                    meanings, seen, meaning.partOfSpeech, meaning.definition,
+                    examples.length ? examples[0].text : '',
+                    meaning.synonyms || [], meaning.antonyms || [],
+                    meaning.tags || [],
+                    examples
                 );
                 if (meanings.length >= MAX_MEANINGS) break;
             }
@@ -399,9 +510,15 @@
                 phonetic: parsed.phonetic || '',
                 allMeanings: meanings,
                 audioUrl: parsed.audioUrl || '',
+                pronunciations: parsed.pronunciations || [],
+                headwords: parsed.headwords || [],
+                categories: parsed.categories || [],
+                related: parsed.related || [],
+                derived: parsed.derived || [],
+                license: null,
                 source: 'wiktionary',
                 sourceUrl,
-                rawData: { source: 'wiktionary', sourceUrl }
+                sourceName: 'Wiktionary'
             });
             return result ? { status: 'ok', data: result } : { status: 'notFound' };
         } catch (error) {
@@ -427,28 +544,44 @@
 
         const meanings = [];
         const seen = new Set();
-        for (const line of Array.isArray(hit.defs) ? hit.defs : []) {
+        for (const line of (Array.isArray(hit.defs) ? hit.defs : [])) {
             const text = String(line || '');
             const tab = text.indexOf('\t');
             const code = tab >= 0 ? text.slice(0, tab).trim() : '';
-            const definition = tab >= 0 ? text.slice(tab + 1) : text;
-            addMeaning(meanings, seen, POS_LABELS[code] || '', definition, '', [], []);
+            const rest = tab >= 0 ? text.slice(tab + 1) : text;
+            const tab2 = rest.indexOf('\t');
+            const definition = tab2 >= 0 ? rest.slice(0, tab2) : rest;
+            const sense = tab2 >= 0 ? rest.slice(tab2 + 1) : '';
+            addMeaning(
+                meanings, seen, POS_LABELS[code] || '', definition, '',
+                [], [], [],
+                sense ? [{ text: sense, source: '' }] : []
+            );
             if (meanings.length >= MAX_MEANINGS) break;
         }
         if (meanings.length === 0) return { status: 'notFound' };
 
         let phonetic = '';
-        if (Array.isArray(hit.tags)) {
-            const pron = hit.tags.find(tag => String(tag).startsWith('pron:'));
-            if (pron) phonetic = cleanText(String(pron).slice(5));
+        let frequency = 0;
+        const tags = Array.isArray(hit.tags) ? hit.tags : [];
+        for (const tag of tags) {
+            const str = String(tag);
+            if (str.startsWith('pron:') && !phonetic) phonetic = cleanText(str.slice(5));
+            if (str.startsWith('f:') && !frequency) frequency = parseFloat(str.slice(2)) || 0;
         }
+        const related = (Array.isArray(hit.words) ? hit.words : []).map(cleanText).filter(Boolean);
         const result = buildResult(word, {
             phonetic,
             allMeanings: meanings,
             audioUrl: '',
+            related,
+            frequency,
+            numFound: Number(hit.numFound) || 0,
+            score: Number(hit.score) || 0,
+            license: null,
             source: 'datamuse',
             sourceUrl: 'https://www.datamuse.com/api/',
-            rawData: { source: 'datamuse' }
+            sourceName: 'Datamuse'
         });
         return result ? { status: 'ok', data: result } : { status: 'notFound' };
     }
@@ -510,6 +643,8 @@
             const cached = record && record.en;
             const data = cached && cached.data;
             if (!data || !Array.isArray(data.allMeanings) || data.allMeanings.length === 0) return null;
+            // 旧版本缓存缺少新字段，直接视为未命中以重新拉取
+            if ((cached.schema || 1) !== CACHE_SCHEMA) return null;
             return { ...data, cached: true, cachedAt: cached.cachedAt || '' };
         } catch (error) {
             return null;
@@ -530,7 +665,8 @@
                 en: {
                     data: cachedData,
                     cachedAt: new Date().toISOString(),
-                    source: data.source
+                    source: data.source,
+                    schema: CACHE_SCHEMA
                 }
             });
         } catch (error) {

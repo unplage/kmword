@@ -538,12 +538,17 @@
                         if (url) this.playAudio(url, word);
                         else this.speakWord(word);
                     });
-                    // 例句朗读按钮（事件委托，避免内联 onclick 处理含引号的例句）
+                    // 例句朗读 / 读音播放按钮（事件委托，避免内联 onclick 处理含引号的例句）
                     document.addEventListener('click', (e) => {
                         const btn = e.target.closest && e.target.closest('.example-play');
                         if (!btn) return;
                         e.preventDefault();
                         e.stopPropagation();
+                        const audio = btn.dataset.audio || '';
+                        if (audio) {
+                            this.playAudio(audio, btn.dataset.word || '');
+                            return;
+                        }
                         this.speakSentence(btn.dataset.sentence || '', btn);
                     });
                     document.getElementById('lookupModalClose')?.addEventListener('click', () => this.closeWordLookup());
@@ -1308,6 +1313,99 @@
 
                 // 参数化版本：可向任意容器渲染 free dict 详细释义，供学习卡片与查词弹窗复用
 				// ===== 修改：Free Dict 渲染 =====
+				// 渲染单条在线释义（含语域标签、多条例句与出处）
+				renderOnlineMeaningHtml(meaning) {
+					const esc = (v) => this.escapeHtml(v == null ? '' : String(v));
+					let html = '<div class="meaning-item" style="margin-bottom: 15px;">';
+					if (meaning.partOfSpeech) html += `<div class="part-of-speech">${esc(meaning.partOfSpeech)}</div>`;
+					if (meaning.definition) html += `<div class="definition">${esc(meaning.definition)}</div>`;
+					if (meaning.tags && meaning.tags.length) {
+						html += `<div class="meaning-tags">${meaning.tags.map(t => `<span class="meaning-tag">${esc(t)}</span>`).join('')}</div>`;
+					}
+					const examples = Array.isArray(meaning.examples) && meaning.examples.length
+						? meaning.examples
+						: (meaning.example ? [{ text: meaning.example, source: '' }] : []);
+					for (const ex of examples) {
+						const text = esc(ex && ex.text);
+						const source = ex && ex.source ? ` <span class="example-source">— ${esc(ex.source)}</span>` : '';
+						html += `<div class="example"><em>例句:</em> ${text}${source}${this.examplePlayButton(ex && ex.text)}</div>`;
+					}
+					if (meaning.synonyms && meaning.synonyms.length > 0) {
+						html += '<div style="margin-top: 6px; font-size: 0.9rem;">';
+						html += '<span style="color: var(--gray-color); font-weight: 500;">同义词：</span>';
+						meaning.synonyms.forEach(syn => {
+							html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${this.escapeAttr(syn)}">${esc(syn)}</span>`;
+						});
+						html += '</div>';
+					}
+					if (meaning.antonyms && meaning.antonyms.length > 0) {
+						html += '<div style="margin-top: 4px; font-size: 0.9rem;">';
+						html += '<span style="color: var(--gray-color); font-weight: 500;">反义词：</span>';
+						meaning.antonyms.forEach(ant => {
+							html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${this.escapeAttr(ant)}">${esc(ant)}</span>`;
+						});
+						html += '</div>';
+					}
+					html += '</div>';
+					return html;
+				}
+
+				// 在线词典的附加信息（音标、词形变化、词条级同反义词、相关词、分类、许可…）
+				renderOnlineExtraHtml(wordData) {
+					const esc = (v) => this.escapeHtml(v == null ? '' : String(v));
+					let html = '';
+					const prs = Array.isArray(wordData.pronunciations) ? wordData.pronunciations : [];
+					if (prs.length) {
+						const items = prs.map(pr => {
+							const bits = [];
+							if (pr.text) bits.push(esc(pr.text));
+							if (pr.tags && pr.tags.length) bits.push(`<span style="color:var(--gray-color);">(${esc(pr.tags.join('、'))})</span>`);
+							if (pr.audio) bits.push(`<button type="button" class="example-play" data-audio="${this.escapeAttr(pr.audio)}" title="播放读音"><i class="fas fa-volume-up"></i></button>`);
+							return bits.length ? `<span style="margin-right:12px;">${bits.join(' ')}</span>` : '';
+						}).filter(Boolean).join('');
+						if (items) html += `<div style="font-size:0.95rem;color:var(--secondary-color);margin-bottom:6px;">🔈 ${items}</div>`;
+					}
+					if (wordData.forms && wordData.forms.length) {
+						const forms = wordData.forms.map(f => {
+							const tags = (f.tags && f.tags.length) ? `<span style="color:var(--gray-color);font-size:0.8rem;">（${esc(f.tags.join('、'))}）</span>` : '';
+							return `${esc(f.word)}${tags}`;
+						}).join('、');
+						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>词形变化：</strong> ${forms}</div>`;
+					}
+					if (wordData.headwords && wordData.headwords.length) {
+						const items = wordData.headwords.map(h => esc(h.text) + (h.pos ? `<span style="color:var(--gray-color);">(${esc(h.pos)})</span>` : '')).join('、');
+						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>词头：</strong> ${items}</div>`;
+					}
+					if (wordData.wordSynonyms && wordData.wordSynonyms.length) {
+						const items = wordData.wordSynonyms.map(s => `<span class="clickable-word" style="color:var(--secondary-color);cursor:pointer;margin-right:4px;margin-left:4px;text-decoration:underline;" data-word="${this.escapeAttr(s)}">${esc(s)}</span>`).join('');
+						html += `<div style="font-size:0.9rem;margin-bottom:6px;"><span style="color:var(--gray-color);font-weight:500;">词条同义词：</span>${items}</div>`;
+					}
+					if (wordData.wordAntonyms && wordData.wordAntonyms.length) {
+						const items = wordData.wordAntonyms.map(s => `<span class="clickable-word" style="color:var(--danger-color);cursor:pointer;margin-right:4px;margin-left:4px;text-decoration:underline;" data-word="${this.escapeAttr(s)}">${esc(s)}</span>`).join('');
+						html += `<div style="font-size:0.9rem;margin-bottom:6px;"><span style="color:var(--gray-color);font-weight:500;">词条反义词：</span>${items}</div>`;
+					}
+					if (wordData.related && wordData.related.length) {
+						const items = wordData.related.map(s => `<span class="clickable-word" style="color:var(--secondary-color);cursor:pointer;margin-right:4px;margin-left:4px;text-decoration:underline;" data-word="${this.escapeAttr(s)}">${esc(s)}</span>`).join('');
+						html += `<div style="font-size:0.9rem;margin-bottom:6px;"><span style="color:var(--gray-color);font-weight:500;">相关词：</span>${items}</div>`;
+					}
+					if (wordData.derived && wordData.derived.length) {
+						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>派生词：</strong> ${esc(wordData.derived.join('、'))}</div>`;
+					}
+					if (wordData.categories && wordData.categories.length) {
+						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>分类：</strong> ${esc(wordData.categories.slice(0, 12).join('、'))}</div>`;
+					}
+					if (wordData.frequency) {
+						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>词频：</strong> ${wordData.frequency}</div>`;
+					}
+					if (wordData.license && (wordData.license.name || wordData.license.url)) {
+						const name = wordData.license.url
+							? `<a href="${this.escapeAttr(wordData.license.url)}" target="_blank" rel="noopener">${esc(wordData.license.name || '许可')}</a>`
+							: esc(wordData.license.name || '许可');
+						html += `<div style="font-size:0.85rem;color:var(--gray-color);margin-bottom:6px;"><strong>数据许可：</strong> ${name}</div>`;
+					}
+					return html;
+				}
+
 				renderDictDetails(wordData, containerEl) {
 					if (!containerEl) return;
 					const esc = (s) => this.escapeHtml(s == null ? '' : String(s));
@@ -1317,27 +1415,7 @@
 						const visibleCount = showAll ? total : 3;
 						let html = '<div class="dictionary-details">';
 						wordData.allMeanings.slice(0, visibleCount).forEach((meaning) => {
-							html += `<div class="meaning-item" style="margin-bottom: 15px;">`;
-							if (meaning.partOfSpeech) html += `<div class="part-of-speech">${esc(meaning.partOfSpeech)}</div>`;
-							if (meaning.definition) html += `<div class="definition">${esc(meaning.definition)}</div>`;
-							if (meaning.example) html += `<div class="example"><em>例句:</em> ${esc(meaning.example)}${this.examplePlayButton(meaning.example)}</div>`;
-							if (meaning.synonyms && meaning.synonyms.length > 0) {
-								html += `<div style="margin-top: 6px; font-size: 0.9rem;">`;
-								html += `<span style="color: var(--gray-color); font-weight: 500;">同义词：</span>`;
-								meaning.synonyms.forEach(syn => {
-									html += `<span class="clickable-word" style="color: var(--secondary-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${this.escapeAttr(syn)}">${esc(syn)}</span>`;
-								});
-								html += `</div>`;
-							}
-							if (meaning.antonyms && meaning.antonyms.length > 0) {
-								html += `<div style="margin-top: 4px; font-size: 0.9rem;">`;
-								html += `<span style="color: var(--gray-color); font-weight: 500;">反义词：</span>`;
-								meaning.antonyms.forEach(ant => {
-									html += `<span class="clickable-word" style="color: var(--danger-color); cursor: pointer; margin-right: 4px; margin-left: 4px; text-decoration: underline;" data-word="${this.escapeAttr(ant)}">${esc(ant)}</span>`;
-								});
-								html += `</div>`;
-							}
-							html += `</div>`;
+							html += this.renderOnlineMeaningHtml(meaning);
 						});
 						if (!showAll) {
 							const remaining = total - 3;
@@ -1348,6 +1426,7 @@
 							</div>`;
 						}
 						html += '</div>';
+						html += this.renderOnlineExtraHtml(wordData);
 						const sourceMeta = {
 							'freedictionaryapi.com': { label: 'FreeDictionaryAPI.com', url: 'https://freedictionaryapi.com' },
 							'dictionaryapi.dev': { label: 'Free Dictionary API', url: 'https://dictionaryapi.dev' },
@@ -1359,7 +1438,11 @@
 						if (sourceInfo) {
 							const href = wordData.sourceUrl || sourceInfo.url;
 							const safeHref = esc(href).replace(/"/g, '&quot;');
-							html += `<div class="dict-source" style="margin-top:10px;font-size:0.8rem;color:var(--gray-color);">来源：<a href="${safeHref}" target="_blank" rel="noopener">${esc(sourceInfo.label)}</a>${wordData.cached ? ' · 本地缓存' : ''}</div>`;
+							const label = wordData.sourceName || sourceInfo.label;
+							const license = wordData.license && wordData.license.name
+								? ` · ${wordData.license.url ? `<a href="${this.escapeAttr(wordData.license.url)}" target="_blank" rel="noopener">${esc(wordData.license.name)}</a>` : esc(wordData.license.name)}`
+								: '';
+							html += `<div class="dict-source" style="margin-top:10px;font-size:0.8rem;color:var(--gray-color);">来源：<a href="${safeHref}" target="_blank" rel="noopener">${esc(label)}</a>${license}${wordData.cached ? ' · 本地缓存' : ''}</div>`;
 						}
 						containerEl.innerHTML = html;
 						const expandBtn = containerEl.querySelector('.expand-meanings-btn');
@@ -1374,11 +1457,7 @@
 									if (!Array.isArray(meanings) || meanings.length === 0) return;
 									let allHtml = '';
 									meanings.forEach(m => {
-										allHtml += '<div class="meaning-item" style="margin-bottom: 15px;">';
-										if (m.partOfSpeech) allHtml += '<div class="part-of-speech">' + this.escapeHtml(m.partOfSpeech) + '</div>';
-										if (m.definition) allHtml += '<div class="definition">' + this.escapeHtml(m.definition) + '</div>';
-										if (m.example) allHtml += '<div class="example"><em>例句:</em> ' + this.escapeHtml(m.example) + this.examplePlayButton(m.example) + '</div>';
-										allHtml += '</div>';
+										allHtml += this.renderOnlineMeaningHtml(m);
 									});
 									const details = expandBtn.closest('.dictionary-details');
 									if (details) details.insertAdjacentHTML('beforeend', allHtml);
@@ -2704,6 +2783,7 @@
                         }
                         await this.loadSettingsData();
                         await this.refreshEcdictSettings();
+                        await this.updateCacheCounts();
                     } catch (error) {
                         console.error('加载设置页面失败:', error);
                     }
@@ -2973,6 +3053,44 @@
                                 </div>
                             </div>
                             <div class="settings-section">
+                                <h3>缓存管理</h3>
+                                <div class="setting-item">
+                                    <label>在线释义缓存</label>
+                                    <div class="setting-control">
+                                        <span id="cacheCountEn" class="import-status">0 条</span>
+                                        <button class="action-btn small danger" id="clearCacheEn">清除</button>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>韦氏词典释义缓存</label>
+                                    <div class="setting-control">
+                                        <span id="cacheCountMw" class="import-status">0 条</span>
+                                        <button class="action-btn small danger" id="clearCacheMw">清除</button>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>AI 释义缓存</label>
+                                    <div class="setting-control">
+                                        <span id="cacheCountAi" class="import-status">0 条</span>
+                                        <button class="action-btn small danger" id="clearCacheAi">清除</button>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>句子音频缓存</label>
+                                    <div class="setting-control">
+                                        <span id="cacheCountAudio" class="import-status">0 条</span>
+                                        <button class="action-btn small danger" id="clearCacheAudio">清除</button>
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>清除全部缓存</label>
+                                    <div class="setting-control">
+                                        <button class="action-btn small danger" id="clearAllCaches">全部清除</button>
+                                    </div>
+                                </div>
+                                <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">清除后需要重新联网查询或重新生成；学习记录与统计数据不受影响。</p>
+                            </div>
+                            <div class="settings-section">
                                 <h3>数据管理</h3>
                                 <div class="setting-item">
                                     <label>导出学习数据</label>
@@ -3096,6 +3214,11 @@
                     document.getElementById('resetFsrsParams')?.addEventListener('click', () => this.resetFsrsParams());
                     document.getElementById('exportReviewLog')?.addEventListener('click', () => this.exportReviewLog());
                     document.getElementById('clearReviewLog')?.addEventListener('click', () => this.clearReviewLog());
+                    document.getElementById('clearCacheEn')?.addEventListener('click', () => this.clearCacheType('en', '在线释义缓存'));
+                    document.getElementById('clearCacheMw')?.addEventListener('click', () => this.clearCacheType('mw', '韦氏词典释义缓存'));
+                    document.getElementById('clearCacheAi')?.addEventListener('click', () => this.clearCacheType('ai', 'AI 释义缓存'));
+                    document.getElementById('clearCacheAudio')?.addEventListener('click', () => this.clearCacheType('audio', '句子音频缓存'));
+                    document.getElementById('clearAllCaches')?.addEventListener('click', () => this.clearAllCaches());
 
                     // Populate speaker list from browser voices filtered by language
                     const populateSpeakers = () => {
@@ -3405,6 +3528,59 @@
                     if (!el) return;
                     const current = this.db.getSrsParams();
                     el.value = (current.w || []).join(', ');
+                }
+
+                // 刷新缓存计数
+                async updateCacheCounts() {
+                    try {
+                        const counts = await this.db.getCacheCounts();
+                        const set = (id, value) => {
+                            const el = document.getElementById(id);
+                            if (el) el.textContent = `${value} 条`;
+                        };
+                        set('cacheCountEn', counts.en);
+                        set('cacheCountMw', counts.mw);
+                        set('cacheCountAi', counts.ai);
+                        set('cacheCountAudio', counts.sentenceAudio);
+                        return counts;
+                    } catch (error) {
+                        console.warn('读取缓存统计失败:', error);
+                        return null;
+                    }
+                }
+
+                // 分类清除缓存
+                async clearCacheType(type, label) {
+                    const names = { en: '在线释义缓存', mw: '韦氏词典释义缓存', ai: 'AI 释义缓存', audio: '句子音频缓存' };
+                    const name = label || names[type] || '缓存';
+                    if (!confirm(`确定清除${name}吗？清除后需要重新联网查询或重新生成。`)) return;
+                    try {
+                        let cleared = 0;
+                        if (type === 'audio') {
+                            await this.db.clearSentenceAudio();
+                            cleared = 1;
+                        } else {
+                            const result = await this.db.clearWordCacheByType(type);
+                            cleared = result.cleared;
+                        }
+                        await this.updateCacheCounts();
+                        this.showNotification(cleared > 0 ? `已清除 ${cleared} 条${name}` : `${name}已是空的`, 'success');
+                    } catch (error) {
+                        console.error('清除缓存失败:', error);
+                        this.showNotification('清除缓存失败', 'error');
+                    }
+                }
+
+                async clearAllCaches() {
+                    if (!confirm('确定清除全部缓存吗？（在线释义 / 韦氏 / AI / 句子音频）')) return;
+                    try {
+                        const result = await this.db.clearAllCaches();
+                        await this.updateCacheCounts();
+                        this.showNotification('缓存已全部清除', 'success');
+                    } catch (error) {
+                        console.error('清除缓存失败:', error);
+                        this.showNotification('清除缓存失败', 'error');
+                    }
                 }
 
                 async updateReviewLogCount() {
@@ -5650,6 +5826,46 @@
                     }
                 }
 
+                // 提取模型思维链（不同厂商字段名不一）
+                extractAiReasoning(data) {
+                    if (!data) return '';
+                    const message = data.choices?.[0]?.message || {};
+                    const candidates = [
+                        message.reasoning_content,
+                        message.reasoning,
+                        data.choices?.[0]?.delta?.reasoning_content,
+                        data.reasoning_content
+                    ];
+                    for (const value of candidates) {
+                        if (typeof value === 'string' && value.trim()) return value.trim();
+                    }
+                    return '';
+                }
+
+                // 提取联网搜索引用（annotations / citations / search_results）
+                extractAiCitations(data) {
+                    const out = [];
+                    const push = (item) => {
+                        if (!item) return;
+                        if (typeof item === 'string') {
+                            if (item.trim()) out.push({ title: item.trim(), url: '' });
+                            return;
+                        }
+                        const title = item.title || item.name || item.source || '';
+                        const url = item.url || item.link || item.uri || '';
+                        if (!title && !url) return;
+                        if (out.some(c => c.url === url && c.title === title)) return;
+                        out.push({ title: String(title || url), url: String(url || '') });
+                    };
+                    const message = data?.choices?.[0]?.message || {};
+                    for (const key of ['annotations', 'citations', 'search_results', 'references', 'web_search_results']) {
+                        const value = message[key] || data?.[key];
+                        if (Array.isArray(value)) value.forEach(push);
+                        else if (value) push(value);
+                    }
+                    return out;
+                }
+
                 normalizeAiMarkdown(text) {
                     if (!text) return '';
                     let out = String(text).replace(/\r\n/g, '\n');
@@ -5738,15 +5954,34 @@
                         }
 
                         const data = await response.json();
-                        const content = data.choices?.[0]?.message?.content || '(无返回内容)';
+                        const message = data.choices?.[0]?.message || {};
+                        const content = message.content || '(无返回内容)';
+                        // 思维链（DeepSeek 等）与联网引用
+                        const reasoning = this.extractAiReasoning(data);
+                        const citations = this.extractAiCitations(data);
+                        const usage = data.usage || null;
                         const rendered = this.normalizeAiMarkdown(content);
                         const renderFn = typeof marked?.parse === 'function' ? marked : null;
+                        let resultHtml = '';
+                        if (reasoning) {
+                            resultHtml += '<details class="ai-reasoning"><summary>🧠 模型思考过程</summary><div class="ai-reasoning-body">' +
+								this.escapeHtml(reasoning) + '</div></details>';
+                        }
                         if (renderFn) {
                             const html = renderFn.parse(rendered, { breaks: true });
-                            aiResultEl.innerHTML = '<div class="ai-result">' + DOMPurify.sanitize(html) + '</div>';
+                            resultHtml += '<div class="ai-result">' + DOMPurify.sanitize(html) + '</div>';
                         } else {
-                            aiResultEl.innerHTML = '<div class="ai-result">' + this.escapeHtml(rendered) + '</div>';
+                            resultHtml += '<div class="ai-result">' + this.escapeHtml(rendered) + '</div>';
                         }
+                        if (citations.length) {
+                            resultHtml += '<div class="ai-citations"><strong>参考来源：</strong><ol>' +
+								citations.map(c => `<li>${this.escapeHtml(c.title || c.url)}${c.url ? ` — <a href="${this.escapeAttr(c.url)}" target="_blank" rel="noopener">${this.escapeHtml(c.url)}</a>` : ''}</li>`).join('') +
+                                '</ol></div>';
+                        }
+                        if (usage && (usage.total_tokens || usage.prompt_tokens || usage.completion_tokens)) {
+                            resultHtml += `<div class="ai-usage">Token 用量：提示 ${usage.prompt_tokens || 0} · 生成 ${usage.completion_tokens || 0} · 合计 ${usage.total_tokens || 0}</div>`;
+                        }
+                        aiResultEl.innerHTML = resultHtml;
                         if (content && content !== '(无返回内容)') {
                             this.db.saveWordCache(word, {
                                 ai: {
