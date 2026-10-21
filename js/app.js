@@ -1426,7 +1426,8 @@
 							</div>`;
 						}
 						html += '</div>';
-						html += this.renderOnlineExtraHtml(wordData);
+						const extraHtml = this.renderOnlineExtraHtml(wordData);
+						if (extraHtml) html += `<div class="dictionary-extra">${extraHtml}</div>`;
 						const sourceMeta = {
 							'freedictionaryapi.com': { label: 'FreeDictionaryAPI.com', url: 'https://freedictionaryapi.com' },
 							'dictionaryapi.dev': { label: 'Free Dictionary API', url: 'https://dictionaryapi.dev' },

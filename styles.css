@@ -1566,9 +1566,37 @@
         .dictionary-details .definition,
         .dictionary-details .example,
         .dictionary-details .part-of-speech,
-        .dictionary-details .dict-source {
+        .dictionary-details .dict-source,
+        .dictionary-extra,
+        .dictionary-extra * {
             overflow-wrap: anywhere;
             word-break: break-word;
+        }
+
+        .dictionary-extra {
+            max-width: 100%;
+            min-width: 0;
+            margin-top: 8px;
+        }
+
+        /* 在线释义容器：任何子元素都不得撑破边界框 */
+        #lookupModalFreeDict,
+        #collinsContent {
+            max-width: 100%;
+            min-width: 0;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        #lookupModalFreeDict *,
+        #collinsContent * {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .dictionary-extra .meaning-tag,
+        .dictionary-extra .example-play {
+            flex-shrink: 0;
         }
 
         .meaning-item {
@@ -2134,6 +2162,7 @@
             max-width: 520px;
             max-height: 85vh;
             overflow-y: auto;
+            overflow-x: hidden;
             padding: 20px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
             box-sizing: border-box;
