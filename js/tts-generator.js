@@ -129,19 +129,14 @@
             const buffer = new ArrayBuffer(fileSize);
             const view = new DataView(buffer);
 
-            this._writeString(view, 0, 'RIFF');
-            view.setUint32(4, fileSize - 8, true);
-            this._writeString(view, 8, 'WAVE');
-            this._writeString(view, 12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, numChannels, true);
-            view.setUint32(24, this.SAMPLE_RATE, true);
-            view.setUint32(28, byteRate, true);
-            view.setUint16(32, blockAlign, true);
-            view.setUint16(34, bitsPerSample, true);
-            this._writeString(view, 36, 'data');
-            view.setUint32(40, dataSize, true);
+            this._writeWavHeader(view, fileSize, dataSize, {
+                audioFormat: 1,
+                channels: numChannels,
+                sampleRate: this.SAMPLE_RATE,
+                byteRate,
+                blockAlign,
+                bitsPerSample
+            });
 
             const pcm16View = new Int16Array(buffer, 44);
             for (let i = 0; i < pcm16Data.length; i++) {
@@ -157,104 +152,144 @@
             }
         }
 
-        async streamToWav(text, apiKey, voice, style, styleCustom) {
-            this.aborter = new AbortController();
-            const allPcm = [];
-
-            const messages = [];
-            if (style === 'custom' && styleCustom && styleCustom.trim()) {
-                messages.push({ role: 'user', content: styleCustom.trim() });
-            }
-            let content = text;
-            if (style && style !== 'standard' && style !== 'custom' && style !== 'follow') {
-                content = `(${style})${content}`;
-            }
-            messages.push({ role: 'assistant', content });
-
-            const body = {
-                model: this.model,
-                messages,
-                audio: { format: 'pcm16', voice: voice || 'mimo_default' },
-                stream: true
-            };
-
-            const res = await fetch(this.apiEndpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'api-key': apiKey,
-                    'Authorization': 'Bearer ' + apiKey
-                },
-                body: JSON.stringify(body),
-                signal: this.aborter.signal
-            });
-
-            if (!res.ok) {
-                let msg = 'HTTP ' + res.status;
-                try {
-                    const j = await res.json();
-                    msg = (j && j.error && j.error.message) || msg;
-                } catch (e) {}
-                throw new Error(msg);
-            }
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder('utf-8');
-            let buf = '';
-
-            const processLine = (line) => {
-                const t = line.trim();
-                if (!t || !t.startsWith('data:')) return;
-                const data = t.slice(5).trim();
-                if (!data || data === '[DONE]') return;
-                try {
-                    const json = JSON.parse(data);
-                    const delta = json && json.choices && json.choices[0] && json.choices[0].delta;
-                    const audio = delta && delta.audio;
-                    if (audio && typeof audio === 'object' && audio.data) {
-                        const pcm = this._decodeBase64PCM16(audio.data);
-                        if (pcm) {
-                            allPcm.push(pcm);
-                        }
-                    }
-                } catch (e) {}
-            };
-
-            const pump = () => {
-                return reader.read().then(({ done, value }) => {
-                    if (done) {
-                        if (buf.trim()) processLine(buf);
-                        return;
-                    }
-                    buf += decoder.decode(value, { stream: true });
-                    const lines = buf.split('\n');
-                    buf = lines.pop();
-                    lines.forEach(processLine);
-                    return pump();
-                });
-            };
-
-            await pump();
-
-            if (allPcm.length === 0) {
-                throw new Error('未收到音频数据');
-            }
-
-            const totalLen = allPcm.reduce((sum, arr) => sum + arr.length, 0);
-            const merged = new Float32Array(totalLen);
-            let offset = 0;
-            for (const chunk of allPcm) {
-                merged.set(chunk, offset);
-                offset += chunk.length;
-            }
-
-            const duration = merged.length / this.SAMPLE_RATE;
-            const wavBlob = this.generateWavBlob(merged);
-
-            return { wavBlob, duration };
+        _writeWavHeader(view, fileSize, dataSize, fmt) {
+            this._writeString(view, 0, 'RIFF');
+            view.setUint32(4, fileSize - 8, true);
+            this._writeString(view, 8, 'WAVE');
+            this._writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, fmt.audioFormat, true);
+            view.setUint16(22, fmt.channels, true);
+            view.setUint32(24, fmt.sampleRate, true);
+            view.setUint32(28, fmt.byteRate, true);
+            view.setUint16(32, fmt.blockAlign, true);
+            view.setUint16(34, fmt.bitsPerSample, true);
+            this._writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
         }
 
-        _decodeBase64PCM16(base64) {
+        async streamToWav(text, apiKey, voice, style, styleCustom) {
+            if (this.aborter) {
+                try { this.aborter.abort(); } catch (e) {}
+            }
+            const aborter = new AbortController();
+            this.aborter = aborter;
+            const timeout = setTimeout(() => {
+                try { aborter.abort(); } catch (e) {}
+            }, 120000);
+            const allPcm = [];
+
+            try {
+                const messages = [];
+                if (style === 'custom' && styleCustom && styleCustom.trim()) {
+                    messages.push({ role: 'user', content: styleCustom.trim() });
+                }
+                let content = text;
+                if (style && style !== 'standard' && style !== 'custom' && style !== 'follow') {
+                    content = `(${style})${content}`;
+                }
+                messages.push({ role: 'assistant', content });
+
+                const body = {
+                    model: this.model,
+                    messages,
+                    audio: { format: 'pcm16', voice: voice || 'mimo_default' },
+                    stream: true
+                };
+
+                const res = await fetch(this.apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'api-key': apiKey,
+                        'Authorization': 'Bearer ' + apiKey
+                    },
+                    body: JSON.stringify(body),
+                    signal: aborter.signal
+                });
+
+                if (!res.ok) {
+                    let msg = 'HTTP ' + res.status;
+                    try {
+                        const j = await res.json();
+                        msg = (j && j.error && j.error.message) || msg;
+                    } catch (e) {}
+                    throw new Error(msg);
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buf = '';
+
+                const processLine = (line) => {
+                    const t = line.trim();
+                    if (!t || !t.startsWith('data:')) return;
+                    const data = t.slice(5).trim();
+                    if (!data || data === '[DONE]') return;
+                    try {
+                        const json = JSON.parse(data);
+                        const delta = json && json.choices && json.choices[0] && json.choices[0].delta;
+                        const audio = delta && delta.audio;
+                        if (audio && typeof audio === 'object' && audio.data) {
+                            const pcm = this._decodeBase64PCM16Raw(audio.data);
+                            if (pcm) {
+                                allPcm.push(pcm);
+                            }
+                        }
+                    } catch (e) {}
+                };
+
+                const pump = () => {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            if (buf.trim()) processLine(buf);
+                            return;
+                        }
+                        buf += decoder.decode(value, { stream: true });
+                        const lines = buf.split('\n');
+                        buf = lines.pop();
+                        lines.forEach(processLine);
+                        return pump();
+                    });
+                };
+
+                await pump();
+
+                if (allPcm.length === 0) {
+                    throw new Error('未收到音频数据');
+                }
+
+                const totalSamples = allPcm.reduce((sum, arr) => sum + arr.length, 0);
+                const dataSize = totalSamples * 2;
+                const fileSize = 44 + dataSize;
+                const buffer = new ArrayBuffer(fileSize);
+                const view = new DataView(buffer);
+                this._writeWavHeader(view, fileSize, dataSize, {
+                    audioFormat: 1,
+                    channels: 1,
+                    sampleRate: this.SAMPLE_RATE,
+                    byteRate: this.SAMPLE_RATE * 2,
+                    blockAlign: 2,
+                    bitsPerSample: 16
+                });
+
+                let pos = 44;
+                for (const chunk of allPcm) {
+                    for (let i = 0; i < chunk.length; i++) {
+                        view.setInt16(pos, chunk[i], true);
+                        pos += 2;
+                    }
+                }
+
+                const duration = totalSamples / this.SAMPLE_RATE;
+                const wavBlob = new Blob([buffer], { type: 'audio/wav' });
+                return { wavBlob, duration };
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+
+        _decodeBase64PCM16Raw(base64) {
             try {
                 const raw = atob(base64);
                 const n = raw.length - (raw.length % 2);
@@ -262,13 +297,18 @@
                 const buf = new ArrayBuffer(n);
                 const u8 = new Uint8Array(buf);
                 for (let i = 0; i < n; i++) u8[i] = raw.charCodeAt(i);
-                const i16 = new Int16Array(buf);
-                const out = new Float32Array(i16.length);
-                for (let i = 0; i < i16.length; i++) out[i] = i16[i] / 32768;
-                return out;
+                return new Int16Array(buf);
             } catch (e) {
                 return null;
             }
+        }
+
+        _decodeBase64PCM16(base64) {
+            const i16 = this._decodeBase64PCM16Raw(base64);
+            if (!i16) return null;
+            const out = new Float32Array(i16.length);
+            for (let i = 0; i < i16.length; i++) out[i] = i16[i] / 32768;
+            return out;
         }
 
         abort() {
@@ -317,21 +357,26 @@
                 return { fmt, dataStart, dataSize };
             };
 
-            const parsed = [];
+            const valid = [];
             let firstFmt = null;
             let totalData = 0;
             for (const blob of blobs) {
-                const buf = await blob.arrayBuffer();
-                const info = parseWav(buf);
+                let buf = await blob.slice(0, 64).arrayBuffer();
+                let info = parseWav(buf);
+                if (!info) {
+                    buf = await blob.arrayBuffer();
+                    info = parseWav(buf);
+                }
                 if (!info) {
                     console.warn('跳过非 WAV 分段');
                     continue;
                 }
+                const size = Math.max(0, Math.min(info.dataSize, blob.size - info.dataStart));
                 if (!firstFmt) firstFmt = info.fmt;
-                parsed.push({ buf, info });
-                totalData += info.dataSize;
+                valid.push({ blob, dataStart: info.dataStart, size });
+                totalData += size;
             }
-            if (parsed.length === 0) return null;
+            if (valid.length === 0) return null;
 
             const { audioFormat, channels, sampleRate, byteRate, blockAlign, bitsPerSample } = firstFmt;
             const dataSize = totalData;
@@ -357,10 +402,11 @@
 
             const outU8 = new Uint8Array(out);
             let writePos = 44;
-            for (const { buf, info } of parsed) {
-                const src = new Uint8Array(buf, info.dataStart, info.dataSize);
+            for (const { blob, dataStart, size } of valid) {
+                const buf = await blob.arrayBuffer();
+                const src = new Uint8Array(buf, dataStart, size);
                 outU8.set(src, writePos);
-                writePos += info.dataSize;
+                writePos += size;
             }
 
             return new Blob([out], { type: 'audio/wav' });

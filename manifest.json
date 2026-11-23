@@ -2,12 +2,12 @@
     "name": "Word Learner - 单词学习",
     "short_name": "WordLearner",
     "description": "一个功能强大的背单词 PWA 应用",
-    "start_url": "/kmword/",
+    "start_url": "./",
     "display": "standalone",
     "background_color": "#f5f5f5",
     "theme_color": "#4CAF50",
     "orientation": "portrait",
-    "scope": "/kmword/",
+    "scope": "./",
     "icons": [
         {
             "src": "icons/icon-192.png",

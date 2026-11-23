@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#4CAF50">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -18,7 +18,8 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     
     <!-- Font Awesome 图标库 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
     
     <!-- 备用图标样式 -->
     <link rel="stylesheet" href="styles.css">
@@ -62,35 +63,35 @@
                 <p>今日进度: <span id="todayProgress">0/0</span></p>
             </div>
         </div>
-        <ul class="menu-list" role="menu">
-            <li class="menu-item active" data-page="home" role="menuitem">
+        <ul class="menu-list" aria-label="主导航">
+            <li class="menu-item active" data-page="home" tabindex="0">
                 <i class="fas fa-home"></i> 首页
             </li>
-            <li class="menu-item" data-page="learn" role="menuitem">
+            <li class="menu-item" data-page="learn" tabindex="0">
                 <i class="fas fa-book-open"></i> 开始学习
             </li>
-            <li class="menu-item" data-page="novel" role="menuitem">
+            <li class="menu-item" data-page="novel" tabindex="0">
                 <i class="fas fa-file-upload"></i> 上传小说
             </li>
-            <li class="menu-item" data-page="reading" role="menuitem">
+            <li class="menu-item" data-page="reading" tabindex="0">
                 <i class="fas fa-book"></i> 阅读
             </li>
-            <li class="menu-item" data-page="listening" role="menuitem">
+            <li class="menu-item" data-page="listening" tabindex="0">
                 <i class="fas fa-headphones"></i> 听力
             </li>
-            <li class="menu-item" data-page="words" role="menuitem">
+            <li class="menu-item" data-page="words" tabindex="0">
                 <i class="fas fa-list"></i> 单词库
             </li>
-            <li class="menu-item" data-page="new-words" role="menuitem">
+            <li class="menu-item" data-page="new-words" tabindex="0">
                 <i class="fas fa-star"></i> 生词本
             </li>
-            <li class="menu-item" data-page="plan" role="menuitem">
+            <li class="menu-item" data-page="plan" tabindex="0">
                 <i class="fas fa-calendar-alt"></i> 学习计划
             </li>
-            <li class="menu-item" data-page="review" role="menuitem">
+            <li class="menu-item" data-page="review" tabindex="0">
                 <i class="fas fa-history"></i> 复习
             </li>
-            <li class="menu-item" data-page="settings" role="menuitem">
+            <li class="menu-item" data-page="settings" tabindex="0">
                 <i class="fas fa-cog"></i> 设置
             </li>
         </ul>
@@ -806,22 +807,22 @@
     <!-- ========== 脚本区 ========== -->
 
     <!-- ========== 外部脚本 ========== -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
-    <script src="js/fsrs.js"></script>
-    <script src="js/word-freq.js"></script>
-    <script src="js/wiktionary.js"></script>
-    <script src="js/ecdict.js"></script>
-    <script src="js/dictionary-api.js"></script>
-    <script src="js/mw-parser.js"></script>
-    <script src="js/stats.js"></script>
-    <script src="js/db.js"></script>
-    <script src="js/novel-processor.js"></script>
-    <script src="js/tts-generator.js"></script>
-    <script src="js/app.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+    <script defer src="js/fsrs.js"></script>
+    <script defer src="js/word-freq.js"></script>
+    <script defer src="js/wiktionary.js"></script>
+    <script defer src="js/ecdict.js"></script>
+    <script defer src="js/dictionary-api.js"></script>
+    <script defer src="js/mw-parser.js"></script>
+    <script defer src="js/stats.js"></script>
+    <script defer src="js/db.js"></script>
+    <script defer src="js/novel-processor.js"></script>
+    <script defer src="js/tts-generator.js"></script>
+    <script defer src="js/app.js"></script>
 
 <!-- 查词弹窗：学习卡片点击单词 / 例句单词时打开，可加入词库 + free dict + 韦氏 -->
-    <div class="modal-overlay" id="wordLookupModal" style="display:none;">
+    <div class="modal-overlay" id="wordLookupModal" role="dialog" aria-modal="true" aria-labelledby="lookupModalWord" style="display:none;">
         <div class="modal-content lookup-modal">
             <div class="modal-header">
                 <h2 id="lookupModalWord"></h2>

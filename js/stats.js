@@ -253,7 +253,7 @@
             out.difficultyBuckets[db].total++;
             if (rating >= RECALL_RATING) out.difficultyBuckets[db].recall++;
 
-            const hour = review.getHours();
+            const hour = new Date(review.getTime() + 8 * 3600 * 1000).getUTCHours();
             if (hour >= 0 && hour < 24) out.hourly[hour]++;
         }
 
@@ -297,7 +297,7 @@
         for (const log of logs || []) {
             const d = toDate(log && log.review);
             if (!d) continue;
-            hours[d.getHours()]++;
+            hours[new Date(d.getTime() + 8 * 3600 * 1000).getUTCHours()]++;
         }
         return hours;
     }

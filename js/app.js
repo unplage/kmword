@@ -1,4 +1,9 @@
         (function() {
+            const BACKUP_SECRET_KEYS = new Set([
+                'mwDictKey', 'mwThesKey', 'mimoApiKey', 'llmApiKey', 'llmApiBase'
+            ]);
+            const BACKUP_MAX_BYTES = 50 * 1024 * 1024;
+
             class WordLearnerApp {
                 constructor() {
                     this.AI_DEFAULT_PROMPT = '请分析英文单词 "{word}"，使用中文回答。请包含以下内容：\n\n1. 词性和基本释义\n2. 词根词缀分析\n3. 记忆技巧\n4. 常用搭配和短语\n5. 近义词辨析\n6. 例句';
@@ -424,12 +429,16 @@
                         }
                     });
                     document.querySelectorAll('.menu-item').forEach(item => {
-                        item.addEventListener('click', (e) => {
+                        const navigate = (e) => {
                             e.preventDefault();
                             const page = item.dataset.page;
                             console.log(`菜单点击: ${page}`);
                             this.switchPage(page);
                             this.closeSidebar();
+                        };
+                        item.addEventListener('click', navigate);
+                        item.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') navigate(e);
                         });
                     });
 					document.getElementById('lookupModalAddNewWordBtn')?.addEventListener('click', () => this.addLookupWordToNewWords());
@@ -551,6 +560,15 @@
                         }
                         this.speakSentence(btn.dataset.sentence || '', btn);
                     });
+                    // 词库发音按钮（事件委托，避免单词含撇号时破坏内联 onclick）
+                    document.addEventListener('click', (e) => {
+                        const btn = e.target.closest && e.target.closest('.speak-word-btn');
+                        if (!btn) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const word = btn.dataset.word || '';
+                        if (word) this.speakWord(word);
+                    });
                     document.getElementById('lookupModalClose')?.addEventListener('click', () => this.closeWordLookup());
                     document.getElementById('wordLookupModal')?.addEventListener('click', (e) => {
                         if (e.target.id === 'wordLookupModal') this.closeWordLookup();
@@ -664,6 +682,9 @@
                     const fileInput = document.getElementById('novelFile');
                     const selectBtn = document.getElementById('selectFileBtn');
 
+                    if (uploadArea && uploadArea.dataset.bound === 'true') return;
+                    if (uploadArea) uploadArea.dataset.bound = 'true';
+
                     if (selectBtn) {
                         selectBtn.addEventListener('click', (e) => {
                             e.stopPropagation();
@@ -713,10 +734,33 @@
                 }
 
                 handleKeyboard(e) {
+                    if (e.key === 'Tab') {
+                        const modal = document.getElementById('wordLookupModal');
+                        if (modal && modal.style.display !== 'none') {
+                            const focusables = Array.from(modal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+                                .filter(el => el.offsetParent !== null);
+                            if (focusables.length) {
+                                const first = focusables[0];
+                                const last = focusables[focusables.length - 1];
+                                if (e.shiftKey && document.activeElement === first) {
+                                    e.preventDefault();
+                                    last.focus();
+                                } else if (!e.shiftKey && document.activeElement === last) {
+                                    e.preventDefault();
+                                    first.focus();
+                                }
+                            }
+                        }
+                    }
                     // 输入框/文本域中不触发全局快捷键
                     const tag = e.target && e.target.tagName;
                     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
                     if (e.key === 'Escape') {
+                        const modal = document.getElementById('wordLookupModal');
+                        if (modal && modal.style.display !== 'none' && typeof this.closeWordLookup === 'function') {
+                            this.closeWordLookup();
+                            return;
+                        }
                         if (this.currentPage === 'reader') {
                             this.switchPage('reading');
                         } else {
@@ -945,7 +989,7 @@
                                 html += `
                                     <div class="recent-item">
                                         <div>
-                                            <span class="recent-word">${word.word}</span>
+                                            <span class="recent-word">${this.escapeHtml(word.word)}</span>
                                             <small style="color: var(--gray-color); margin-left: 8px;">${time}</small>
                                         </div>
                                         <span class="recent-result ${item.correct ? 'correct' : 'incorrect'}">
@@ -1395,7 +1439,7 @@
 						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>分类：</strong> ${esc(wordData.categories.slice(0, 12).join('、'))}</div>`;
 					}
 					if (wordData.frequency) {
-						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>词频：</strong> ${wordData.frequency}</div>`;
+						html += `<div style="font-size:0.9rem;color:var(--gray-color);margin-bottom:6px;"><strong>词频：</strong> ${this.escapeHtml(String(wordData.frequency))}</div>`;
 					}
 					if (wordData.license && (wordData.license.name || wordData.license.url)) {
 						const name = wordData.license.url
@@ -1483,7 +1527,7 @@
                     if (!wordData) return;
                     this.isProcessing = true;
                     const rating = this.normalizeGrade(grade);
-                    const isSuccess = rating !== 'again';
+                    const isSuccess = rating === 'good' || rating === 'easy';
                     const gradeLabel = { again: '不认识', hard: '困难', good: '认识', easy: '简单' }[rating];
                     console.log(`处理答案: ${wordData.word} - ${gradeLabel}`);
                     try {
@@ -1912,16 +1956,23 @@
                         const text = await file.text();
                         const uploadArea = document.getElementById('uploadArea');
                         if (uploadArea) {
-                            uploadArea.innerHTML = `
-                                <i class="fas fa-file-alt upload-icon" style="color: #4CAF50;"></i>
-                                <p><strong>${file.name}</strong></p>
-                                <p>大小: ${(file.size / 1024).toFixed(2)} KB | 单词数: 计算中...</p>
-                                <button class="upload-btn" id="changeFileBtn">更换文件</button>
-                            `;
-                            document.getElementById('changeFileBtn')?.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                document.getElementById('novelFile')?.click();
-                            });
+                            const nameP = uploadArea.querySelector('p');
+                            if (nameP) nameP.innerHTML = `<strong>${this.escapeHtml(file.name)}</strong>`;
+                            let infoP = uploadArea.querySelector('.upload-file-info');
+                            if (!infoP) {
+                                infoP = document.createElement('p');
+                                infoP.className = 'upload-file-info';
+                                uploadArea.appendChild(infoP);
+                            }
+                            infoP.textContent = `大小: ${(file.size / 1024).toFixed(2)} KB | 单词数: 计算中...`;
+                            const selectBtn = document.getElementById('selectFileBtn');
+                            if (selectBtn) selectBtn.textContent = '更换文件';
+                            const icon = uploadArea.querySelector('.upload-icon');
+                            if (icon) {
+                                icon.classList.remove('fa-cloud-upload-alt');
+                                icon.classList.add('fa-file-alt');
+                                icon.style.color = '#4CAF50';
+                            }
                         }
                         this.novelFileContent = text;
                         this.novelFileName = file.name;
@@ -1947,7 +1998,7 @@
                         const lists = await this.db.getWordLists();
                         const current = select.value;
                         select.innerHTML = '<option value="">全部单词</option>' + lists
-                            .map(l => `<option value="${l.id}">${l.name} (${l.wordCount || 0})</option>`)
+                            .map(l => `<option value="${this.escapeAttr(l.id)}">${this.escapeHtml(l.name)} (${l.wordCount || 0})</option>`)
                             .join('');
                         if (current && Array.from(select.options).some(o => o.value === current)) {
                             select.value = current;
@@ -2037,9 +2088,9 @@
                     const totalWordsCount = document.getElementById('totalWordsCount');
                     const uniqueWordsCount = document.getElementById('uniqueWordsCount');
                     const validWordsCount = document.getElementById('validWordsCount');
-                    if (totalWordsCount) totalWordsCount.textContent = result.totalWords.toLocaleString();
-                    if (uniqueWordsCount) uniqueWordsCount.textContent = result.uniqueWords.toLocaleString();
-                    if (validWordsCount) validWordsCount.textContent = result.wordList.length.toLocaleString();
+                    if (totalWordsCount) totalWordsCount.textContent = result.totalWords.toLocaleString('zh-CN');
+                    if (uniqueWordsCount) uniqueWordsCount.textContent = result.uniqueWords.toLocaleString('zh-CN');
+                    if (validWordsCount) validWordsCount.textContent = result.wordList.length.toLocaleString('zh-CN');
                     const difficultyBars = document.getElementById('difficultyBars');
                     if (difficultyBars) {
                         let html = '';
@@ -2071,7 +2122,7 @@
                     this.isProcessing = true;
                     const defaultName = this.novelFileName ? 
                         this.novelFileName.replace('.txt', '').substring(0, 30) : 
-                        `单词库 ${new Date().toLocaleDateString()}`;
+                        `单词库 ${new Date().toLocaleDateString('zh-CN')}`;
                     const listName = prompt('请输入单词库名称:', defaultName);
                     if (!listName || !listName.trim()) {
                         this.isProcessing = false;
@@ -2153,14 +2204,19 @@
                 resetUploadInterface() {
                     const uploadArea = document.getElementById('uploadArea');
                     if (uploadArea) {
-                        uploadArea.innerHTML = `
-                            <i class="fas fa-cloud-upload-alt upload-icon"></i>
-                            <p>点击或拖拽文件到此区域</p>
-                            <input type="file" id="novelFile" accept=".txt,.md,.html" style="display: none;">
-                            <button class="upload-btn" id="selectFileBtn">选择文件</button>
-                        `;
-                        // 重新绑定文件上传事件
-                        this.bindFileUploadEvents();
+                        const nameP = uploadArea.querySelector('p');
+                        if (nameP) nameP.textContent = '点击或拖拽文件到此区域';
+                        uploadArea.querySelector('.upload-file-info')?.remove();
+                        const selectBtn = document.getElementById('selectFileBtn');
+                        if (selectBtn) selectBtn.textContent = '选择文件';
+                        const fileInput = document.getElementById('novelFile');
+                        if (fileInput) fileInput.value = '';
+                        const icon = uploadArea.querySelector('.upload-icon');
+                        if (icon) {
+                            icon.classList.add('fa-cloud-upload-alt');
+                            icon.classList.remove('fa-file-alt');
+                            icon.style.color = '';
+                        }
                     }
                     const processingResult = document.getElementById('processingResult');
                     if (processingResult) processingResult.style.display = 'none';
@@ -2191,7 +2247,7 @@
                                     <option value="uncategorized">未分类</option>
                                     ${lists.map(list => `
                                         <option value="${list.id}" ${list.id == currentListId ? 'selected' : ''}>
-                                            ${list.name} (${list.wordCount || 0}词)
+                                            ${this.escapeHtml(list.name)} (${list.wordCount || 0}词)
                                         </option>
                                     `).join('')}
                                 </select>
@@ -2201,7 +2257,7 @@
                             </div>
                             <div style="margin-bottom: 15px; padding: 0 15px;">
                                 <span class="current-list-badge">
-                                    <i class="fas fa-book"></i> 当前: ${currentListName}
+                                    <i class="fas fa-book"></i>                                     当前: ${this.escapeHtml(currentListName)}
                                 </span>
                             </div>
                         `;
@@ -2214,7 +2270,7 @@
                             const selectedText = e.target.options[e.target.selectedIndex].text;
                             const badge = document.querySelector('.current-list-badge');
                             if (badge) {
-                                badge.innerHTML = `<i class="fas fa-book"></i> 当前: ${selectedText.split(' (')[0]}`;
+                                badge.innerHTML = `<i class="fas fa-book"></i> 当前: ${this.escapeHtml(selectedText.split(' (')[0])}`;
                             }
                             this.showNotification(`已切换到: ${selectedText}`, 'success');
                         });
@@ -2231,7 +2287,7 @@
                             <option value="uncategorized">未分类</option>
                             ${lists.map(list => `
                                 <option value="${list.id}" ${list.id == currentListId ? 'selected' : ''}>
-                                    ${list.name} (${list.wordCount || 0}词)
+                                    ${this.escapeHtml(list.name)} (${list.wordCount || 0}词)
                                 </option>
                             `).join('')}
                         `;
@@ -2239,7 +2295,7 @@
                         if (badge) {
                             const displayName = currentSelectedText.includes('(') ? 
                                 currentSelectedText.split(' (')[0] : currentSelectedText;
-                            badge.innerHTML = `<i class="fas fa-book"></i> 当前: ${displayName}`;
+                            badge.innerHTML = `<i class="fas fa-book"></i> 当前: ${this.escapeHtml(displayName)}`;
                         }
                     }
                 }
@@ -2255,10 +2311,10 @@
                                     ${lists.map(list => `
                                         <div class="word-list-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color);">
                                             <div style="flex: 1;">
-                                                <div style="font-weight: 600;">${list.name} ${list.isDefault ? '<span style="color: var(--primary-color); font-size: 0.8em;">[默认]</span>' : ''}</div>
+                                                <div style="font-weight: 600;">${this.escapeHtml(list.name)} ${list.isDefault ? '<span style="color: var(--primary-color); font-size: 0.8em;">[默认]</span>' : ''}</div>
                                                 <div style="font-size: 0.85em; color: var(--gray-color);">
-                                                    ${list.wordCount || 0} 个单词 · ${new Date(list.createdAt).toLocaleDateString()}
-                                                    ${list.description ? ' · ' + list.description : ''}
+                                                    ${list.wordCount || 0} 个单词 · ${new Date(list.createdAt).toLocaleDateString('zh-CN')}
+                                                    ${list.description ? ' · ' + this.escapeHtml(list.description) : ''}
                                                 </div>
                                             </div>
                                             <div style="display: flex; gap: 8px;">
@@ -2374,7 +2430,6 @@
                             return;
                         }
                         const batchSize = 20;
-                        let html = '';
                         // 批量获取所有进度，避免 N+1
                         const allProgress = await this.db.getAllProgress();
                         const progressMap = new Map();
@@ -2387,9 +2442,9 @@
                                 return `
                                     <div class="word-item" data-word-id="${word.id}">
                                         <div class="word-content">
-                                            <div class="word-text">${word.word}</div>
-                                            <div class="word-phonetic">${word.phonetic || ''}</div>
-                                            <div class="word-meaning">${word.meaning || ''}</div>
+                                            <div class="word-text">${this.escapeHtml(word.word)}</div>
+                                            <div class="word-phonetic">${this.escapeHtml(word.phonetic || '')}</div>
+                                            <div class="word-meaning">${this.escapeHtml(word.meaning || '')}</div>
                                             <div class="word-meta">
                                                 <span class="difficulty-badge small" data-level="${word.difficulty}">
                                                     ${this.getDifficultyText(word.difficulty)}
@@ -2397,11 +2452,11 @@
                                                 <span class="familiarity">
                                                     ${'★'.repeat(familiarity)}${'☆'.repeat(5 - familiarity)}
                                                 </span>
-                                                ${word.novelName ? `<small style="color: var(--gray-color);">来自: ${word.novelName}</small>` : ''}
+                                                ${word.novelName ? `<small style="color: var(--gray-color);">来自: ${this.escapeHtml(word.novelName)}</small>` : ''}
                                             </div>
                                         </div>
                                         <div class="word-actions">
-                                            <button class="icon-btn small" onclick="window.app.speakWord('${word.word}')" title="发音">
+                                            <button class="icon-btn small speak-word-btn" data-word="${this.escapeAttr(word.word)}" title="发音">
                                                 <i class="fas fa-volume-up"></i>
                                             </button>
                                             <button class="icon-btn small" onclick="window.app.addWordToStudy(${word.id})" title="学习">
@@ -2411,15 +2466,14 @@
                                     </div>
                                 `;
                             });
-                            html += batchHtml.join('');
-                            if (i === 0) {
-                                wordsList.innerHTML = html;
-                            } else {
-                                wordsList.insertAdjacentHTML('beforeend', batchHtml.join(''));
+                            const batchFragment = document.createElement('div');
+                            batchFragment.innerHTML = batchHtml.join('');
+                            // 只对本批新增节点做可点击转换，避免每批全量重扫导致 O(n²)
+                            this.makeClickable(batchFragment);
+                            if (i === 0) wordsList.innerHTML = '';
+                            while (batchFragment.firstChild) {
+                                wordsList.appendChild(batchFragment.firstChild);
                             }
-                            // 让本批新增单词文本/释义中的英文单词可点击查词
-                            this.makeClickable(wordsList);
-                            await new Promise(resolve => setTimeout(resolve, 10));
                         }
                     } catch (error) {
                         console.error('加载单词列表失败:', error);
@@ -2483,9 +2537,9 @@
                             html += `
                                 <div class="word-item" data-word-id="${word.id}">
                                     <div class="word-content">
-                                        <div class="word-text">${word.word}</div>
-                                        <div class="word-phonetic">${word.phonetic || ''}</div>
-                                        <div class="word-meaning">${word.meaning || '暂无释义'}</div>
+                                        <div class="word-text">${this.escapeHtml(word.word)}</div>
+                                        <div class="word-phonetic">${this.escapeHtml(word.phonetic || '')}</div>
+                                        <div class="word-meaning">${this.escapeHtml(word.meaning || '暂无释义')}</div>
                                         <div class="word-meta">
                                             <span class="added-date">
                                                 <i class="far fa-clock"></i> ${dateStr}
@@ -2496,7 +2550,7 @@
                                         </div>
                                     </div>
                                     <div class="word-actions">
-                                        <button class="icon-btn small" onclick="window.app.speakWord('${word.word}')" title="发音">
+                                        <button class="icon-btn small speak-word-btn" data-word="${this.escapeAttr(word.word)}" title="发音">
                                             <i class="fas fa-volume-up"></i>
                                         </button>
                                         <button class="icon-btn small" onclick="window.app.removeFromNewWords(${word.id})" title="移除">
@@ -2516,7 +2570,7 @@
                             newWordsList.innerHTML = `
                                 <div class="error-state">
                                     <i class="fas fa-exclamation-triangle"></i>
-                                    <p>加载失败: ${error.message}</p>
+                                    <p>加载失败: ${this.escapeHtml(error.message || '')}</p>
                                     <button class="retry-btn" onclick="window.app.retryLoadNewWords()">重试</button>
                                 </div>
                             `;
@@ -2696,10 +2750,10 @@
                                 <div class="review-item" data-word-id="${word.id}">
                                     <div class="review-content">
                                         <div class="review-word">
-                                            <strong>${word.word}</strong>
-                                            <span class="review-phonetic">${word.phonetic || ''}</span>
+                                            <strong>${this.escapeHtml(word.word)}</strong>
+                                            <span class="review-phonetic">${this.escapeHtml(word.phonetic || '')}</span>
                                         </div>
-                                        <div class="review-meaning">${word.meaning || '暂无释义'}</div>
+                                        <div class="review-meaning">${this.escapeHtml(word.meaning || '暂无释义')}</div>
                                         ${word.context ? `<div class="review-context">📖 ${this.escapeHtml(word.context)}</div>` : ''}
                                         <div class="review-meta">
                                             <span class="review-status ${statusClass}">${reviewStatus}</span>
@@ -2707,7 +2761,7 @@
                                                 熟悉度: ${'★'.repeat(progress.familiarity || 0)}${'☆'.repeat(5 - (progress.familiarity || 0))}
                                             </span>
                                             ${word.errorCount ? `<span class="review-error" style="color:var(--danger-color);font-weight:600;">⚠ 易错${word.errorCount}次</span>` : ''}
-                                            ${word.novelName ? `<small style="color: var(--gray-color);">来自: ${word.novelName}</small>` : ''}
+                                            ${word.novelName ? `<small style="color: var(--gray-color);">来自: ${this.escapeHtml(word.novelName)}</small>` : ''}
                                         </div>
                                     </div>
                                     <div class="review-actions">
@@ -2866,13 +2920,13 @@
                                 <div class="setting-item">
                                     <label for="mwDictKey">Merriam-Webster 词典 API Key</label>
                                     <div class="setting-control" style="flex: 1;">
-                                        <input type="text" id="mwDictKey" placeholder="输入 Collegiate Dictionary API Key" style="flex:1; min-width:200px;">
+                                        <input type="password" id="mwDictKey" placeholder="输入 Collegiate Dictionary API Key" style="flex:1; min-width:200px;">
                                     </div>
                                 </div>
                                 <div class="setting-item">
                                     <label for="mwThesKey">Merriam-Webster 同义词 API Key</label>
                                     <div class="setting-control" style="flex: 1;">
-                                        <input type="text" id="mwThesKey" placeholder="输入 Collegiate Thesaurus API Key" style="flex:1; min-width:200px;">
+                                        <input type="password" id="mwThesKey" placeholder="输入 Collegiate Thesaurus API Key" style="flex:1; min-width:200px;">
                                     </div>
                                 </div>
                                 <p style="font-size:0.85rem; color:var(--gray-color); margin-top:10px;">请从 Merriam-Webster 开发者中心获取这两个 Key。</p>
@@ -3240,7 +3294,7 @@
                             seen.add(key);
                             const gender = v.name.match(/female|male/i)?.[0]?.toLowerCase() || '';
                             const label = `${v.name} (${v.lang})${gender ? ' - ' + gender : ''}`;
-                            html += `<option value="${v.name}">${label}</option>`;
+                            html += `<option value="${this.escapeAttr(v.name)}">${this.escapeHtml(label)}</option>`;
                         });
                         select.innerHTML = html;
                         // restore saved selection if still available
@@ -3689,8 +3743,13 @@
                         });
                         const allWordCache = await this.db.getAllWordCache();
                         const allReviewLogs = await this.db.getReviewLogs();
+                        const listeningData = await this.db.exportListeningData();
+                        const safeSettings = {};
+                        for (const [key, value] of Object.entries(settings || {})) {
+                            if (!BACKUP_SECRET_KEYS.has(key)) safeSettings[key] = value;
+                        }
                         const exportData = {
-                            version: '3.3',
+                            version: '3.4',
                             exportDate: new Date().toISOString(),
                             words: allWords,
                             newWords: newWords.map(w => ({ wordId: w.id, addedAt: w.addedAt })),
@@ -3700,8 +3759,9 @@
                             novels: allArticles,
                             wordCache: allWordCache,
                             reviewLog: allReviewLogs,
+                            listeningData: listeningData,
                             plan: plan,
-                            settings: settings,
+                            settings: safeSettings,
                             stats: stats
                         };
                         const dataStr = JSON.stringify(exportData, null, 2);
@@ -4176,11 +4236,32 @@
 
                     try {
                         this.showLoader('正在读取文件...');
+                        if (file.size > BACKUP_MAX_BYTES) {
+                            throw new Error('备份文件过大（上限 50MB）');
+                        }
                         const text = await file.text();
-                        const importData = JSON.parse(text);
-
-                        if (!importData.words || !Array.isArray(importData.words)) {
+                        let importData;
+                        try {
+                            importData = JSON.parse(text);
+                        } catch (e) {
+                            throw new Error('备份文件不是有效的 JSON');
+                        }
+                        if (!importData || typeof importData !== 'object' || !Array.isArray(importData.words)) {
                             throw new Error('数据格式不正确：缺少 words 数组');
+                        }
+                        for (const key of ['newWords', 'wordLists', 'userProgress', 'learningHistory', 'novels', 'wordCache', 'reviewLog']) {
+                            if (importData[key] != null && !Array.isArray(importData[key])) {
+                                throw new Error(`数据格式不正确：${key} 应为数组`);
+                            }
+                        }
+                        if (importData.settings != null && (typeof importData.settings !== 'object' || Array.isArray(importData.settings))) {
+                            throw new Error('数据格式不正确：settings 应为对象');
+                        }
+                        if (importData.listeningData != null) {
+                            const ld = importData.listeningData;
+                            if (!ld || !Array.isArray(ld.listeningFiles) || !Array.isArray(ld.audioSegments)) {
+                                throw new Error('数据格式不正确：listeningData 缺少 listeningFiles/audioSegments 数组');
+                            }
                         }
 
                         this.showLoader('正在清空旧数据...');
@@ -4329,6 +4410,7 @@
                         }
                         if (importData.settings) {
                             for (const [key, value] of Object.entries(importData.settings)) {
+                                if (BACKUP_SECRET_KEYS.has(key)) continue;
                                 await this.db.saveSetting(key, value);
                             }
                         }
@@ -4358,8 +4440,20 @@
 
                         if (importData.reviewLog && importData.reviewLog.length > 0) {
                             this.showLoader('正在导入复习日志...');
-                            const logResult = await this.db.importReviewLogs(importData.reviewLog);
+                            const logs = importData.reviewLog.map(log => {
+                                if (!log || typeof log !== 'object') return log;
+                                const copy = { ...log };
+                                const newId = wordIdMap[copy.wordId];
+                                if (newId) copy.wordId = newId;
+                                return copy;
+                            });
+                            const logResult = await this.db.importReviewLogs(logs);
                             console.log('复习日志导入完成:', logResult);
+                        }
+
+                        if (importData.listeningData) {
+                            this.showLoader('正在导入听力文件与音频...');
+                            await this.db.importListeningData(importData.listeningData);
                         }
 
                         this.hideLoader();
@@ -4417,13 +4511,13 @@
                                     <div class="debug-section">
                                         <h4>单词库列表</h4>
                                         <ul>
-                                            ${debugInfo.wordLists.map(l => `<li>${l.name} (ID:${l.id}, ${l.wordCount}词)</li>`).join('')}
+                                            ${debugInfo.wordLists.map(l => `<li>${this.escapeHtml(l.name)} (ID:${this.escapeHtml(String(l.id))}, ${l.wordCount}词)</li>`).join('')}
                                         </ul>
                                     </div>
                                     <div class="debug-section">
                                         <h4>最近添加的单词</h4>
                                         <ul>
-                                            ${debugInfo.allWords.slice(0, 5).map(w => `<li>${w.word} (ID:${w.id}, 库:${w.listId || '无'})</li>`).join('')}
+                                            ${debugInfo.allWords.slice(0, 5).map(w => `<li>${this.escapeHtml(w.word)} (ID:${w.id}, 库:${this.escapeHtml(String(w.listId || '无'))})</li>`).join('')}
                                         </ul>
                                     </div>
                                     <button class="close-debug" onclick="this.closest('.debug-modal').remove()">关闭</button>
@@ -4473,7 +4567,7 @@
                         });
                         const forecast = S.forecastDue(progress || [], { now, days: 14 });
                         const logAgg = S.aggregateReviewLog(rangeLogs, { now });
-                        const heat = S.activityHeatmap(history || [], { now, weeks: 26 });
+                        const heat = S.activityHeatmap(history || [], { now, weeks: Math.max(2, Math.ceil(range / 7)) });
                         const hour = S.hourlyHeatmap(rangeLogs);
                         const progressMap = new Map((progress || []).map(p => [p.wordId, p]));
                         const byList = S.aggregateByList(words || [], progressMap, lists || []);
@@ -4482,6 +4576,8 @@
                         // 学习量按北京时间分桶
                         const byDay = {};
                         for (const item of history || []) {
+                            const itemTime = item && item.date ? new Date(item.date).getTime() : 0;
+                            if (!Number.isFinite(itemTime) || itemTime < cutoff) continue;
                             const key = S.dayKey(item.date);
                             if (!key) continue;
                             if (!byDay[key]) byDay[key] = { total: 0, correct: 0 };
@@ -4518,10 +4614,10 @@
                         this.renderStatsDifficulty(logAgg);
                         this.renderStatsHardWords(hard, words);
                         this.renderStatsHourHeat(hour, range);
-                        this.renderStatsActivityHeat(heat);
+                        this.renderStatsActivityHeat(heat, Math.max(2, Math.ceil(range / 7)));
                         this.renderStatsByList(byList);
-                        this.renderActivityChart(byDay, 30);
-                        this.renderAccuracyTrend(byDay, 7);
+                        this.renderActivityChart(byDay, range);
+                        this.renderAccuracyTrend(byDay, Math.min(range, 14));
                     } catch (error) {
                         console.error('加载统计页面失败:', error);
                         this.showNotification('加载统计数据失败', 'error');
@@ -4768,7 +4864,7 @@
                 }
 
                 // 近 26 周活跃热力图
-                renderStatsActivityHeat(heat) {
+                renderStatsActivityHeat(heat, weeks = 26) {
                     const el = document.getElementById('statsActivityHeat');
                     const hint = document.getElementById('statsActivityHint');
                     if (!el) return;
@@ -4782,7 +4878,7 @@
                     }).join('');
                     if (hint) {
                         const active = heat.cells.filter(c => c.count > 0).length;
-                        hint.textContent = `近 26 周有 ${active} 天学习记录，单日最多 ${heat.max} 次。`;
+                        hint.textContent = `近 ${weeks} 周有 ${active} 天学习记录，单日最多 ${heat.max} 次。`;
                     }
                 }
 
@@ -4974,6 +5070,8 @@
                     }
                     const notification = document.createElement('div');
                     notification.className = `notification ${type}`;
+                    notification.setAttribute('role', type === 'error' ? 'alert' : 'status');
+                    notification.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
                     const icons = {
                         success: 'check-circle',
                         error: 'exclamation-circle',
@@ -4983,7 +5081,7 @@
                     notification.innerHTML = `
                         <div class="notification-content">
                             <i class="fas fa-${icons[type] || 'info-circle'}"></i>
-                            <span>${message}</span>
+                            <span>${this.escapeHtml(String(message ?? ''))}</span>
                         </div>
                     `;
                     document.body.appendChild(notification);
@@ -5263,9 +5361,8 @@
 					if (typeof window !== 'undefined' && window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
 						return window.DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
 					}
-					return raw
-						.replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, '')
-						.replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+					// DOMPurify 不可用时失败关闭：只输出纯文本，避免正则清洗被绕过
+					return this.escapeHtml(raw);
 				}
 
 				mwEscape(text) {
@@ -5606,7 +5703,7 @@
 						}
 					} catch (error) {
 						console.error('韦氏查询失败:', error);
-						containerEl.innerHTML = `<p class="mw-error">查询失败：${error.message}</p>`;
+						containerEl.innerHTML = `<p class="mw-error">查询失败：${this.escapeHtml(error.message || '')}</p>`;
 						if (error.message.includes('API Key')) {
 							this.showNotification('请至少配置一个 Merriam-Webster API Key', 'warning');
 						}
@@ -5645,7 +5742,10 @@
                     const aiCacheBtn = document.getElementById('lookupModalAiCacheBtn');
                     if (mwCacheBtn) mwCacheBtn.style.display = 'none';
                     if (aiCacheBtn) aiCacheBtn.style.display = 'none';
+                    const wasOpen = modal.style.display !== 'none';
+                    if (!wasOpen) this._lookupReturnFocus = document.activeElement;
                     modal.style.display = 'flex';
+                    if (!wasOpen) document.getElementById('lookupModalClose')?.focus();
                     this.refreshLookupModalCacheButtons(word);
                     this.refreshLookupModalEcdictButton();
                     // 拉取 free dict 并渲染
@@ -5678,6 +5778,10 @@
                 closeWordLookup() {
                     const modal = document.getElementById('wordLookupModal');
                     if (modal) modal.style.display = 'none';
+                    if (this._lookupReturnFocus && typeof this._lookupReturnFocus.focus === 'function') {
+                        this._lookupReturnFocus.focus();
+                    }
+                    this._lookupReturnFocus = null;
                     this.lookupModalWord = null;
                     this.lookupModalAudioUrl = '';
                     const aiResultEl = document.getElementById('lookupModalAiResult');
@@ -7060,7 +7164,9 @@
                             console.error(`生成 Part ${i + 1} 失败:`, err);
                             failed++;
                             if (failed <= 1) this.showNotification(`Part ${i + 1} 生成失败: ${err.message}，将自动重试`, 'error');
+                            if (this._listeningGenAborter !== generator) throw new Error('生成已中止');
                             await new Promise(r => setTimeout(r, 800));
+                            if (this._listeningGenAborter !== generator) throw new Error('生成已中止');
                             try {
                                 const { wavBlob, duration } = await generator.streamToWav(
                                     chunks[i].text,
@@ -7084,6 +7190,7 @@
                                     totalDuration
                                 });
                                 existingIndexes.add(i);
+                                failed = Math.max(0, failed - 1);
                             } catch (err2) {
                                 console.error(`Part ${i + 1} 重试仍失败:`, err2);
                             }
@@ -7091,7 +7198,7 @@
                     }
 
                     const finalSegments = await this.db.getAudioSegmentsByFile(fileId);
-                    const completed = finalSegments.length >= totalChunks && failed === 0;
+                    const completed = finalSegments.length >= totalChunks;
                     await this.db.updateListeningFileStatus(fileId, {
                         status: completed ? 'complete' : 'generating',
                         segmentCount: totalChunks,
@@ -7140,9 +7247,19 @@
                     }
                 }
 
+                async _healStuckListening(files) {
+                    for (const file of files) {
+                        if (file.status === 'generating' && (file.generatedSegments || 0) >= (file.segmentCount || 0)) {
+                            await this.db.updateListeningFileStatus(file.id, { status: 'complete' });
+                            file.status = 'complete';
+                        }
+                    }
+                }
+
                 async promptResumeListening() {
                     try {
                         const files = await this.db.getListeningFiles();
+                        await this._healStuckListening(files);
                         const pending = files.find(f => f.status === 'generating' && (f.generatedSegments || 0) < (f.segmentCount || 0));
                         if (!pending) return;
                         if (confirm(`检测到未完成的听力生成：「${pending.title}」(${pending.generatedSegments || 0}/${pending.segmentCount || 0} 段)，是否继续生成？`)) {
@@ -7163,6 +7280,7 @@
                         if (!list) return;
                         list.innerHTML = '<div class="loading">加载中...</div>';
                         const files = await this.db.getListeningFiles();
+                        await this._healStuckListening(files);
                         if (files.length === 0) {
                             list.innerHTML = '<p class="empty-state">还没有听力文件，去上传吧</p>';
                             return;
@@ -7257,7 +7375,7 @@
                             return;
                         }
                         this.currentListeningFile = file;
-                        const segments = await this.db.getAudioSegmentsByFile(id);
+                        const segments = await this.db.getAudioSegmentMetasByFile(id);
                         this.currentListeningSegments = segments;
                         let startIndex = parseInt(file.lastSegmentIndex) || 0;
                         if (startIndex < 0 || startIndex >= segments.length) startIndex = 0;
@@ -7276,7 +7394,7 @@
 
                         this._renderSegmentList();
                         this._bindPlayerEvents();
-                        this._loadSegment(startIndex);
+                        await this._loadSegment(startIndex);
                     } catch (err) {
                         console.error('加载播放器失败:', err);
                         this.showNotification('加载失败', 'error');
@@ -7309,24 +7427,25 @@
                     }
                     listEl.innerHTML = html;
                     listEl.querySelectorAll('.player-segment-item').forEach(item => {
-                        item.addEventListener('click', () => {
+                        item.addEventListener('click', async () => {
                             const idx = parseInt(item.dataset.index);
-                            this._loadSegment(idx);
+                            await this._loadSegment(idx);
                             this._playPlayer();
                         });
                         const dl = item.querySelector('.player-segment-download');
                         if (dl) {
-                            dl.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                const idx = parseInt(dl.dataset.download);
-                                const seg = this.currentListeningSegments[idx];
-                                if (seg && seg.audioBlob) {
-                                    const name = this.currentListeningFile
-                                        ? `${this.currentListeningFile.title}-Part-${idx + 1}.wav`
-                                        : `Part-${idx + 1}.wav`;
-                                    this._downloadBlob(seg.audioBlob, name);
-                                }
-                            });
+                        dl.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            const idx = parseInt(dl.dataset.download);
+                            const seg = this.currentListeningSegments[idx];
+                            if (!seg) return;
+                            const blob = await this._getSegmentBlob(seg);
+                            if (!blob) return;
+                            const name = this.currentListeningFile
+                                ? `${this.currentListeningFile.title}-Part-${idx + 1}.wav`
+                                : `Part-${idx + 1}.wav`;
+                            this._downloadBlob(blob, name);
+                        });
                         }
                     });
                 }
@@ -7352,7 +7471,18 @@
                     }
                     try {
                         this.showNotification('正在合成完整音频...', 'info');
-                        const merged = await TTSGenerator.mergeWavBlobs(segments.map(s => s.audioBlob));
+                        const blobs = [];
+                        try {
+                            for (const seg of segments) {
+                                const blob = await this._getSegmentBlob(seg);
+                                if (!blob) throw new Error('存在缺失的音频分段');
+                                blobs.push(blob);
+                            }
+                        } catch (err) {
+                            this.showNotification('读取分段音频失败: ' + err.message, 'error');
+                            return;
+                        }
+                        const merged = await TTSGenerator.mergeWavBlobs(blobs);
                         if (!merged) {
                             this.showNotification('合成失败：分段格式不兼容', 'error');
                             return;
@@ -7413,7 +7543,17 @@
                     document.getElementById('playerDownloadBtn')?.addEventListener('click', () => this._downloadMergedListening());
                 }
 
-                _loadSegment(index) {
+                async _getSegmentBlob(seg) {
+                    if (!seg) return null;
+                    if (!seg.audioBlob) {
+                        const full = await this.db.getAudioSegment(seg.id);
+                        if (!full || !full.audioBlob) return null;
+                        seg.audioBlob = full.audioBlob;
+                    }
+                    return seg.audioBlob;
+                }
+
+                async _loadSegment(index) {
                     const segments = this.currentListeningSegments;
                     if (index < 0 || index >= segments.length) return;
 
@@ -7432,8 +7572,12 @@
                     const bar = document.getElementById('playerProgressBar');
                     if (bar) bar.style.width = '0%';
 
-                    if (seg.audioBlob) {
-                        const url = URL.createObjectURL(seg.audioBlob);
+                    const blob = await this._getSegmentBlob(seg);
+                    if (this.playerSegmentIndex !== index) return;
+                    if (blob) {
+                        this._revokePlayerObjectUrl();
+                        const url = URL.createObjectURL(blob);
+                        this._playerObjectUrl = url;
                         this.playerAudio = new Audio(url);
                         this.playerAudio.playbackRate = this.playerSpeed;
                         this.playerAudio.addEventListener('ended', () => this._onSegmentEnded());
@@ -7475,12 +7619,20 @@
                     this._stopPlayerProgressLoop();
                 }
 
+                _revokePlayerObjectUrl() {
+                    if (this._playerObjectUrl) {
+                        URL.revokeObjectURL(this._playerObjectUrl);
+                        this._playerObjectUrl = null;
+                    }
+                }
+
                 _stopPlayerAudio() {
                     if (this.playerAudio) {
                         this.playerAudio.pause();
                         this.playerAudio.src = '';
                         this.playerAudio = null;
                     }
+                    this._revokePlayerObjectUrl();
                     this.playerPlaying = false;
                     this._stopPlayerProgressLoop();
                     const playBtn = document.getElementById('playerPlayBtn');
@@ -7503,7 +7655,7 @@
                     this.playerAudio.currentTime = Math.max(0, Math.min(this.playerAudio.duration || 0, this.playerAudio.currentTime + seconds));
                 }
 
-                _onSegmentEnded() {
+                async _onSegmentEnded() {
                     this.playerPlaying = false;
                     const playBtn = document.getElementById('playerPlayBtn');
                     const pauseBtn = document.getElementById('playerPauseBtn');
@@ -7516,7 +7668,7 @@
                         if (this.currentListeningFile) {
                             this.db.updateListeningPosition(this.currentListeningFile.id, nextIndex, 0).catch(console.error);
                         }
-                        this._loadSegment(nextIndex);
+                        await this._loadSegment(nextIndex);
                         this._playPlayer();
                     } else {
                         this._savePlayerPosition();

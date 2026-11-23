@@ -1,6 +1,6 @@
 // ==================== 配置区域（每个 PWA 必须修改）====================
 const PWA_NAME = 'kmword';  // ← 修改为你的 PWA 名称
-const CACHE_VERSION = 'v55';  // 每次更新时递增
+const CACHE_VERSION = 'v56';  // 每次更新时递增
 const CACHE_NAME = `${PWA_NAME}-${CACHE_VERSION}`;  // 例如：kmword-v3
 
 // 当前 PWA 的路径（自动检测）
@@ -33,11 +33,72 @@ const STATIC_ASSETS = [
     `${CURRENT_PATH}/icons/favicon-32.png`,
     // CDN 资源可以保留
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
-    'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-brands-400.woff2',
+    'https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js'
 ];
 
 // ==================== Service Worker 核心代码 ====================
+
+// API 响应缓存：24 小时过期，最多保留 300 条带时间戳的响应
+const API_CACHE_TTL = 24 * 60 * 60 * 1000;
+const API_CACHE_MAX = 300;
+
+// 只在本项目缓存内查找，避免跨 PWA 误命中同名资源
+function matchOwnCache(request) {
+    return caches.open(CACHE_NAME).then(cache => cache.match(request));
+}
+
+// probe() 的探测请求（freedictionaryapi.com/test、datamuse 的 sp=test）不缓存
+function isProbeRequest(url) {
+    if (url.hostname === 'freedictionaryapi.com' && url.pathname.toLowerCase().includes('test')) return true;
+    return url.hostname === 'api.datamuse.com' && url.searchParams.get('sp') === 'test';
+}
+
+function matchOwnApiCache(request) {
+    return matchOwnCache(request).then(response => {
+        if (!response) return null;
+        const cachedAt = Number(response.headers.get('sw-cached-at'));
+        if (cachedAt && Date.now() - cachedAt > API_CACHE_TTL) {
+            caches.open(CACHE_NAME).then(cache => cache.delete(request)).catch(() => {});
+            return null;
+        }
+        return response;
+    });
+}
+
+function cacheApiResponse(request, response) {
+    if (request.method !== 'GET' || !response || !response.ok) return Promise.resolve();
+    if (isProbeRequest(new URL(request.url))) return Promise.resolve();
+    // fetch 返回的 Headers 不可写，复制一份再打时间戳
+    const headers = new Headers(response.headers);
+    headers.set('sw-cached-at', String(Date.now()));
+    const clone = new Response(response.clone().body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+    });
+    return caches.open(CACHE_NAME).then(async (cache) => {
+        await cache.put(request, clone);
+        const keys = await cache.keys();
+        const timestamped = [];
+        for (const key of keys) {
+            const cached = await cache.match(key);
+            const cachedAt = cached ? Number(cached.headers.get('sw-cached-at')) : 0;
+            if (cachedAt && Date.now() - cachedAt > API_CACHE_TTL) {
+                await cache.delete(key);
+            } else if (cachedAt) {
+                timestamped.push({ key, cachedAt });
+            }
+        }
+        if (timestamped.length > API_CACHE_MAX) {
+            timestamped.sort((a, b) => a.cachedAt - b.cachedAt)
+                .slice(0, timestamped.length - API_CACHE_MAX)
+                .forEach(item => cache.delete(item.key));
+        }
+    });
+}
 
 // 安装时缓存静态资源
 self.addEventListener('install', (event) => {
@@ -96,19 +157,19 @@ self.addEventListener('fetch', (event) => {
     // API 请求使用网络优先策略（在 scope filter 之前，因为 API 是跨域）
     const apiHosts = ['freedictionaryapi.com', 'api.dictionaryapi.dev', 'api.datamuse.com', 'www.dictionaryapi.com', 'en.wiktionary.org'];
     if (apiHosts.includes(url.hostname)) {
+        if (isProbeRequest(url)) {
+            event.respondWith(fetch(request));
+            return;
+        }
         event.respondWith(
             fetch(request)
                 .then((response) => {
-                    if (response.ok) {
-                        const clone = response.clone();
-                        caches.open(CACHE_NAME).then((cache) => {
-                            cache.put(request, clone);
-                        });
-                    }
+                    cacheApiResponse(request, response).catch(() => {});
                     return response;
                 })
-                .catch(() => {
-                    return caches.match(request);
+                .catch(async () => {
+                    const cached = await matchOwnApiCache(request);
+                    return cached || new Response('Offline', { status: 503 });
                 })
         );
         return;
@@ -119,7 +180,7 @@ self.addEventListener('fetch', (event) => {
                        url.pathname === `${CURRENT_PATH}`;
     
     // CDN 资源也处理
-    const isCDN = url.hostname === 'cdnjs.cloudflare.com';
+    const isCDN = url.hostname === 'cdnjs.cloudflare.com' || url.hostname === 'cdn.jsdelivr.net';
     
     if (!isMyPath && !isCDN) {
         // 不拦截其他路径的请求
@@ -128,7 +189,7 @@ self.addEventListener('fetch', (event) => {
 
     // 静态资源使用缓存优先策略
     event.respondWith(
-        caches.match(request).then((response) => {
+        matchOwnCache(request).then((response) => {
             if (response) {
                 return response;
             }

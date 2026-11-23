@@ -97,7 +97,13 @@
                     }
                     if (!Array.isArray(list)) return null;
                     const nums = list.map(v => parseFloat(v));
-                    if (nums.length < 19 || nums.some(v => !Number.isFinite(v))) return null;
+                    // 与 fsrs.js#migrateParameters 一致：只接受 17（v4）/19（v5）/21（v6）个权重
+                    if (![17, 19, 21].includes(nums.length)) {
+                        throw new Error(`FSRS 参数长度无效：需要 17、19 或 21 个数字，当前为 ${nums.length} 个`);
+                    }
+                    if (nums.some(v => !Number.isFinite(v))) {
+                        throw new Error('FSRS 参数无效：每个权重都必须是有限数字');
+                    }
                     return nums;
                 }
 
@@ -274,13 +280,8 @@
                 }
 
                 async init() {
+                    // 所有并发调用共享同一个 promise；失败后清空，允许下次重试
                     if (this.initPromise) return this.initPromise;
-                    if (this.isInitializing) {
-                        while (this.isInitializing) {
-                            await new Promise(resolve => setTimeout(resolve, 50));
-                        }
-                        return this.db;
-                    }
 
                     this.isInitializing = true;
                     
@@ -290,6 +291,8 @@
                         request.onerror = () => {
                             console.error('数据库打开失败:', request.error);
                             this.isInitializing = false;
+                            this.initPromise = null;
+                            this.db = null;
                             reject(request.error);
                         };
                         
@@ -1090,8 +1093,7 @@
                         } catch (e) { /* 忽略单个类型失败 */ }
                     }
                     try {
-                        await this.clearSentenceAudio();
-                        result.sentenceAudio = 1;
+                        result.sentenceAudio = await this.clearSentenceAudio();
                     } catch (e) { /* 忽略 */ }
                     return result;
                 }
@@ -1175,15 +1177,21 @@
                     });
                 }
 
+                // 返回清除前的实际条数，供缓存管理显示
                 async clearSentenceAudio() {
                     await this.ready();
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction([STORES.SENTENCE_AUDIO], 'readwrite');
                         transaction.onerror = (e) => reject(e.target.error);
                         const store = transaction.objectStore(STORES.SENTENCE_AUDIO);
-                        const request = store.clear();
-                        request.onsuccess = () => resolve();
-                        request.onerror = () => reject(request.error);
+                        const countRequest = store.count();
+                        countRequest.onerror = () => reject(countRequest.error);
+                        countRequest.onsuccess = () => {
+                            const count = countRequest.result || 0;
+                            const request = store.clear();
+                            request.onsuccess = () => resolve(count);
+                            request.onerror = () => reject(request.error);
+                        };
                     });
                 }
 
@@ -1929,19 +1937,61 @@
                     });
                 }
 
-                // 导入学习数据时只清用户数据，保留外部词典（ECDICT）
+                // 导入学习数据时只清学习数据，保留外部词典（ECDICT）与听力文件/音频分段
                 async clearUserData() {
                     await this.ready();
                     const names = [
                         STORES.WORDS, STORES.WORD_LISTS, STORES.USER_PROGRESS, STORES.NEW_WORDS,
                         STORES.DAILY_PLAN, STORES.LEARNING_HISTORY, STORES.NOVELS, STORES.SETTINGS,
-                        STORES.LISTENING_FILES, STORES.AUDIO_SEGMENTS, STORES.WORD_CACHE, STORES.REVIEW_LOG
+                        STORES.WORD_CACHE, STORES.REVIEW_LOG
                     ].filter(name => this.db.objectStoreNames.contains(name));
                     return new Promise((resolve, reject) => {
                         const transaction = this.db.transaction(names, 'readwrite');
                         transaction.oncomplete = () => resolve();
                         transaction.onerror = (e) => reject(e.target.error || new Error('清空学习数据失败'));
                         names.forEach(name => transaction.objectStore(name).clear());
+                    });
+                }
+
+                // 听力数据单独备份/恢复：不影响学习数据的导入
+                async exportListeningData() {
+                    await this.ready();
+                    const getAll = (storeName) => new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([storeName], 'readonly');
+                        const request = transaction.objectStore(storeName).getAll();
+                        request.onsuccess = () => resolve(request.result || []);
+                        request.onerror = () => reject(request.error);
+                    });
+                    const [listeningFiles, audioSegments] = await Promise.all([
+                        getAll(STORES.LISTENING_FILES),
+                        getAll(STORES.AUDIO_SEGMENTS)
+                    ]);
+                    return { listeningFiles, audioSegments };
+                }
+
+                async importListeningData(data) {
+                    await this.ready();
+                    const files = data && Array.isArray(data.listeningFiles) ? data.listeningFiles : [];
+                    const segments = data && Array.isArray(data.audioSegments) ? data.audioSegments : [];
+                    const hasFiles = this.db.objectStoreNames.contains(STORES.LISTENING_FILES);
+                    const hasSegments = this.db.objectStoreNames.contains(STORES.AUDIO_SEGMENTS);
+                    if (!hasFiles && !hasSegments) return;
+                    const names = [STORES.LISTENING_FILES, STORES.AUDIO_SEGMENTS]
+                        .filter(name => this.db.objectStoreNames.contains(name));
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction(names, 'readwrite');
+                        transaction.oncomplete = () => resolve();
+                        transaction.onerror = (e) => reject(e.target.error || new Error('导入听力数据失败'));
+                        if (hasFiles) {
+                            const store = transaction.objectStore(STORES.LISTENING_FILES);
+                            store.clear();
+                            files.forEach(record => { if (record) store.put(record); });
+                        }
+                        if (hasSegments) {
+                            const store = transaction.objectStore(STORES.AUDIO_SEGMENTS);
+                            store.clear();
+                            segments.forEach(record => { if (record) store.put(record); });
+                        }
                     });
                 }
 
@@ -2138,6 +2188,30 @@
                         const request = idx.getAll(parseInt(fileId));
                         request.onsuccess = () => {
                             const segments = request.result || [];
+                            segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+                            resolve(segments);
+                        };
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                async getAudioSegmentMetasByFile(fileId) {
+                    await this.ready();
+                    return new Promise((resolve, reject) => {
+                        const transaction = this.db.transaction([STORES.AUDIO_SEGMENTS], 'readonly');
+                        const store = transaction.objectStore(STORES.AUDIO_SEGMENTS);
+                        const idx = store.index('fileId');
+                        const request = idx.getAll(parseInt(fileId));
+                        request.onsuccess = () => {
+                            const segments = (request.result || []).map(seg => ({
+                                id: seg.id,
+                                fileId: seg.fileId,
+                                segmentIndex: seg.segmentIndex,
+                                title: seg.title,
+                                text: seg.text,
+                                duration: seg.duration,
+                                createdAt: seg.createdAt
+                            }));
                             segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
                             resolve(segments);
                         };
