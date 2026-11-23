@@ -193,7 +193,7 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 
 ## Data export/import
 
-- Export via Settings → downloads JSON (`word-learner-backup-<date>.json`, backup version 3.4), includes learning stores, `word_cache` (MW/AI/online `en` caches), the FSRS `review_log` history and listening files + audio segments (`listeningData`), but **not** the external `ecdict`/`ecdict_meta`, and **not** API keys (`mwDictKey`/`mwThesKey`/`mimoApiKey`/`llmApiKey`/`llmApiBase` are stripped). Import validates structure and size (≤50MB) **before** overwriting, remaps `wordId` in `reviewLog`, restores `wordCache` (v3.2+), `reviewLog` (v3.3+) and `listeningData` (v3.4+) via `db.importListeningData()`; older backups remain accepted. `db.clearUserData()` preserves both ECDICT and listening/audio stores (the latter are cleared/restored only when the backup contains `listeningData`).
+- Export via Settings → downloads JSON (`word-learner-backup-<date>.json`, backup version 3.4), includes learning stores, `word_cache` (MW/AI/online `en` caches), the FSRS `review_log` history and listening files + audio segments (`listeningData`), but **not** the external `ecdict`/`ecdict_meta`, and **not** API keys (`mwDictKey`/`mwThesKey`/`mimoApiKey`/`llmApiKey`/`llmApiBase` are stripped). Import validates structure **before** overwriting (no file-size cap), remaps `wordId` in `reviewLog`, restores `wordCache` (v3.2+), `reviewLog` (v3.3+) and `listeningData` (v3.4+) via `db.importListeningData()`; older backups remain accepted. `db.clearUserData()` preserves both ECDICT and listening/audio stores (the latter are cleared/restored only when the backup contains `listeningData`).
 - Manual clear data (Settings 「清空所有数据」) deletes the whole IndexedDB database, including ECDICT.
 - `clear2.html` / `clear3.html` standalone clear-data pages have been removed; use the in-app Settings 「清空所有数据」 instead.
 
@@ -204,6 +204,8 @@ Toggle `recognition` (show word + buttons) vs `spelling` (hide word, show meanin
 `ai-dict/build_word_freq.js` — downloads the OpenSubtitles 2018 frequency list (hermitdave/FrequencyWords, MIT) and regenerates `js/word-freq.js` (top 12000, run `node ai-dict/build_word_freq.js` from the repo root).
 
 `ai-dict/build_ai_gloss.py` — batch-generates AI glosses for a word list via `opencode serve` (default free `opencode/mimo-v2.6-flash-free`, no user API key), appending results to `ai-dict/ai_gloss_toefl.jsonl` (JSONL, one `{word, content, model, cachedAt}` per line). Input/output/stop/failed paths default to `ai-dict/words_toefl.txt`, `ai-dict/ai_gloss_toefl.jsonl`, `ai-dict/ai_gloss.stop`, `ai-dict/ai_gloss_failed.jsonl`. Supports `--limit`, `--workers`, stop/restart without data loss (`touch ai-dict/ai_gloss.stop` to stop; rerun to resume). Output can be imported via Settings → 数据管理 → 导入 AI 释义缓存.
+
+`ai-dict/build_open_dict_cache.py` — converts `distribution.jsonl.gz` from [ahpxex/open-dictionary](https://github.com/ahpxex/open-dictionary) v2.0 (84,212 Wiktionary-derived, LLM-enhanced Chinese entries, CC BY-SA 4.0) into AI-cache JSONL importable via Settings → 导入 AI 释义缓存. By default it exports the subset matching `dict/` word lists (11,146 words, ~94MB) with **every field of each entry preserved, no truncation**; `--limit`, `--all`, `--input`, `--dict-dir`, `--output` are supported. The source gzip is not shipped with the repo; download it from the project's Releases. Generated files write to `word_cache.ai`, so importing them does not change any runtime code or `CACHE_VERSION`.
 
 `icons/build_icons.py` — regenerates the PNG icons (PWA + Android mipmaps) from `icons/icon.svg` / `icons/icon-maskable.svg` (`pip install cairosvg`, then `python3 icons/build_icons.py`).
 
@@ -217,7 +219,7 @@ In-repo reference TXT files live in `dict/` and are used as import sources: 专�
 
 ## Cache versioning
 
-`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `js/dictionary-api.js`, `js/fsrs.js`, `js/mw-parser.js`, `js/stats.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v56. API responses are cached in the same versioned cache with a 24h TTL and a 300-entry cap; only GET requests are cached and probe URLs are skipped.
+`sw.js` (`CACHE_VERSION`) must be incremented whenever `js/app.js`, `js/dictionary-api.js`, `js/fsrs.js`, `js/mw-parser.js`, `js/stats.js`, `index.html`, or `styles.css` are modified. Same for the Android copy at `android/app/src/main/assets/sw.js`. Check before syncing to GitHub. Current: v57. API responses are cached in the same versioned cache with a 24h TTL and a 300-entry cap; only GET requests are cached and probe URLs are skipped.
 
 ## Quirks
 

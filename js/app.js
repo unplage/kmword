@@ -2,7 +2,6 @@
             const BACKUP_SECRET_KEYS = new Set([
                 'mwDictKey', 'mwThesKey', 'mimoApiKey', 'llmApiKey', 'llmApiBase'
             ]);
-            const BACKUP_MAX_BYTES = 50 * 1024 * 1024;
 
             class WordLearnerApp {
                 constructor() {
@@ -4236,9 +4235,6 @@
 
                     try {
                         this.showLoader('正在读取文件...');
-                        if (file.size > BACKUP_MAX_BYTES) {
-                            throw new Error('备份文件过大（上限 50MB）');
-                        }
                         const text = await file.text();
                         let importData;
                         try {

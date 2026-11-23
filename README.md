@@ -8,7 +8,7 @@
 - **单词分级** — 1~5 级难度，支持筛选复习
 - **科学统计** — FSRS 维度的统计页：记忆状态/稳定性分布、平均保持率、真实回忆率 vs 理论曲线、复习负荷预测、易忘词排行、时段与活跃热力图、词库维度，支持 7/30/90 天切换与 CSV 导出
 - **词典** — 在线多源英英释义：FreeDictionaryAPI.com（主）+ Free Dictionary API（700ms 延迟备用）+ Wiktionary + Datamuse 兜底，结果本地缓存；Merriam-Webster API（可选，免费申请）；可选导入 ECDICT 离线全量词典
-- **AI 分析** — 可选接入智谱 GLM / DeepSeek / 小米 MiMo / 通义千问 / 自定义 OpenAI 兼容接口；支持批量导入 AI 释义缓存
+- **AI 分析** — 可选接入智谱 GLM / DeepSeek / 小米 MiMo / 通义千问 / 自定义 OpenAI 兼容接口；支持批量导入 AI 释义缓存（含 Open Dictionary 深度中文释义）
 - **例句朗读** — 在线释义、卡片例句、韦氏例句旁均有 🔊 按钮，可选系统语音或 MiMo 云端（美音/多音色），云端生成的音频会缓存
 - **韦氏词典完整解析** — 音标、发音、词形变化/词干/异体拼写/派生词/押韵、词源、义项划分与语域标签、例句出处、同反义词、引文与用法说明、同义词库分组辨析
 - **单词库** — 多词库管理，库内单词唯一，库间可重复；支持导入 TXT/MD/HTML
@@ -93,6 +93,16 @@ python3 ai-dict/build_ai_gloss.py --backend mimo --concise --limit 20
 - API Key 从 opencode 的 `~/.local/share/opencode/auth.json` 读取；也可自行改用环境变量
 - 生成完成后，按上面的导入方式在 PWA 中导入即可
 
+### Open Dictionary 学习释义（PoC）
+
+[ahpxex/open-dictionary](https://github.com/ahpxex/open-dictionary) v2.0 是基于 Wiktionary/Wiktextract、经结构化 LLM 生成与契约校验的中文学习词典，与 ECDICT 互补：ECDICT 覆盖约 77 万词、以简明英汉对译为主；Open Dictionary 只有 84,212 词，但每词信息量大得多——记忆主线、core/common/rare 义项分级、学习者释义、双语例句（英文原句 + 中文翻译）、用法说明、全部词形变化、英美音标、词源、相关词与学习建议。
+
+- **数据与许可** — `distribution.jsonl.gz`（约 93MB，解压后约 366MB），契约 `distribution_entry_v5`。数据为 **CC BY-SA 4.0**（Wiktionary 衍生）：分发或修改需保留 Wiktionary 与项目署名，并以相同许可共享；管线代码为 MIT。原始数据较大，不随仓库提供，请从项目 Releases 下载。
+- **生成缓存** — 将下载的 `distribution.jsonl.gz` 放到仓库根目录，运行 `python3 ai-dict/build_open_dict_cache.py`。脚本按 `dict/` 下专四/专八/托福/雅思词表取子集，默认输出 `ai-dict/open_dict_cache.jsonl`（11,146 词，约 94MB）；**单个词条的所有字段完整保留，不做任何裁剪**。先验证效果可用小样本：`python3 ai-dict/build_open_dict_cache.py --limit 1000 --output ai-dict/open_dict_cache_sample.jsonl`（约 8MB）。
+- **导入** — 设置 → 数据管理 → 「导入 AI 释义缓存」→ 选择生成的 JSONL，查词弹窗即出现「AI 分析（缓存）」按钮。它与 `ai_gloss_toefl.jsonl` 共用 `word_cache.ai` 同一格，**不要勾选「覆盖已有 AI 缓存」**，否则会替换已有 AI 释义。
+- **备份** — 与其他 AI 缓存一样写入导出备份的 `wordCache` 字段；导入备份不设文件大小上限，因此大缓存可完整恢复。
+- **脚本选项** — `--all` 导出全部 84,212 词；`--input` / `--dict-dir` / `--output` 自定义路径；`--limit` 只限制词条数，不裁剪词条内容。
+
 ## ECDICT 离线词典
 
 设置 → 数据管理 → 「导入 ECDICT 词典」，选择 [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 的 `ecdict.csv`（本仓库 `database/ecdict.csv` 也附带了一份，可直接使用）：
@@ -121,4 +131,5 @@ python3 ai-dict/build_ai_gloss.py --backend mimo --concise --limit 20
 | KyleBing/english-vocabulary | CET4/CET6、考研、SAT | TXT/JSON 格式，结构清晰 | [GitHub](https://github.com/KyleBing/english-vocabulary) |
 | kajweb/dict | 四级、六级、考研、雅思、托福、SAT、GMAT、GRE | 综合词库，覆盖面最全 | [GitHub](https://github.com/kajweb/dict) |
 | skywind3000/ECDICT | 全品类 | 77 万+词条，含音标、释义、例句；可在设置中导入为离线词典 | [GitHub](https://github.com/skywind3000/ECDICT) |
+| ahpxex/open-dictionary | 高频词 8.4 万 | Wiktionary 衍生 + LLM 深度中文释义（记忆主线、义项分级、双语例句）；可转成 AI 释义缓存导入 | [GitHub](https://github.com/ahpxex/open-dictionary) |
 | fanhongtao/IELTS | 雅思专项 | 专攻雅思词汇 | [GitHub](https://github.com/fanhongtao/IELTS) |

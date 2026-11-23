@@ -9,3 +9,6 @@ __pycache__/
 ai_gloss_failed.jsonl
 ai_gloss.log
 ai_gloss.stop
+distribution.jsonl.gz
+ai-dict/open_dict_cache.jsonl
+ai-dict/open_dict_cache_sample.jsonl
