@@ -57,7 +57,7 @@ FreeDictionaryAPI.com 只提供音标、不提供音频，因此单词发音使�
 
 ## 导入词库
 
-- 从 [kajweb/dict](https://github.com/kajweb/dict) 下载单词库，用 `extract_txt.py` 转换为编号 TXT 格式后导入
+- 从 [kajweb/dict](https://github.com/kajweb/dict) 下载单词库，用 `database/extract_txt.py` 转换为编号 TXT 格式后导入
 - 上传 TXT/MD/HTML 文章，可选「单词模式」提取生词、「阅读模式」在线阅读或「听力模式」生成听力音频
 
 ## AI 释义缓存
@@ -65,7 +65,7 @@ FreeDictionaryAPI.com 只提供音标、不提供音频，因此单词发音使�
 查词弹窗提供「AI 分析」（实时调用设置中的大模型）。也可以批量生成释义后预先导入为缓存：
 
 - **查看缓存** — 单词存在缓存时，查词弹窗显示「AI 分析（缓存）」按钮，点击直接展示，不走网络，也不影响实时「AI 分析」功能
-- **仓库内置数据** — `ai_gloss_toefl.jsonl`：托福 **4,264 词**的 7 段式中文分析（词性和基本释义、词根词缀、记忆技巧、常用搭配、近义词辨析、例句、学习建议）
+- **仓库内置数据** — `ai-dict/ai_gloss_toefl.jsonl`：托福 **4,264 词**的 7 段式中文分析（词性和基本释义、词根词缀、记忆技巧、常用搭配、近义词辨析、例句、学习建议）
 - **导入方式** — 设置 → 数据管理 → 「导入 AI 释义缓存」→ 选择文件。默认只补充没有缓存的单词；勾选「覆盖已有 AI 缓存」才会覆盖。导入分批进行，可随时取消，已写入部分不会丢失
 - **支持格式** — `.jsonl`（每行 `{"word","content","cachedAt"}`）、`.json`（数组或 `{word: content}` 映射）、`.tsv`（`word<TAB>content`）
 - **备份** — 导入的缓存会包含在「导出学习数据」的 JSON 备份中（`wordCache` 字段）
@@ -73,35 +73,35 @@ FreeDictionaryAPI.com 只提供音标、不提供音频，因此单词发音使�
 
 ### 自行生成释义文件
 
-`build_ai_gloss.py` 调用 OpenAI 兼容接口批量生成释义，支持断点续跑，无需第三方依赖：
+`ai-dict/build_ai_gloss.py` 调用 OpenAI 兼容接口批量生成释义，支持断点续跑，无需第三方依赖（在仓库根目录运行）：
 
 ```bash
 # 默认：智谱免费模型（glm-4.7-flash / glm-4.5-flash），2 并发
-python3 build_ai_gloss.py
+python3 ai-dict/build_ai_gloss.py
 
 # 小米 MiMo（关闭 thinking + 全文 600 字限制），32 并发
-python3 build_ai_gloss.py --backend mimo --concise --workers 32
+python3 ai-dict/build_ai_gloss.py --backend mimo --concise --workers 32
 
 # 先试跑 20 个
-python3 build_ai_gloss.py --backend mimo --concise --limit 20
+python3 ai-dict/build_ai_gloss.py --backend mimo --concise --limit 20
 ```
 
-- 输入 `words_toefl.txt`（每行一个单词），输出 `ai_gloss_toefl.jsonl`；已完成的词会自动跳过
-- **停止**：`touch ai_gloss.stop`（写完手头单词后退出）；**恢复**：再次运行同一命令，不丢失已生成内容
+- 输入 `ai-dict/words_toefl.txt`（每行一个单词），输出 `ai-dict/ai_gloss_toefl.jsonl`；已完成的词会自动跳过
+- **停止**：`touch ai-dict/ai_gloss.stop`（写完手头单词后退出）；**恢复**：再次运行同一命令，不丢失已生成内容
 - 可用后端：`zhipu`（默认，免费 flash）、`mimo`、`deepseek`、`openrouter`、`opencode`；可用 `--models` 覆盖模型
-- 内置词表：`words_dedup.txt`（托福 + 雅思 + 专四 + 专八去重 13,210 词）、`words_toefl.txt`（托福 4,264 词）
+- 内置词表：`ai-dict/words_dedup.txt`（托福 + 雅思 + 专四 + 专八去重 13,210 词）、`ai-dict/words_toefl.txt`（托福 4,264 词）；专四/专八/托福/雅思原始 TXT 在 `dict/`
 - API Key 从 opencode 的 `~/.local/share/opencode/auth.json` 读取；也可自行改用环境变量
 - 生成完成后，按上面的导入方式在 PWA 中导入即可
 
 ## ECDICT 离线词典
 
-设置 → 数据管理 → 「导入 ECDICT 词典」，选择 [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 的 `ecdict.csv`（本仓库根目录也附带了一份 `ecdict.csv`，可直接使用）：
+设置 → 数据管理 → 「导入 ECDICT 词典」，选择 [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 的 `ecdict.csv`（本仓库 `database/ecdict.csv` 也附带了一份，可直接使用）：
 
 - **规模** — 约 77 万词条，CSV 约 63MB，导入后浏览器占用约 150MB，仅保存在本机
 - **查词** — 导入完成后，查词弹窗出现「ECDICT」按钮，展示音标、考试标签、柯林斯星级、BNC/COCA 排名、中英文释义与词形变化
 - **备份** — ECDICT 属于外部词典，不进入「导出学习数据」的 JSON 备份；导入备份也不会删除已安装的词典
 - **删除** — 可在同一位置删除词典，不影响单词、复习进度和生词本
-- **许可** — ECDICT 使用 MIT License，详见 `ECDICT-LICENSE.txt`；词条来源 attribution 显示在释义底部
+- **许可** — ECDICT 使用 MIT License，详见 `database/ECDICT-LICENSE.txt`；词条来源 attribution 显示在释义底部
 
 ## 听力模块
 
